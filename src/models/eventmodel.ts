@@ -15,6 +15,7 @@ const EventSchema = new Schema({
   isActive: { type: Boolean, default: true },
   guests: [{ type: Schema.Types.ObjectId, ref: "Guest" }],
 },
+
 {
     timestamps: true,
   }
