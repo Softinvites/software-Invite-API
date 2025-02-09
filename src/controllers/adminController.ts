@@ -17,7 +17,7 @@ export const registerAdmin = async (
   res: Response
 ): Promise<void> => {
   try {
-    const { username, email, password, name } = req.body;
+    const { username, email, password, confirm_password, name } = req.body;
 
     const validateAdnin = RegisterAdminSchema.validate(req.body, option);
 
