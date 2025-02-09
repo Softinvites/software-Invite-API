@@ -9,6 +9,10 @@ import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import mongoose from "mongoose";
 
+import AdminRouter from "./routes/adminRoutes";
+import EventRouter from "./routes/eventsRoutes";
+import GuestRouter from "./routes/guestRoutes";
+
 dotenv.config();
 
 const app = express();
@@ -31,6 +35,10 @@ app.use(bodyParser.urlencoded({ extended: true }));
 app.use(cookieParser());
 app.use(logger("dev"));
 
+app.use("/admin", AdminRouter);
+app.use("/events", EventRouter);
+app.use("/guest", GuestRouter);
+
 app.use(helmet());
 
 const limiter = rateLimit({
@@ -48,10 +56,10 @@ app.use((err: HttpError, req: Request, res: Response, next: NextFunction) => {
 
   const response = {
     message: err.message,
-    ...(process.env.NODE_ENV === "development" && { stack: err.stack }), 
+    ...(process.env.NODE_ENV === "development" && { stack: err.stack }),
   };
 
-  res.status(status).json(response); 
+  res.status(status).json(response);
 });
 
 app.use((req: Request, res: Response, next: NextFunction) => {

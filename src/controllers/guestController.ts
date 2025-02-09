@@ -12,7 +12,7 @@ import { createGuestSchema, updateGuestSchema, option } from "../utils/utils";
 const upload = multer({ dest: "uploads/" });
 
 // **Add a Guest & Generate QR Code**
-export const addGuest = async (req: Request, res: Response) => {
+export const addGuest = async (req: Request, res: Response): Promise<void> => {
   try {
     const { firstName, lastName, email, phone, eventId } = req.body;
 
@@ -46,7 +46,10 @@ export const addGuest = async (req: Request, res: Response) => {
 };
 
 // **Update Guest **
-export const updateGuest = async (req: Request, res: Response) => {
+export const updateGuest = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   try {
     const { guestId } = req.params;
     const { firstName, lastName, email, phone, eventId, regenerateQr } =
@@ -55,15 +58,14 @@ export const updateGuest = async (req: Request, res: Response) => {
     // Validate input
     const validateGuest = updateGuestSchema.validate(req.body);
     if (validateGuest.error) {
-      return res
-        .status(400)
-        .json({ error: validateGuest.error.details[0].message });
+      res.status(400).json({ error: validateGuest.error.details[0].message });
     }
 
     // Find the guest by ID
     const guest = await Guest.findById(guestId);
     if (!guest) {
-      return res.status(404).json({ message: "Guest not found" });
+      res.status(404).json({ message: "Guest not found" });
+      return;
     }
 
     // Update guest fields
@@ -88,10 +90,14 @@ export const updateGuest = async (req: Request, res: Response) => {
 };
 
 // **Import Guests from CSV**
-export const importGuests = async (req: Request, res: Response) => {
+export const importGuests = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   try {
     if (!req.file) {
-      return res.status(400).json({ message: "No file uploaded" });
+      res.status(400).json({ message: "No file uploaded" });
+      return;
     }
 
     const guests: any[] = [];
@@ -139,13 +145,17 @@ export const importGuests = async (req: Request, res: Response) => {
 };
 
 // **Download QR Codes as PNG (Single)**
-export const downloadQRCode = async (req: Request, res: Response) => {
+export const downloadQRCode = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   try {
     const { guestId } = req.params;
     const guest = await Guest.findById(guestId);
 
     if (!guest) {
-      return res.status(404).json({ message: "Guest not found" });
+      res.status(404).json({ message: "Guest not found" });
+      return;
     }
 
     const qrPath = path.join(
@@ -171,11 +181,15 @@ export const downloadQRCode = async (req: Request, res: Response) => {
 };
 
 // **Download QR Codes as ZIP**
-export const downloadAllQRCodes = async (req: Request, res: Response) => {
+export const downloadAllQRCodes = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   try {
     const guests = await Guest.find({});
     if (!guests.length) {
-      return res.status(404).json({ message: "No guests found" });
+      res.status(404).json({ message: "No guests found" });
+      return;
     }
 
     const zipPath = path.join(__dirname, "../../qrcodes.zip");
@@ -225,7 +239,10 @@ export const downloadAllQRCodes = async (req: Request, res: Response) => {
 };
 
 // **Get All Guests for an Event**
-export const getGuestsByEvent = async (req: Request, res: Response) => {
+export const getGuestsByEvent = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   try {
     const { eventId } = req.params;
     const guests = await Guest.find({ event: eventId });
@@ -237,30 +254,36 @@ export const getGuestsByEvent = async (req: Request, res: Response) => {
 };
 
 // **Get Single Guest for an Event**
-export const getGuestById = async (req: Request, res: Response) => {
+export const getGuestById = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   try {
     const { guestId } = req.params; // Extract guestId from the route parameters
     const guest = await Guest.findById(guestId); // Find the guest by their ID
 
     if (!guest) {
-      return res.status(404).json({ message: "Guest not found" }); // Handle if no guest is found
+      res.status(404).json({ message: "Guest not found" }); // Handle if no guest is found
     }
 
-    res.status(200).json({ guest }); // Return the guest data if found
+    res.status(200).json({ guest }); // return the guest data if found
   } catch (error) {
     res.status(500).json({ message: "Error fetching guest" }); // Handle any errors
   }
 };
 
 // **Delete Single Guest by ID**
-export const deleteGuestById = async (req: Request, res: Response) => {
+export const deleteGuestById = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   try {
     const { guestId } = req.params; // Extract guestId from the route parameters
 
     const guest = await Guest.findByIdAndDelete(guestId); // Delete the guest by their ID
 
     if (!guest) {
-      return res.status(404).json({ message: "Guest not found" }); // Handle case if no guest is found
+      res.status(404).json({ message: "Guest not found" }); // Handle case if no guest is found
     }
 
     res.status(200).json({ message: "Guest deleted successfully" }); // Respond with success message
@@ -270,16 +293,17 @@ export const deleteGuestById = async (req: Request, res: Response) => {
 };
 
 // **Delete Guests by Event ID**
-export const deleteGuestsByEvent = async (req: Request, res: Response) => {
+export const deleteGuestsByEvent = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   try {
     const { eventId } = req.params; // Extract eventId from route parameters
 
     const result = await Guest.deleteMany({ event: eventId }); // Delete all guests associated with the event
 
     if (result.deletedCount === 0) {
-      return res
-        .status(404)
-        .json({ message: "No guests found for this event" }); // Handle if no guests were deleted
+      res.status(404).json({ message: "No guests found for this event" }); // Handle if no guests were deleted
     }
 
     res.status(200).json({ message: "Guests deleted successfully" }); // Respond with success message
@@ -289,13 +313,17 @@ export const deleteGuestsByEvent = async (req: Request, res: Response) => {
 };
 
 // **Scan QR Code for Check-in**
-export const scanQRCode = async (req: Request, res: Response) => {
+export const scanQRCode = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   try {
     const { qrData } = req.body;
     const guest = await Guest.findOne({ qrCode: qrData });
 
     if (!guest) {
-      return res.status(404).json({ message: "Invalid QR Code" });
+      res.status(404).json({ message: "Invalid QR Code" });
+      return;
     }
 
     guest.checkedIn = true;
@@ -308,7 +336,10 @@ export const scanQRCode = async (req: Request, res: Response) => {
 };
 
 // **Generate Analytics (Used & Unused QR Codes)**
-export const generateAnalytics = async (req: Request, res: Response) => {
+export const generateAnalytics = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   try {
     const { eventId } = req.params;
 
