@@ -20,7 +20,7 @@ const utils_1 = require("../utils/utils");
 const jwtsecret = process.env.JWT_SECRET;
 const registerAdmin = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const { username, email, password, name } = req.body;
+        const { username, email, password, confirm_password, name } = req.body;
         const validateAdnin = utils_1.RegisterAdminSchema.validate(req.body, utils_1.option);
         if (validateAdnin.error) {
             res.status(400).json({ Error: validateAdnin.error.details[0].message });
