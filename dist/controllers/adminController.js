@@ -15,33 +15,41 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.deleteAdmin = exports.updateAdminPassword = exports.updateAdminProfile = exports.getAllAdminProfile = exports.getAdminProfile = exports.loginAdmin = exports.registerAdmin = void 0;
 const bcryptjs_1 = __importDefault(require("bcryptjs"));
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
+const dotenv_1 = __importDefault(require("dotenv"));
 const adminModel_1 = require("../models/adminModel");
 const utils_1 = require("../utils/utils");
+dotenv_1.default.config();
 const jwtsecret = process.env.JWT_SECRET;
 const registerAdmin = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
+        console.log("Incoming request data:", req.body); // ✅ Debugging
         const { username, email, password, confirm_password, name } = req.body;
         const validateAdnin = utils_1.RegisterAdminSchema.validate(req.body, utils_1.option);
         if (validateAdnin.error) {
             res.status(400).json({ Error: validateAdnin.error.details[0].message });
+            return;
         }
         const existingAdmin = yield adminModel_1.Admin.findOne({ email });
         if (existingAdmin) {
             res.status(400).json({ message: "Admin already exists" });
+            return;
         }
         const hashedPassword = yield bcryptjs_1.default.hash(password, yield bcryptjs_1.default.genSalt(12));
-        const newAdmin = yield adminModel_1.Admin.create({
+        const newAdmin = new adminModel_1.Admin({
             username,
             email,
             password: hashedPassword,
             name,
         });
+        yield newAdmin.save();
         res
             .status(201)
             .json({ message: "Admin registered successfully", data: newAdmin });
+        return;
     }
     catch (error) {
         res.status(500).json({ message: "Error registering admin" });
+        return;
         console.log(error);
     }
 });
@@ -52,25 +60,33 @@ const loginAdmin = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
         const validateAmin = utils_1.LoginAdminSchema.validate(req.body, utils_1.option);
         if (validateAmin.error) {
             res.status(400).json({ Error: validateAmin.error.details[0].message });
+            return;
         }
-        const admin = (yield adminModel_1.Admin.findOne({ email }));
+        // const admin = (await Admin.findOne({ email })) as unknown as {
+        //   [key: string]: string;
+        // };
+        const admin = yield adminModel_1.Admin.findOne({ email });
         if (!admin) {
             res
                 .status(400)
                 .json({ message: "Invalid email or password, or user not found" });
+            return;
         }
         const isPasswordValid = yield bcryptjs_1.default.compare(password, admin.password);
         if (!isPasswordValid) {
             res.status(400).json({ message: "Invalid email or password" });
+            return;
         }
         const { _id } = admin;
         //generate token
         const token = jsonwebtoken_1.default.sign({ _id }, jwtsecret, { expiresIn: "1h" });
         res.status(200).json({ message: "Login successful", admin, token });
+        return;
     }
     catch (error) {
+        console.error("Something went wrong logging in:", error);
         res.status(500).json({ message: "Error logging in admin" });
-        console.error("Something went wrong login in");
+        return;
     }
 });
 exports.loginAdmin = loginAdmin;

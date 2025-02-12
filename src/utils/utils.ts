@@ -15,6 +15,14 @@ export const RegisterAdminSchema = Joi.object({
     .messages({ "any.only": "{{#label}} does not match" }),
 });
 
+export const LoginAdminSchema = Joi.object({
+  email: Joi.string().email().required(),
+  password: Joi.string()
+    .min(6)
+    .regex(/^[a-zA-Z0-9]{3,30}$/)
+    .required(),
+});
+
 export const updateAdminProfileSchema = Joi.object({
   username: Joi.string().required(),
   name: Joi.string().required(),
@@ -36,13 +44,7 @@ export const UpdatePasswordSchema = Joi.object({
     .messages({ "any.only": "{{#label}} does not match" }),
 });
 
-export const LoginAdminSchema = Joi.object({
-  email: Joi.string().email().required(),
-  password: Joi.string()
-    .min(6)
-    .regex(/^[a-zA-Z0-9]{3,30}$/)
-    .required(),
-});
+
 
 export const option = {
   abortearly: false,

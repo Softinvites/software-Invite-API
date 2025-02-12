@@ -4,17 +4,15 @@ import cookieParser from "cookie-parser";
 import logger from "morgan";
 import cors from "cors";
 import bodyParser from "body-parser";
-import dotenv from "dotenv";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
-import mongoose from "mongoose";
-
+import { connectDB } from "./db";
+import dotenv from "dotenv";
 import AdminRouter from "./routes/adminRoutes";
 import EventRouter from "./routes/eventsRoutes";
 import GuestRouter from "./routes/guestRoutes";
 
 dotenv.config();
-
 const app = express();
 
 const corsOptions = {
@@ -29,6 +27,7 @@ const corsOptions = {
 };
 
 app.use(express.json());
+app.use(express.urlencoded({ extended: true })); 
 app.use(cors(corsOptions));
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
@@ -66,15 +65,13 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   next(createError(404, "Not Found"));
 });
 
-const url: string =
-  process.env.MONGODB_URL || "mongodb://localhost:27017/softinvites";
-
-mongoose
-  .connect(url)
-  .then(() => console.log("Database connected"))
-  .catch((error) => console.log(error));
+// Connect to database
+connectDB();
 
 const port: number | string = process.env.PORT || 4000;
 app.listen(port, () => {
   console.log(`Server is running on http://localhost:${port}`);
 });
+
+
+
