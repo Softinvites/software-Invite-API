@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import dotenv from "dotenv";
 import { Admin } from "../models/adminModel";
 import {
   RegisterAdminSchema,
@@ -10,6 +11,7 @@ import {
   option,
 } from "../utils/utils";
 
+dotenv.config();
 const jwtsecret = process.env.JWT_SECRET as string;
 
 export const registerAdmin = async (
@@ -17,34 +19,41 @@ export const registerAdmin = async (
   res: Response
 ): Promise<void> => {
   try {
+    console.log("Incoming request data:", req.body); // ✅ Debugging
+
     const { username, email, password, confirm_password, name } = req.body;
 
     const validateAdnin = RegisterAdminSchema.validate(req.body, option);
 
     if (validateAdnin.error) {
       res.status(400).json({ Error: validateAdnin.error.details[0].message });
+      return;
     }
 
     const existingAdmin = await Admin.findOne({ email });
     if (existingAdmin) {
       res.status(400).json({ message: "Admin already exists" });
+      return;
     }
 
     const hashedPassword = await bcrypt.hash(
       password,
       await bcrypt.genSalt(12)
     );
-    const newAdmin = await Admin.create({
+    const newAdmin = new Admin({
       username,
       email,
       password: hashedPassword,
       name,
     });
+    await newAdmin.save();
     res
       .status(201)
       .json({ message: "Admin registered successfully", data: newAdmin });
+    return;
   } catch (error) {
     res.status(500).json({ message: "Error registering admin" });
+    return;
     console.log(error);
   }
 };
@@ -60,22 +69,27 @@ export const loginAdmin = async (
 
     if (validateAmin.error) {
       res.status(400).json({ Error: validateAmin.error.details[0].message });
+      return;
     }
 
-    const admin = (await Admin.findOne({ email })) as unknown as {
-      [key: string]: string;
-    };
+    // const admin = (await Admin.findOne({ email })) as unknown as {
+    //   [key: string]: string;
+    // };
+
+    const admin = await Admin.findOne({ email });
 
     if (!admin) {
       res
         .status(400)
         .json({ message: "Invalid email or password, or user not found" });
+      return;
     }
 
     const isPasswordValid = await bcrypt.compare(password, admin.password);
 
     if (!isPasswordValid) {
       res.status(400).json({ message: "Invalid email or password" });
+      return;
     }
 
     const { _id } = admin;
@@ -84,9 +98,11 @@ export const loginAdmin = async (
     const token = jwt.sign({ _id }, jwtsecret, { expiresIn: "1h" });
 
     res.status(200).json({ message: "Login successful", admin, token });
+    return;
   } catch (error) {
+    console.error("Something went wrong logging in:", error);
     res.status(500).json({ message: "Error logging in admin" });
-    console.error("Something went wrong login in");
+    return;
   }
 };
 

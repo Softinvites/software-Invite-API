@@ -9,10 +9,10 @@ const cookie_parser_1 = __importDefault(require("cookie-parser"));
 const morgan_1 = __importDefault(require("morgan"));
 const cors_1 = __importDefault(require("cors"));
 const body_parser_1 = __importDefault(require("body-parser"));
-const dotenv_1 = __importDefault(require("dotenv"));
 const helmet_1 = __importDefault(require("helmet"));
 const express_rate_limit_1 = __importDefault(require("express-rate-limit"));
-const mongoose_1 = __importDefault(require("mongoose"));
+const db_1 = require("./db");
+const dotenv_1 = __importDefault(require("dotenv"));
 const adminRoutes_1 = __importDefault(require("./routes/adminRoutes"));
 const eventsRoutes_1 = __importDefault(require("./routes/eventsRoutes"));
 const guestRoutes_1 = __importDefault(require("./routes/guestRoutes"));
@@ -29,6 +29,7 @@ const corsOptions = {
     credentials: true,
 };
 app.use(express_1.default.json());
+app.use(express_1.default.urlencoded({ extended: true }));
 app.use((0, cors_1.default)(corsOptions));
 app.use(body_parser_1.default.json());
 app.use(body_parser_1.default.urlencoded({ extended: true }));
@@ -53,11 +54,8 @@ app.use((err, req, res, next) => {
 app.use((req, res, next) => {
     next((0, http_errors_1.default)(404, "Not Found"));
 });
-const url = process.env.MONGODB_URL || "mongodb://localhost:27017/softinvites";
-mongoose_1.default
-    .connect(url)
-    .then(() => console.log("Database connected"))
-    .catch((error) => console.log(error));
+// Connect to database
+(0, db_1.connectDB)();
 const port = process.env.PORT || 4000;
 app.listen(port, () => {
     console.log(`Server is running on http://localhost:${port}`);

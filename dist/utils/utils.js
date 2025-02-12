@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.updateGuestSchema = exports.createGuestSchema = exports.updateEventSchema = exports.creatEventSchema = exports.option = exports.LoginAdminSchema = exports.UpdatePasswordSchema = exports.updateAdminProfileSchema = exports.RegisterAdminSchema = void 0;
+exports.updateGuestSchema = exports.createGuestSchema = exports.updateEventSchema = exports.creatEventSchema = exports.option = exports.UpdatePasswordSchema = exports.updateAdminProfileSchema = exports.LoginAdminSchema = exports.RegisterAdminSchema = void 0;
 const joi_1 = __importDefault(require("joi"));
 exports.RegisterAdminSchema = joi_1.default.object({
     username: joi_1.default.string().required(),
@@ -18,6 +18,13 @@ exports.RegisterAdminSchema = joi_1.default.object({
         .required()
         .label("confirm password")
         .messages({ "any.only": "{{#label}} does not match" }),
+});
+exports.LoginAdminSchema = joi_1.default.object({
+    email: joi_1.default.string().email().required(),
+    password: joi_1.default.string()
+        .min(6)
+        .regex(/^[a-zA-Z0-9]{3,30}$/)
+        .required(),
 });
 exports.updateAdminProfileSchema = joi_1.default.object({
     username: joi_1.default.string().required(),
@@ -37,13 +44,6 @@ exports.UpdatePasswordSchema = joi_1.default.object({
         .required()
         .label("confirm password")
         .messages({ "any.only": "{{#label}} does not match" }),
-});
-exports.LoginAdminSchema = joi_1.default.object({
-    email: joi_1.default.string().email().required(),
-    password: joi_1.default.string()
-        .min(6)
-        .regex(/^[a-zA-Z0-9]{3,30}$/)
-        .required(),
 });
 exports.option = {
     abortearly: false,
