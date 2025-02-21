@@ -10,7 +10,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.deleteSingleEvent = exports.deleteAllEvents = exports.getEventById = exports.getAllEvents = exports.updateEvent = exports.createEvent = void 0;
-const eventModel_1 = require("../models/eventModel");
+const eventmodel_1 = require("../models/eventmodel");
 const utils_1 = require("../utils/utils");
 const createEvent = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
@@ -19,7 +19,7 @@ const createEvent = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
         if (validateEvent.error) {
             res.status(400).json({ Error: validateEvent.error.details[0].message });
         }
-        const newEvent = eventModel_1.Event.create({ name, date, location });
+        const newEvent = eventmodel_1.Event.create({ name, date, location });
         res
             .status(201)
             .json({ message: "Event created successfully", event: newEvent });
@@ -37,7 +37,7 @@ const updateEvent = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
         if (validateEvent.error) {
             res.status(400).json({ Error: validateEvent.error.details[0].message });
         }
-        const updatedEvent = yield eventModel_1.Event.findByIdAndUpdate(id, { name, date, location }, {
+        const updatedEvent = yield eventmodel_1.Event.findByIdAndUpdate(id, { name, date, location }, {
             new: true,
             runValidators: true,
             context: "query",
@@ -53,7 +53,7 @@ const updateEvent = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
 exports.updateEvent = updateEvent;
 const getAllEvents = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const events = yield eventModel_1.Event.find({});
+        const events = yield eventmodel_1.Event.find({});
         res
             .status(200)
             .json({ message: "All events successfully fetched", events });
@@ -66,7 +66,7 @@ exports.getAllEvents = getAllEvents;
 const getEventById = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { id } = req.params;
-        const event = yield eventModel_1.Event.findById(id);
+        const event = yield eventmodel_1.Event.findById(id);
         if (!id) {
             res.status(404).json({ message: "Event not found" });
         }
@@ -79,7 +79,7 @@ const getEventById = (req, res) => __awaiter(void 0, void 0, void 0, function* (
 exports.getEventById = getEventById;
 const deleteAllEvents = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        yield eventModel_1.Event.deleteMany({});
+        yield eventmodel_1.Event.deleteMany({});
         res.status(200).json({ message: "All events deleted successfully" });
     }
     catch (error) {
@@ -90,7 +90,7 @@ exports.deleteAllEvents = deleteAllEvents;
 const deleteSingleEvent = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { id } = req.params;
-        yield eventModel_1.Event.findByIdAndDelete(id);
+        yield eventmodel_1.Event.findByIdAndDelete(id);
         res.status(200).json({ message: "Event deleted successfully" });
     }
     catch (error) {
