@@ -16,7 +16,7 @@ exports.deleteAdmin = exports.updateAdminPassword = exports.updateAdminProfile =
 const bcryptjs_1 = __importDefault(require("bcryptjs"));
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const dotenv_1 = __importDefault(require("dotenv"));
-const adminModel_1 = require("../models/adminModel");
+const adminmodel_1 = require("../models/adminmodel");
 const utils_1 = require("../utils/utils");
 dotenv_1.default.config();
 const jwtsecret = process.env.JWT_SECRET;
@@ -29,13 +29,13 @@ const registerAdmin = (req, res) => __awaiter(void 0, void 0, void 0, function* 
             res.status(400).json({ Error: validateAdnin.error.details[0].message });
             return;
         }
-        const existingAdmin = yield adminModel_1.Admin.findOne({ email });
+        const existingAdmin = yield adminmodel_1.Admin.findOne({ email });
         if (existingAdmin) {
             res.status(400).json({ message: "Admin already exists" });
             return;
         }
         const hashedPassword = yield bcryptjs_1.default.hash(password, yield bcryptjs_1.default.genSalt(12));
-        const newAdmin = new adminModel_1.Admin({
+        const newAdmin = new adminmodel_1.Admin({
             username,
             email,
             password: hashedPassword,
@@ -65,7 +65,7 @@ const loginAdmin = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
         // const admin = (await Admin.findOne({ email })) as unknown as {
         //   [key: string]: string;
         // };
-        const admin = yield adminModel_1.Admin.findOne({ email });
+        const admin = yield adminmodel_1.Admin.findOne({ email });
         if (!admin) {
             res
                 .status(400)
@@ -93,7 +93,7 @@ exports.loginAdmin = loginAdmin;
 const getAdminProfile = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { id } = req.params;
-        const admin = yield adminModel_1.Admin.findById(id);
+        const admin = yield adminmodel_1.Admin.findById(id);
         if (!admin) {
             res.status(404).json({ message: "Admin not found" });
         }
@@ -106,7 +106,7 @@ const getAdminProfile = (req, res) => __awaiter(void 0, void 0, void 0, function
 exports.getAdminProfile = getAdminProfile;
 const getAllAdminProfile = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const admins = yield adminModel_1.Admin.find({}).populate("admin");
+        const admins = yield adminmodel_1.Admin.find({}).populate("admin");
         res.status(200).json({ msg: "All Admins successfully fetched", admins });
     }
     catch (error) {
@@ -122,13 +122,13 @@ const updateAdminProfile = (req, res) => __awaiter(void 0, void 0, void 0, funct
         if (validateAmin.error) {
             res.status(400).json({ Error: validateAmin.error.details[0].message });
         }
-        const admin = yield adminModel_1.Admin.findById({ _id: id });
+        const admin = yield adminmodel_1.Admin.findById({ _id: id });
         if (!admin) {
             res.status(400).json({
                 error: "Admin not found",
             });
         }
-        const updatedAdmin = yield adminModel_1.Admin.findByIdAndUpdate(id, { name, username }, {
+        const updatedAdmin = yield adminmodel_1.Admin.findByIdAndUpdate(id, { name, username }, {
             new: true,
             runValidators: true,
             context: "query",
@@ -150,13 +150,13 @@ const updateAdminPassword = (req, res) => __awaiter(void 0, void 0, void 0, func
         if (validateAmin.error) {
             res.status(400).json({ Error: validateAmin.error.details[0].message });
         }
-        const admin = yield adminModel_1.Admin.findById({ _id: id });
+        const admin = yield adminmodel_1.Admin.findById({ _id: id });
         if (!admin) {
             res.status(400).json({
                 error: "Admin not found",
             });
         }
-        const updatedAdmin = yield adminModel_1.Admin.findByIdAndUpdate(id, { old_password, new_password, confirm_password }, {
+        const updatedAdmin = yield adminmodel_1.Admin.findByIdAndUpdate(id, { old_password, new_password, confirm_password }, {
             new: true,
             runValidators: true,
             context: "query",
@@ -174,7 +174,7 @@ exports.updateAdminPassword = updateAdminPassword;
 const deleteAdmin = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { id } = req.params;
-        yield adminModel_1.Admin.findByIdAndDelete(id);
+        yield adminmodel_1.Admin.findByIdAndDelete(id);
         res.status(200).json({ message: "Admin deleted successfully" });
     }
     catch (error) {
