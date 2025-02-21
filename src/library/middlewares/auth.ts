@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
-import { Admin } from "../../models/adminModel";
+import { Admin } from "../../models/adminmodel";
 
 const jwtSecret = process.env.JWT_SECRET as string;
 
