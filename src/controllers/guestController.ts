@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { Guest } from "../models/guestModel";
+import { Guest } from "../models/guestmodel";
 import QRCode from "qrcode";
 import fs from "fs";
 import path from "path";
