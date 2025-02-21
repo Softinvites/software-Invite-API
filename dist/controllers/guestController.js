@@ -13,7 +13,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.generateAnalytics = exports.scanQRCode = exports.deleteGuestsByEvent = exports.deleteGuestById = exports.getGuestById = exports.getGuestsByEvent = exports.downloadAllQRCodes = exports.downloadQRCode = exports.importGuests = exports.updateGuest = exports.addGuest = void 0;
-const guestModel_1 = require("../models/guestModel");
+const guestmodel_1 = require("../models/guestmodel");
 const qrcode_1 = __importDefault(require("qrcode"));
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
@@ -34,7 +34,7 @@ const addGuest = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
         // Generate a unique QR code
         const qrCodeData = `${firstName}-${lastName}-${eventId}`;
         const qrCode = yield qrcode_1.default.toDataURL(qrCodeData);
-        const newGuest = new guestModel_1.Guest({
+        const newGuest = new guestmodel_1.Guest({
             firstName,
             lastName,
             email,
@@ -63,7 +63,7 @@ const updateGuest = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
             res.status(400).json({ error: validateGuest.error.details[0].message });
         }
         // Find the guest by ID
-        const guest = yield guestModel_1.Guest.findById(guestId);
+        const guest = yield guestmodel_1.Guest.findById(guestId);
         if (!guest) {
             res.status(404).json({ message: "Guest not found" });
             return;
@@ -104,7 +104,7 @@ const importGuests = (req, res) => __awaiter(void 0, void 0, void 0, function* (
                 for (const guest of guests) {
                     const qrCodeData = `${guest.firstName}-${guest.lastName}-${guest.eventId}`;
                     const qrCode = yield qrcode_1.default.toDataURL(qrCodeData);
-                    const newGuest = new guestModel_1.Guest({
+                    const newGuest = new guestmodel_1.Guest({
                         firstName: guest.firstName,
                         lastName: guest.lastName,
                         email: guest.email,
@@ -140,7 +140,7 @@ exports.importGuests = importGuests;
 const downloadQRCode = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { guestId } = req.params;
-        const guest = yield guestModel_1.Guest.findById(guestId);
+        const guest = yield guestmodel_1.Guest.findById(guestId);
         if (!guest) {
             res.status(404).json({ message: "Guest not found" });
             return;
@@ -167,7 +167,7 @@ exports.downloadQRCode = downloadQRCode;
 // **Download QR Codes as ZIP**
 const downloadAllQRCodes = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const guests = yield guestModel_1.Guest.find({});
+        const guests = yield guestmodel_1.Guest.find({});
         if (!guests.length) {
             res.status(404).json({ message: "No guests found" });
             return;
@@ -206,7 +206,7 @@ exports.downloadAllQRCodes = downloadAllQRCodes;
 const getGuestsByEvent = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { eventId } = req.params;
-        const guests = yield guestModel_1.Guest.find({ event: eventId });
+        const guests = yield guestmodel_1.Guest.find({ event: eventId });
         res.status(200).json({ guests });
     }
     catch (error) {
@@ -218,7 +218,7 @@ exports.getGuestsByEvent = getGuestsByEvent;
 const getGuestById = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { guestId } = req.params; // Extract guestId from the route parameters
-        const guest = yield guestModel_1.Guest.findById(guestId); // Find the guest by their ID
+        const guest = yield guestmodel_1.Guest.findById(guestId); // Find the guest by their ID
         if (!guest) {
             res.status(404).json({ message: "Guest not found" }); // Handle if no guest is found
         }
@@ -233,7 +233,7 @@ exports.getGuestById = getGuestById;
 const deleteGuestById = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { guestId } = req.params; // Extract guestId from the route parameters
-        const guest = yield guestModel_1.Guest.findByIdAndDelete(guestId); // Delete the guest by their ID
+        const guest = yield guestmodel_1.Guest.findByIdAndDelete(guestId); // Delete the guest by their ID
         if (!guest) {
             res.status(404).json({ message: "Guest not found" }); // Handle case if no guest is found
         }
@@ -248,7 +248,7 @@ exports.deleteGuestById = deleteGuestById;
 const deleteGuestsByEvent = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { eventId } = req.params; // Extract eventId from route parameters
-        const result = yield guestModel_1.Guest.deleteMany({ event: eventId }); // Delete all guests associated with the event
+        const result = yield guestmodel_1.Guest.deleteMany({ event: eventId }); // Delete all guests associated with the event
         if (result.deletedCount === 0) {
             res.status(404).json({ message: "No guests found for this event" }); // Handle if no guests were deleted
         }
@@ -263,7 +263,7 @@ exports.deleteGuestsByEvent = deleteGuestsByEvent;
 const scanQRCode = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { qrData } = req.body;
-        const guest = yield guestModel_1.Guest.findOne({ qrCode: qrData });
+        const guest = yield guestmodel_1.Guest.findOne({ qrCode: qrData });
         if (!guest) {
             res.status(404).json({ message: "Invalid QR Code" });
             return;
@@ -281,8 +281,8 @@ exports.scanQRCode = scanQRCode;
 const generateAnalytics = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { eventId } = req.params;
-        const totalGuests = yield guestModel_1.Guest.countDocuments({ event: eventId });
-        const checkedInGuests = yield guestModel_1.Guest.countDocuments({
+        const totalGuests = yield guestmodel_1.Guest.countDocuments({ event: eventId });
+        const checkedInGuests = yield guestmodel_1.Guest.countDocuments({
             event: eventId,
             checkedIn: true,
         });
