@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { Event } from "../models/eventModel";
+import { Event } from "../models/eventmodel";
 import { creatEventSchema, updateEventSchema, option } from "../utils/utils";
 
 export const createEvent = async (req: Request, res: Response) => {
