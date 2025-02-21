@@ -13,7 +13,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
-const adminModel_1 = require("../../models/adminModel");
+const adminmodel_1 = require("../../models/adminmodel");
 const jwtSecret = process.env.JWT_SECRET;
 const auth = (req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
     try {
@@ -31,7 +31,7 @@ const auth = (req, res, next) => __awaiter(void 0, void 0, void 0, function* () 
             res.status(401).json({ message: "Invalid or expired token" });
             return; // Ensure function exits
         }
-        const admin = yield adminModel_1.Admin.findById(verify._id);
+        const admin = yield adminmodel_1.Admin.findById(verify._id);
         if (!admin) {
             res.status(404).json({ message: "User not found" });
             return; // Ensure function exits
