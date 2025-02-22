@@ -22,7 +22,6 @@ dotenv_1.default.config();
 const jwtsecret = process.env.JWT_SECRET;
 const registerAdmin = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        console.log("Incoming request data:", req.body); // ✅ Debugging
         const { username, email, password, confirm_password, name } = req.body;
         const validateAdnin = utils_1.RegisterAdminSchema.validate(req.body, utils_1.option);
         if (validateAdnin.error) {
@@ -62,9 +61,6 @@ const loginAdmin = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
             res.status(400).json({ Error: validateAmin.error.details[0].message });
             return;
         }
-        // const admin = (await Admin.findOne({ email })) as unknown as {
-        //   [key: string]: string;
-        // };
         const admin = yield adminmodel_1.Admin.findOne({ email });
         if (!admin) {
             res
