@@ -19,8 +19,6 @@ export const registerAdmin = async (
   res: Response
 ): Promise<void> => {
   try {
-    console.log("Incoming request data:", req.body); // ✅ Debugging
-
     const { username, email, password, confirm_password, name } = req.body;
 
     const validateAdnin = RegisterAdminSchema.validate(req.body, option);
@@ -71,10 +69,6 @@ export const loginAdmin = async (
       res.status(400).json({ Error: validateAmin.error.details[0].message });
       return;
     }
-
-    // const admin = (await Admin.findOne({ email })) as unknown as {
-    //   [key: string]: string;
-    // };
 
     const admin = await Admin.findOne({ email });
 
