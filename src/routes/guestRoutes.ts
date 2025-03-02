@@ -13,6 +13,7 @@ import {
   generateAnalytics,
 } from "../controllers/guestController";
 import auth from "../library/middlewares/auth";
+import { upload } from "../library/helpers/uploadImage";
 
 const router = express.Router();
 
