@@ -5,13 +5,44 @@ import fs from "fs";
 import path from "path";
 import archiver from "archiver";
 import csvParser from "csv-parser";
-import multer from "multer";
+import { v2 as cloudinaryV2 } from "cloudinary";
 import { createGuestSchema, updateGuestSchema, option } from "../utils/utils";
 
-// Configure multer for file uploads
-const upload = multer({ dest: "uploads/" });
-
 // **Add a Guest & Generate QR Code**
+
+// export const addGuest = async (req: Request, res: Response): Promise<void> => {
+//   try {
+//     const { firstName, lastName, email, phone, eventId } = req.body;
+
+// const validateGuest = createGuestSchema.validate(req.body, option);
+
+// if (validateGuest.error) {
+//   res.status(400).json({ Error: validateGuest.error.details[0].message });
+// }
+
+//     // Generate a unique QR code
+//     const qrCodeData = `${firstName}-${lastName}-${eventId}`;
+//     const qrCode = await QRCode.toDataURL(qrCodeData);
+
+//     const newGuest = new Guest({
+//       firstName,
+//       lastName,
+//       email,
+//       phone,
+//       qrCode,
+//       event: eventId,
+//     });
+
+//     await newGuest.save();
+
+//     res
+//       .status(201)
+//       .json({ message: "Guest added successfully", guest: newGuest });
+//   } catch (error) {
+//     res.status(500).json({ message: "Error adding guest" });
+//   }
+// };
+
 export const addGuest = async (req: Request, res: Response): Promise<void> => {
   try {
     const { firstName, lastName, email, phone, eventId } = req.body;
@@ -22,26 +53,33 @@ export const addGuest = async (req: Request, res: Response): Promise<void> => {
       res.status(400).json({ Error: validateGuest.error.details[0].message });
     }
 
-    // Generate a unique QR code
-    const qrCodeData = `${firstName}-${lastName}-${eventId}`;
-    const qrCode = await QRCode.toDataURL(qrCodeData);
+    // Generate QR Code as a data URL (base64)
+    const qrCodeDataUrl = await QRCode.toDataURL(email);
 
+    // Upload QR code to Cloudinary
+    const uploadResponse = await cloudinaryV2.uploader.upload(qrCodeDataUrl, {
+      folder: "qr_codes",
+      public_id: `${firstName}_${lastName}_qr`,
+      overwrite: true,
+    });
+
+    // Save guest details with QR code URL
     const newGuest = new Guest({
       firstName,
       lastName,
       email,
       phone,
-      qrCode,
-      event: eventId,
+      eventId,
+      qrCode: uploadResponse.secure_url, // Save Cloudinary URL in MongoDB
     });
 
     await newGuest.save();
 
     res
       .status(201)
-      .json({ message: "Guest added successfully", guest: newGuest });
+      .json({ message: "Guest created successfully", guest: newGuest });
   } catch (error) {
-    res.status(500).json({ message: "Error adding guest" });
+    res.status(500).json({ message: "Error creating guest", error });
   }
 };
 
