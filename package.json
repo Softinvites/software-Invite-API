@@ -1,7 +1,7 @@
 {
   "name": "softinvites-api",
   "version": "1.0.0",
-  "description": "",
+  "description": "softinvites Web Application API",
   "main": "app.js",
   "scripts": {
     "start": "node dist/app.js",
