@@ -20,8 +20,8 @@ const corsOptions = {
     "http://localhost:3039",
     "http://192.168.0.197:3039",
     "http://100.64.100.6:3039",
-    "https://linkorgnet.com.ng",
-    "https://www.linkorgnet.com.ng",
+    "https://www.softinvite.com",
+    "https://softinvite.com/",
   ],
   credentials: true,
 };
@@ -65,13 +65,20 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   next(createError(404, "Not Found"));
 });
 
+// ✅ Export a handler for Vercel
+import { VercelRequest, VercelResponse } from '@vercel/node';
+
+export default (req: VercelRequest, res: VercelResponse) => {
+    return app(req, res);
+};
+
 // Connect to database
 connectDB();
 
-const port: number | string = process.env.PORT || 4000;
-app.listen(port, () => {
-  console.log(`Server is running on http://localhost:${port}`);
-});
+// const port: number | string = process.env.PORT || 4000;
+// app.listen(port, () => {
+//   console.log(`Server is running on http://localhost:${port}`);
+// });
 
 
 
