@@ -75,10 +75,6 @@ export default (req: VercelRequest, res: VercelResponse) => {
 // Connect to database
 connectDB();
 
-// const port: number | string = process.env.PORT || 4000;
-// app.listen(port, () => {
-//   console.log(`Server is running on http://localhost:${port}`);
-// });
 
 
 
