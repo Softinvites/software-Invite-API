@@ -65,15 +65,15 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   next(createError(404, "Not Found"));
 });
 
-// ✅ Export a handler for Vercel
-import { VercelRequest, VercelResponse } from '@vercel/node';
 
-export default (req: VercelRequest, res: VercelResponse) => {
-    return app(req, res);
-};
 
 // Connect to database
 connectDB();
+
+const PORT = process.env.PORT || 4000;
+app.listen(PORT, () =>{
+  console.log(`Server is running on port ${PORT}`);
+} )
 
 
 
