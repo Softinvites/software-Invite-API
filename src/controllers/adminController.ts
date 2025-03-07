@@ -123,11 +123,12 @@ export const getAllAdminProfile = async (
   res: Response
 ): Promise<void> => {
   try {
-    const admins = await Admin.find({}).populate("admin");
+    const admins = await Admin.find({});
 
     res.status(200).json({ msg: "All Admins successfully fetched", admins });
   } catch (error) {
-    res.status(500).json({ message: "Error fetching admins" });
+    
+    res.status(500).json({ message: "Error fetching admins", error: error });
   }
 };
 
@@ -145,12 +146,15 @@ export const updateAdminProfile = async (
       res.status(400).json({ Error: validateAmin.error.details[0].message });
     }
 
-    const admin = await Admin.findById({ _id: id });
+    const admin = await Admin.findById(id);
+    console.log("Admin fetched:", admin); // Log for debugging
+
 
     if (!admin) {
       res.status(400).json({
         error: "Admin not found",
       });
+      return;
     }
 
     const updatedAdmin = await Admin.findByIdAndUpdate(
@@ -167,6 +171,7 @@ export const updateAdminProfile = async (
       .status(200)
       .json({ message: "Profile updated successfully", admin: updatedAdmin });
   } catch (error) {
+    console.error("Error updating Admin Profile", error)
     res.status(500).json({ message: "Error updating profile" });
   }
 };
