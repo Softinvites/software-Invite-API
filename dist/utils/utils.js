@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.updateGuestSchema = exports.createGuestSchema = exports.updateEventSchema = exports.creatEventSchema = exports.option = exports.UpdatePasswordSchema = exports.updateAdminProfileSchema = exports.LoginAdminSchema = exports.RegisterAdminSchema = void 0;
+exports.qrCodeValidationSchema = exports.updateGuestSchema = exports.createGuestSchema = exports.updateEventSchema = exports.creatEventSchema = exports.option = exports.UpdatePasswordSchema = exports.updateAdminProfileSchema = exports.LoginAdminSchema = exports.RegisterAdminSchema = void 0;
 const joi_1 = __importDefault(require("joi"));
 exports.RegisterAdminSchema = joi_1.default.object({
     username: joi_1.default.string().required(),
@@ -81,4 +81,16 @@ exports.updateGuestSchema = joi_1.default.object({
     email: joi_1.default.string().email().required(),
     phone: joi_1.default.string().required(),
     eventId: joi_1.default.string().required(),
+});
+// Define allowed QR code colors
+const qrCodeColors = ["black", "blue", "red", "yellow", "green", "gold"];
+// Joi schema for validating QR code color input
+exports.qrCodeValidationSchema = joi_1.default.object({
+    qrCodeColor: joi_1.default.string()
+        .valid(...qrCodeColors)
+        .optional()
+        .messages({
+        "any.only": `QR Code color must be one of: ${qrCodeColors.join(", ")}`,
+        "any.required": "QR Code color is required",
+    }),
 });

@@ -330,8 +330,60 @@ const qrColorMap = {
     red: "#FF0000",
     yellow: "#FFFF00",
     green: "#008000",
+    gold: "#FFD700", // Added gold color
 };
 // **Download QR Code as PNG (Single)**
+// export const downloadQRCode = async (req: Request, res: Response): Promise<void> => {
+//   try {
+//     const { id } = req.params;
+//     const { qrCodeColor } = req.body;
+//        // Validate request body
+//        const validateGuest = qrCodeValidationSchema.validate(req.body, option);
+//        if (validateGuest.error) {
+//          res.status(400).json({ Error: validateGuest.error.details[0].message });
+//          return;
+//        }
+//     const guest = await Guest.findById(id);
+//     if (!guest) {
+//       res.status(404).json({ message: "Guest not found" });
+//       return;
+//     }
+//     // Determine QR code color (provided one or fallback to guest's stored color)
+//     const selectedColor = qrColorMap[qrCodeColor] || qrColorMap[guest.qrCodeColor] || "#000000";
+//     // ✅ Format the QR data correctly
+//     const qrDataObject = {
+//       qrCode: guest.qrCode, // The actual QR content (e.g., Cloudinary URL)
+//       color: qrCodeColor || guest.qrCodeColor, // Store selected color
+//     };
+//     const qrDataString = JSON.stringify(qrDataObject);
+//     // ✅ Generate QR Code with embedded data and custom color
+//     const qrCodeBuffer = await QRCode.toBuffer(qrDataString, {
+//       color: { dark: selectedColor, light: "#FFFFFF" }, // Dark = QR code color, Light = background
+//     });
+//     // ✅ Upload QR code image to Cloudinary (for downloading)
+//     const uploadResponse = await new Promise<string>((resolve, reject) => {
+//       const uploadStream = cloudinary.uploader.upload_stream(
+//         { resource_type: "image", folder: "qrcodes" },
+//         (error, result) => {
+//           if (error) {
+//             console.error("Cloudinary upload error:", error);
+//             reject(error);
+//           } else if (result) {
+//             resolve(result.secure_url);
+//           }
+//         }
+//       );
+//       const readableStream = new stream.PassThrough();
+//       readableStream.end(qrCodeBuffer);
+//       readableStream.pipe(uploadStream);
+//     });
+//     // ✅ Format the response to only return the `qrCode` field
+//     res.json({ qrData: JSON.stringify({ qrCode: uploadResponse }) });
+//   } catch (error) {
+//     console.error("Error:", error);
+//     res.status(500).json({ message: "Error downloading QR code" });
+//   }
+// };
 const downloadQRCode = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { id } = req.params;
@@ -345,7 +397,7 @@ const downloadQRCode = (req, res) => __awaiter(void 0, void 0, void 0, function*
         const color = qrColorMap[qrCodeColor] || qrColorMap[guest.qrCodeColor] || "#000000";
         // Generate QR Code with the selected color
         const qrCodeBuffer = yield qrcode_1.default.toBuffer(guest.qrCode, {
-            color: { dark: color, light: "#FFFFFF" }, // Dark is the QR code, Light is the background
+            color: { dark: color, light: "#FFFFFF" }, // QR code color and background
         });
         // Upload QR code to Cloudinary
         const uploadResponse = yield new Promise((resolve, reject) => {
@@ -362,8 +414,8 @@ const downloadQRCode = (req, res) => __awaiter(void 0, void 0, void 0, function*
             readableStream.end(qrCodeBuffer);
             readableStream.pipe(uploadStream);
         });
-        // Send Cloudinary URL for download
-        res.json({ downloadUrl: uploadResponse });
+        // ✅ Send formatted response
+        res.json({ qrCode: uploadResponse });
     }
     catch (error) {
         console.error("Error:", error);
