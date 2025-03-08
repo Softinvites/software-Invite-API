@@ -11,11 +11,11 @@ import auth from "../library/middlewares/auth";
 
 const router = express.Router();
 
-router.post("/create-events", auth, createEvent);
-router.post("/update-events", auth, updateEvent);
+router.post("/create", auth, createEvent);
+router.put("/update/:id", auth, updateEvent);
 router.get("/events", auth, getAllEvents);
-router.get("/event/:id", auth, getEventById);
+router.get("/events/:id", auth, getEventById);
 router.delete("/events", auth, deleteAllEvents);
-router.delete("/event/:id", auth, deleteSingleEvent);
+router.delete("/events/:id", auth, deleteSingleEvent);
 
 export default router;

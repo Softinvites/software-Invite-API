@@ -19,7 +19,7 @@ const createEvent = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
         if (validateEvent.error) {
             res.status(400).json({ Error: validateEvent.error.details[0].message });
         }
-        const newEvent = eventmodel_1.Event.create({ name, date, location });
+        const newEvent = yield eventmodel_1.Event.create({ name, date, location });
         res
             .status(201)
             .json({ message: "Event created successfully", event: newEvent });
@@ -54,6 +54,10 @@ exports.updateEvent = updateEvent;
 const getAllEvents = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const events = yield eventmodel_1.Event.find({});
+        if (events.length == 0) {
+            res.status(404).json({ message: "No events found" });
+            return;
+        }
         res
             .status(200)
             .json({ message: "All events successfully fetched", events });
@@ -67,7 +71,7 @@ const getEventById = (req, res) => __awaiter(void 0, void 0, void 0, function* (
     try {
         const { id } = req.params;
         const event = yield eventmodel_1.Event.findById(id);
-        if (!id) {
+        if (!event) {
             res.status(404).json({ message: "Event not found" });
         }
         res.status(200).json({ message: "Event successfully fetched", event });
@@ -90,6 +94,10 @@ exports.deleteAllEvents = deleteAllEvents;
 const deleteSingleEvent = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { id } = req.params;
+        const event = yield eventmodel_1.Event.findById(id);
+        if (!event) {
+            res.status(404).json({ message: "Event not found" });
+        }
         yield eventmodel_1.Event.findByIdAndDelete(id);
         res.status(200).json({ message: "Event deleted successfully" });
     }

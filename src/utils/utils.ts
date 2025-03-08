@@ -38,13 +38,11 @@ export const UpdatePasswordSchema = Joi.object({
     .regex(/^[a-zA-Z0-9]{3,30}$/)
     .required(),
   confirm_password: Joi.string()
-    .valid(Joi.ref("password"))
+    .valid(Joi.ref("new_password"))
     .required()
     .label("confirm password")
     .messages({ "any.only": "{{#label}} does not match" }),
 });
-
-
 
 export const option = {
   abortearly: false,
@@ -57,15 +55,14 @@ export const option = {
 
 export const creatEventSchema = Joi.object({
   name: Joi.string().required(),
-  date: Joi.date().required(),
+  date: Joi.string().required(),
   location: Joi.string().required(),
   isActive: Joi.boolean().default(true),
-  guests: Joi.array().items(Joi.string()),
 });
 
 export const updateEventSchema = Joi.object({
   name: Joi.string().required(),
-  date: Joi.date().required(),
+  date: Joi.string().required(),
   location: Joi.string().required(),
 });
 
@@ -74,8 +71,11 @@ export const createGuestSchema = Joi.object({
   lastName: Joi.string().required(),
   email: Joi.string().email().required(),
   phone: Joi.string().required(),
-  qrCode: Joi.string().required(),
   eventId: Joi.string().required(),
+  qrCodeColor: Joi.string().valid("black", "blue").default("black"),
+  status: Joi.string().valid("pending", "checked-in").default("pending"),
+  checkedIn: Joi.boolean().default(false),
+  imported: Joi.boolean().default(false),
 });
 
 export const updateGuestSchema = Joi.object({
@@ -83,6 +83,5 @@ export const updateGuestSchema = Joi.object({
   lastName: Joi.string().required(),
   email: Joi.string().email().required(),
   phone: Joi.string().required(),
-  qrCode: Joi.string().required(),
   eventId: Joi.string().required(),
 });
