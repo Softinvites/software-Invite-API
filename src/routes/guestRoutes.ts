@@ -13,20 +13,27 @@ import {
   generateAnalytics,
 } from "../controllers/guestController";
 import auth from "../library/middlewares/auth";
-import { upload } from "../library/helpers/uploadImage";
+import { uploadCSVExcel } from "../library/helpers/uploadImage";
 
 const router = express.Router();
 
 router.post("/add-guest", auth, addGuest);
-router.put("/update-guest", auth, updateGuest);
-router.get("/import-guest-csv", auth, importGuests);
-router.get("/download-qrcode", auth, downloadQRCode);
-router.get("/download-all-qrcode", auth, downloadAllQRCodes);
-router.get("/get-events-guest", auth, getGuestsByEvent);
-router.get("/get-single-guest", auth, getGuestById);
-router.delete("/delete-single-guest", auth, deleteGuestById);
-router.delete("/delete-event-guest", auth, deleteGuestsByEvent);
-router.get("/scan-qrcode", auth, scanQRCode);
-router.get("/get-analytics", auth, generateAnalytics);
+router.put("/update-guest/:id", auth, updateGuest);
+router.post(
+  "/import-guest-csv",
+  uploadCSVExcel.single("file"),
+  auth,
+  importGuests
+);
+
+router.get("/download-qrcode/:id", auth, downloadQRCode);
+router.get("/download-all-qrcode/:eventId", auth, downloadAllQRCodes);
+
+router.get("/events-guest/:eventId", auth, getGuestsByEvent);
+router.get("/single-guest/:id", auth, getGuestById);
+router.delete("/single-guest/:id", auth, deleteGuestById);
+router.delete("/event-guest/:eventId", auth, deleteGuestsByEvent);
+router.post("/scan-qrcode", auth, scanQRCode);
+router.get("/get-analytics/:eventId", auth, generateAnalytics);
 
 export default router;
