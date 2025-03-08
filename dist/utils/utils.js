@@ -40,7 +40,7 @@ exports.UpdatePasswordSchema = joi_1.default.object({
         .regex(/^[a-zA-Z0-9]{3,30}$/)
         .required(),
     confirm_password: joi_1.default.string()
-        .valid(joi_1.default.ref("password"))
+        .valid(joi_1.default.ref("new_password"))
         .required()
         .label("confirm password")
         .messages({ "any.only": "{{#label}} does not match" }),
@@ -55,14 +55,13 @@ exports.option = {
 };
 exports.creatEventSchema = joi_1.default.object({
     name: joi_1.default.string().required(),
-    date: joi_1.default.date().required(),
+    date: joi_1.default.string().required(),
     location: joi_1.default.string().required(),
     isActive: joi_1.default.boolean().default(true),
-    guests: joi_1.default.array().items(joi_1.default.string()),
 });
 exports.updateEventSchema = joi_1.default.object({
     name: joi_1.default.string().required(),
-    date: joi_1.default.date().required(),
+    date: joi_1.default.string().required(),
     location: joi_1.default.string().required(),
 });
 exports.createGuestSchema = joi_1.default.object({
@@ -70,14 +69,16 @@ exports.createGuestSchema = joi_1.default.object({
     lastName: joi_1.default.string().required(),
     email: joi_1.default.string().email().required(),
     phone: joi_1.default.string().required(),
-    qrCode: joi_1.default.string().required(),
     eventId: joi_1.default.string().required(),
+    qrCodeColor: joi_1.default.string().valid("black", "blue").default("black"),
+    status: joi_1.default.string().valid("pending", "checked-in").default("pending"),
+    checkedIn: joi_1.default.boolean().default(false),
+    imported: joi_1.default.boolean().default(false),
 });
 exports.updateGuestSchema = joi_1.default.object({
     firstName: joi_1.default.string().required(),
     lastName: joi_1.default.string().required(),
     email: joi_1.default.string().email().required(),
     phone: joi_1.default.string().required(),
-    qrCode: joi_1.default.string().required(),
     eventId: joi_1.default.string().required(),
 });

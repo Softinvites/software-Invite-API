@@ -4,10 +4,9 @@ exports.Event = void 0;
 const mongoose_1 = require("mongoose");
 const EventSchema = new mongoose_1.Schema({
     name: { type: String, required: true },
-    date: { type: Date, required: true },
+    date: { type: String, required: true },
     location: { type: String, required: true },
     isActive: { type: Boolean, default: true },
-    guests: [{ type: mongoose_1.Schema.Types.ObjectId, ref: "Guest" }],
 }, {
     timestamps: true,
 });
