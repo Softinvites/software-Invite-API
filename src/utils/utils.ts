@@ -85,3 +85,17 @@ export const updateGuestSchema = Joi.object({
   phone: Joi.string().required(),
   eventId: Joi.string().required(),
 });
+
+// Define allowed QR code colors
+const qrCodeColors = ["black", "blue", "red", "yellow", "green", "gold"];
+
+// Joi schema for validating QR code color input
+export const qrCodeValidationSchema = Joi.object({
+  qrCodeColor: Joi.string()
+    .valid(...qrCodeColors)
+    .optional()
+    .messages({
+      "any.only": `QR Code color must be one of: ${qrCodeColors.join(", ")}`,
+      "any.required": "QR Code color is required",
+    }),
+});
