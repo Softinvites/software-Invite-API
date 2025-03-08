@@ -12,7 +12,7 @@ export const createEvent = async (req: Request, res: Response) => {
       res.status(400).json({ Error: validateEvent.error.details[0].message });
     }
 
-    const newEvent = Event.create({ name, date, location });
+    const newEvent = await Event.create({ name, date, location });
     res
       .status(201)
       .json({ message: "Event created successfully", event: newEvent });
@@ -52,6 +52,10 @@ export const updateEvent = async (req: Request, res: Response) => {
 export const getAllEvents = async (req: Request, res: Response) => {
   try {
     const events = await Event.find({});
+    if(events.length == 0){
+     res.status(404).json({ message: "No events found" });
+     return;
+    }
     res
       .status(200)
       .json({ message: "All events successfully fetched", events });
@@ -64,7 +68,7 @@ export const getEventById = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const event = await Event.findById(id);
-    if (!id) {
+    if (!event) {
       res.status(404).json({ message: "Event not found" });
     }
     res.status(200).json({ message: "Event successfully fetched", event });
@@ -85,6 +89,11 @@ export const deleteAllEvents = async (req: Request, res: Response) => {
 export const deleteSingleEvent = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
+
+    const event = await Event.findById(id);
+    if (!event) {
+      res.status(404).json({ message: "Event not found" });
+    }
 
     await Event.findByIdAndDelete(id);
     res.status(200).json({ message: "Event deleted successfully" });

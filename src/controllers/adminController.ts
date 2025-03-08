@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
 import { Admin } from "../models/adminmodel";
+import mongoose from "mongoose";
 import {
   RegisterAdminSchema,
   LoginAdminSchema,
@@ -123,11 +124,12 @@ export const getAllAdminProfile = async (
   res: Response
 ): Promise<void> => {
   try {
-    const admins = await Admin.find({}).populate("admin");
+    const admins = await Admin.find({});
 
     res.status(200).json({ msg: "All Admins successfully fetched", admins });
   } catch (error) {
-    res.status(500).json({ message: "Error fetching admins" });
+    
+    res.status(500).json({ message: "Error fetching admins", error: error });
   }
 };
 
@@ -145,12 +147,15 @@ export const updateAdminProfile = async (
       res.status(400).json({ Error: validateAmin.error.details[0].message });
     }
 
-    const admin = await Admin.findById({ _id: id });
+    const admin = await Admin.findById(id);
+    console.log("Admin fetched:", admin); 
+
 
     if (!admin) {
       res.status(400).json({
         error: "Admin not found",
       });
+      return;
     }
 
     const updatedAdmin = await Admin.findByIdAndUpdate(
@@ -167,6 +172,7 @@ export const updateAdminProfile = async (
       .status(200)
       .json({ message: "Profile updated successfully", admin: updatedAdmin });
   } catch (error) {
+    console.error("Error updating Admin Profile", error)
     res.status(500).json({ message: "Error updating profile" });
   }
 };
@@ -178,38 +184,48 @@ export const updateAdminPassword = async (
   try {
     const { id } = req.params;
     const { old_password, new_password, confirm_password } = req.body;
-    const validateAmin = UpdatePasswordSchema.validate(req.body, option);
 
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      res.status(400).json({ error: "Invalid ID format" });
+      return;
+    }
+
+    // Validate request body
+    const validateAmin = UpdatePasswordSchema.validate(req.body, option);
     if (validateAmin.error) {
       res.status(400).json({ Error: validateAmin.error.details[0].message });
+      return;  // Stop execution
     }
 
-    const admin = await Admin.findById({ _id: id });
 
+    // Fetch admin
+    const admin = await Admin.findById(id);
     if (!admin) {
-      res.status(400).json({
-        error: "Admin not found",
-      });
+      res.status(404).json({ error: "Admin not found" });
+      return;
     }
 
-    const updatedAdmin = await Admin.findByIdAndUpdate(
-      id,
-      { old_password, new_password, confirm_password },
-      {
-        new: true,
-        runValidators: true,
-        context: "query",
-      }
-    );
+    // Compare old password
+    const isMatch = await bcrypt.compare(old_password, admin.password);
+    if (!isMatch) {
+      res.status(400).json({ error: "Old password is incorrect" });
+      return;
+    }
 
-    res.status(200).json({
-      message: "Admin Password updated successfully",
-      admin: updatedAdmin,
-    });
+    // Hash new password
+    const hashedPassword = await bcrypt.hash(new_password, 12);
+
+    // Update password
+    admin.password = hashedPassword;
+    await admin.save();
+
+    res.status(200).json({ message: "Admin password updated successfully" });
   } catch (error) {
-    res.status(500).json({ message: "Error updating Passwords" });
+    console.error("Password update error:", error);
+    res.status(500).json({ message: "Error updating password" });
   }
 };
+
 
 export const deleteAdmin = async (
   req: Request,
