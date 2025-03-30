@@ -11,12 +11,25 @@ import stream from "stream";
 import fetch from "node-fetch";
 import { sendEmail } from "../library/helpers/emailService";
 
+// Allowed QR code colors
+const allowedColors = ["black", "blue", "red", "yellow", "green", "gold"];
+// Map allowed colors to hex codes
+const qrColorMap: Record<string, string> = {
+  black: "#000000",
+  blue: "#0000FF",
+  red: "#FF0000",
+  yellow: "#FFFF00",
+  green: "#008000",
+  gold: "#FFD700",
+};
+
 // **Add a Guest & Generate QR Code**
 export const addGuest = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { firstName, lastName, email, phone, eventId } = req.body;
+    const { firstName, lastName, email, phone, qrCodeColor, eventId } =
+      req.body;
 
-    // Validate request body
+    // Validate request body (using your existing createGuestSchema)
     const validateGuest = createGuestSchema.validate(req.body, option);
     if (validateGuest.error) {
       res.status(400).json({ Error: validateGuest.error.details[0].message });
@@ -36,58 +49,64 @@ export const addGuest = async (req: Request, res: Response): Promise<void> => {
       res.status(404).json({ message: "Event not found" });
       return;
     }
+    const eventName = event.name;
+    const eventDate = event.date;
+    const eventLocation = event.location;
 
-    const eventName = event.name; // Get event name
-    const eventDate = event.date; // Get event date
-    const EventLocation = event.location;
+    // Determine the selected QR code color (if provided and allowed; default to "black")
+    const selectedColor = allowedColors.includes(qrCodeColor)
+      ? qrCodeColor
+      : "black";
+    const colorHex = qrColorMap[selectedColor];
 
     // Generate a properly formatted QR code data
-    const qrCodeData = `First Name: ${firstName}\nLast Name: ${lastName}\nEmail: ${email}\nPhone: ${phone}\nEvent: ${eventName}\nDate: ${eventDate}\nLocation: ${EventLocation}`;
+    const qrCodeData = `First Name: ${firstName}\nLast Name: ${lastName}\nEmail: ${email}\nPhone: ${phone}\nEvent: ${eventName}\nDate: ${eventDate}\nLocation: ${eventLocation}`;
 
-    const qrCodeDataUrl = await QRCode.toDataURL(qrCodeData);
+    // Generate QR code with the selected color
+    const qrCodeDataUrl = await QRCode.toDataURL(qrCodeData, {
+      color: { dark: colorHex, light: "#FFFFFF" },
+    });
 
-    // Upload QR code to Cloudinary
+    // Upload the generated QR code image to Cloudinary
     const uploadResponse = await cloudinary.uploader.upload(qrCodeDataUrl, {
       folder: "qr_codes",
       public_id: `${firstName}_${lastName}_qr`,
       overwrite: true,
     });
 
-    // Save guest details with QR code URL
+    // Save guest details along with the Cloudinary URL and chosen color
     const newGuest = new Guest({
       firstName,
       lastName,
       email,
       phone,
+      qrCode: uploadResponse.secure_url,
+      qrCodeColor: selectedColor,
       eventId,
-      qrCode: uploadResponse.secure_url, // Save Cloudinary URL in MongoDB
+      eventName,
+      eventDate,
+      imported: false,
     });
-
     await newGuest.save();
 
-    // ✅ Send email using Zoho or Brevo
+    // Send invitation email
     const emailContent = `
-<h2>Welcome to ${eventName}!</h2>
-<p>Dear ${firstName},</p>
-<p>We are delighted to invite you to <strong>${eventName}</strong>. </p>
-
-<h3>Event Details:</h3>
-<p><strong>Date:</strong> ${eventDate}</p>
-<p><strong>Location:</strong> ${event.location}</p>
-
-<p>Your QR code for the event is attached below. Please present this QR code upon arrival.</p>
-<img src="${uploadResponse.secure_url}" alt="QR Code" />
-
-<p>See you at ${eventName}!</p>
-`;
-
-try {
-  await sendEmail(email, `Your Invitation to ${eventName}`, emailContent);
-  console.log("Email sent successfully!");
-} catch (error) {
-  console.error("Error sending email:", error);
-}
-
+      <h2>Welcome to ${eventName}!</h2>
+      <p>Dear ${firstName},</p>
+      <p>We are delighted to invite you to <strong>${eventName}</strong>.</p>
+      <h3>Event Details:</h3>
+      <p><strong>Date:</strong> ${eventDate}</p>
+      <p><strong>Location:</strong> ${eventLocation}</p>
+      <p>Your QR code for the event is attached below. Please present this QR code upon arrival.</p>
+      <img src="${uploadResponse.secure_url}" alt="QR Code" />
+      <p>See you at ${eventName}!</p>
+    `;
+    try {
+      await sendEmail(email, `Your Invitation to ${eventName}`, emailContent);
+      console.log("Email sent successfully!");
+    } catch (error) {
+      console.error("Error sending email:", error);
+    }
 
     res
       .status(201)
@@ -174,19 +193,102 @@ export const updateGuest = async (
 };
 
 // ✅ Process Guests and Save to Database
+// const processGuests = async (
+//   guests: Array<{
+//     firstName: string;
+//     lastName: string;
+//     email: string;
+//     phone: string;
+//     eventId: string;
+//   }>,
+//   res: Response
+// ): Promise<void> => {
+//   try {
+//     for (const guest of guests) {
+//       const { firstName, lastName, email, phone, eventId } = guest;
+
+//       // Skip if email is missing
+//       if (!email) continue;
+
+//       // Check if guest already exists
+//       const existingGuest = await Guest.findOne({ email, eventId });
+//       if (existingGuest) continue;
+
+//       // Retrieve event details
+//       const event = await Event.findById(eventId);
+//       if (!event) continue;
+
+//       const eventName = event.name;
+//       const eventDate = event.date;
+//       const EventLocation = event.location;
+
+//       // Generate a properly formatted QR code data
+//       const qrCodeData = `First Name: ${guest.firstName}\nLast Name: ${guest.lastName}\nEmail: ${guest.email}\nPhone: ${guest.phone}\nEvent: ${eventName}\nDate: ${eventDate}\nLocation: ${EventLocation}`;
+//       const qrCodeDataUrl = await QRCode.toDataURL(qrCodeData);
+
+//       // ✅ Upload QR Code to Cloudinary
+//       const uploadResponse = await cloudinary.uploader.upload(qrCodeDataUrl, {
+//         folder: "qr_codes",
+//         public_id: `${guest.firstName}_${guest.lastName}_qr`,
+//         overwrite: true,
+//       });
+
+//       // ✅ Save Guest to Database
+//       const newGuest = new Guest({
+//         firstName: guest.firstName,
+//         lastName: guest.lastName,
+//         email: guest.email,
+//         phone: guest.phone,
+//         qrCode: uploadResponse.secure_url,
+//         eventId: guest.eventId,
+//         eventName: eventName, // Storing event name separately
+//         eventDate: eventDate,
+//         imported: true, // Set imported to true since the guest is being added from a file
+//       });
+
+//       await newGuest.save();
+
+//       // ✅ Send email using Zoho or Brevo
+//       const emailContent = `
+//     <h2>Welcome to ${eventName}!</h2>
+//     <p>Dear ${firstName},</p>
+//     <p>We are delighted to invite you to <strong>${eventName}</strong>. </p>
+
+//     <h3>Event Details:</h3>
+//     <p><strong>Date:</strong> ${eventDate}</p>
+//     <p><strong>Location:</strong> ${event.location}</p>
+
+//     <p>Your QR code for the event is attached below. Please present this QR code upon arrival.</p>
+//     <img src="${uploadResponse.secure_url}" alt="QR Code" />
+
+//     <p>See you at ${eventName}!</p>
+//     `;
+
+//       await sendEmail(email, `Your Invitation to ${eventName}`, emailContent);
+//     }
+
+//     res.status(201).json({ message: "Guests imported successfully" });
+//   } catch (error) {
+//     console.error("Error saving guests:", error);
+//     res.status(500).json({ message: "Error processing guests" });
+//   }
+// };
+
 const processGuests = async (
   guests: Array<{
     firstName: string;
     lastName: string;
     email: string;
     phone: string;
+    qrCodeColor: string;
     eventId: string;
   }>,
   res: Response
 ): Promise<void> => {
   try {
+
     for (const guest of guests) {
-      const { firstName, lastName, email, phone, eventId } = guest;
+      const { firstName, lastName, email, phone, eventId, qrCodeColor } = guest;
 
       // Skip if email is missing
       if (!email) continue;
@@ -201,49 +303,60 @@ const processGuests = async (
 
       const eventName = event.name;
       const eventDate = event.date;
-      const EventLocation = event.location;
+      const eventLocation = event.location;
 
-      // Generate a properly formatted QR code data
-      const qrCodeData = `First Name: ${guest.firstName}\nLast Name: ${guest.lastName}\nEmail: ${guest.email}\nPhone: ${guest.phone}\nEvent: ${eventName}\nDate: ${eventDate}\nLocation: ${EventLocation}`;
-      const qrCodeDataUrl = await QRCode.toDataURL(qrCodeData);
+    // Determine the selected QR code color (if provided and allowed; default to "black")
+    const selectedColor = allowedColors.includes(qrCodeColor)
+      ? qrCodeColor
+      : "black";
+    const colorHex = qrColorMap[selectedColor];
+
+    // Generate a properly formatted QR code data
+    const qrCodeData = `First Name: ${firstName}\nLast Name: ${lastName}\nEmail: ${email}\nPhone: ${phone}\nEvent: ${eventName}\nDate: ${eventDate}\nLocation: ${eventLocation}`;
+
+    // Generate QR code with the selected color
+    const qrCodeDataUrl = await QRCode.toDataURL(qrCodeData, {
+      color: { dark: colorHex, light: "#FFFFFF" },
+    });
 
       // ✅ Upload QR Code to Cloudinary
       const uploadResponse = await cloudinary.uploader.upload(qrCodeDataUrl, {
         folder: "qr_codes",
-        public_id: `${guest.firstName}_${guest.lastName}_qr`,
+        public_id: `${firstName}_${lastName}_qr`,
         overwrite: true,
       });
 
       // ✅ Save Guest to Database
       const newGuest = new Guest({
-        firstName: guest.firstName,
-        lastName: guest.lastName,
-        email: guest.email,
-        phone: guest.phone,
+        firstName,
+        lastName,
+        email,
+        phone,
         qrCode: uploadResponse.secure_url,
-        eventId: guest.eventId,
-        eventName: eventName, // Storing event name separately
-        eventDate: eventDate,
-        imported: true, // Set imported to true since the guest is being added from a file
+        qrCodeColor: selectedColor,
+        eventId,
+        eventName,
+        eventDate,
+        imported: true,
       });
 
       await newGuest.save();
 
       // ✅ Send email using Zoho or Brevo
       const emailContent = `
-    <h2>Welcome to ${eventName}!</h2>
-    <p>Dear ${firstName},</p>
-    <p>We are delighted to invite you to <strong>${eventName}</strong>. </p>
-    
-    <h3>Event Details:</h3>
-    <p><strong>Date:</strong> ${eventDate}</p>
-    <p><strong>Location:</strong> ${event.location}</p>
-    
-    <p>Your QR code for the event is attached below. Please present this QR code upon arrival.</p>
-    <img src="${uploadResponse.secure_url}" alt="QR Code" />
-    
-    <p>See you at ${eventName}!</p>
-    `;
+      <h2>Welcome to ${eventName}!</h2>
+      <p>Dear ${firstName},</p>
+      <p>We are delighted to invite you to <strong>${eventName}</strong>.</p>
+      
+      <h3>Event Details:</h3>
+      <p><strong>Date:</strong> ${eventDate}</p>
+      <p><strong>Location:</strong> ${eventLocation}</p>
+      
+      <p>Your QR code for the event is attached below. Please present this QR code upon arrival.</p>
+      <img src="${uploadResponse.secure_url}" alt="QR Code" />
+      
+      <p>See you at ${eventName}!</p>
+      `;
 
       await sendEmail(email, `Your Invitation to ${eventName}`, emailContent);
     }
@@ -254,6 +367,7 @@ const processGuests = async (
     res.status(500).json({ message: "Error processing guests" });
   }
 };
+
 
 // ✅ Import Guests from CSV/Excel and delete from Cloudinary
 export const importGuests = async (
@@ -326,21 +440,13 @@ export const importGuests = async (
   }
 };
 
-
-// Define color mapping for QR code generation
-const qrColorMap: Record<string, string> = {
-  black: "#000000",
-  blue: "#0000FF",
-  red: "#FF0000",
-  yellow: "#FFFF00",
-  green: "#008000",
-};
-
 // **Download QR Code as PNG (Single)**
-export const downloadQRCode = async (req: Request, res: Response): Promise<void> => {
+export const downloadQRCode = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   try {
     const { id } = req.params;
-    const { qrCodeColor } = req.body;
     const guest = await Guest.findById(id);
 
     if (!guest) {
@@ -348,35 +454,26 @@ export const downloadQRCode = async (req: Request, res: Response): Promise<void>
       return;
     }
 
-    // Determine QR code color (use provided one or fallback to guest's color)
-    const color = qrColorMap[qrCodeColor] || qrColorMap[guest.qrCodeColor] || "#000000";
+    // ✅ Generate QR Code in-memory
+    const qrCodeBuffer = await QRCode.toBuffer(guest.qrCode);
 
-    // Generate QR Code with the selected color
-    const qrCodeBuffer = await QRCode.toBuffer(guest.qrCode, {
-      color: { dark: color, light: "#FFFFFF" }, // Dark is the QR code, Light is the background
-    });
-
-    // Upload QR code to Cloudinary
-    const uploadResponse = await new Promise<string>((resolve, reject) => {
-      const uploadStream = cloudinary.uploader.upload_stream(
-        { resource_type: "image", folder: "qrcodes" },
-        (error, result) => {
-          if (error) {
-            console.error("Cloudinary upload error:", error);
-            reject(error);
-          } else if (result) {
-            resolve(result.secure_url);
-          }
+    // ✅ Upload QR code to Cloudinary
+    const uploadResponse = await cloudinary.uploader.upload_stream(
+      { resource_type: "image", folder: "qrcodes" },
+      async (error, result) => {
+        if (error) {
+          console.error("Cloudinary upload error:", error);
+          return res.status(500).json({ message: "Error uploading QR code" });
+        } else if (result) {
+          // ✅ Send Cloudinary URL for download
+          res.json({ downloadUrl: result.secure_url });
         }
-      );
+      }
+    );
 
-      const readableStream = new stream.PassThrough();
-      readableStream.end(qrCodeBuffer);
-      readableStream.pipe(uploadStream);
-    });
-
-    // Send Cloudinary URL for download
-    res.json({ downloadUrl: uploadResponse });
+    const readableStream = new stream.PassThrough();
+    readableStream.end(qrCodeBuffer);
+    readableStream.pipe(uploadResponse);
   } catch (error) {
     console.error("Error:", error);
     res.status(500).json({ message: "Error downloading QR code" });
@@ -384,10 +481,12 @@ export const downloadQRCode = async (req: Request, res: Response): Promise<void>
 };
 
 // **Download All QR Codes as ZIP**
-export const downloadAllQRCodes = async (req: Request, res: Response): Promise<void> => {
+export const downloadAllQRCodes = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   try {
     const { eventId } = req.params;
-    const { qrCodeColor } = req.body;
     const guests = await Guest.find({ eventId });
 
     if (guests.length === 0) {
@@ -403,13 +502,7 @@ export const downloadAllQRCodes = async (req: Request, res: Response): Promise<v
 
     // Generate and append QR codes to ZIP
     for (const guest of guests) {
-      // Determine QR code color for each guest
-      const color = qrColorMap[qrCodeColor] || qrColorMap[guest.qrCodeColor] || "#000000";
-
-      const qrCodeBuffer = await QRCode.toBuffer(guest.qrCode, {
-        color: { dark: color, light: "#FFFFFF" },
-      });
-
+      const qrCodeBuffer = await QRCode.toBuffer(guest.qrCode);
       archive.append(qrCodeBuffer, {
         name: `${guest.firstName}-${guest.lastName}.png`,
       });
@@ -419,7 +512,7 @@ export const downloadAllQRCodes = async (req: Request, res: Response): Promise<v
     await archive.finalize();
 
     // Upload the ZIP to Cloudinary
-    const zipDownloadLink = await new Promise<string>((resolve, reject) => {
+    const uploadPromise = new Promise<string>((resolve, reject) => {
       const uploadStream = cloudinary.uploader.upload_stream(
         { resource_type: "raw", folder: "qrcodes", format: "zip" },
         (error, result) => {
@@ -434,6 +527,9 @@ export const downloadAllQRCodes = async (req: Request, res: Response): Promise<v
 
       zipBufferStream.pipe(uploadStream);
     });
+
+    // Get the Cloudinary ZIP file URL
+    const zipDownloadLink = await uploadPromise;
 
     // Return the ZIP download link
     res.status(200).json({ zipDownloadLink });

@@ -64,16 +64,21 @@ exports.updateEventSchema = joi_1.default.object({
     date: joi_1.default.string().required(),
     location: joi_1.default.string().required(),
 });
+// Define allowed QR code colors
+const qrCodeColors = ["black", "blue", "red", "yellow", "green", "gold"];
 exports.createGuestSchema = joi_1.default.object({
     firstName: joi_1.default.string().required(),
     lastName: joi_1.default.string().required(),
     email: joi_1.default.string().email().required(),
     phone: joi_1.default.string().required(),
     eventId: joi_1.default.string().required(),
-    qrCodeColor: joi_1.default.string().valid("black", "blue").default("black"),
-    status: joi_1.default.string().valid("pending", "checked-in").default("pending"),
-    checkedIn: joi_1.default.boolean().default(false),
-    imported: joi_1.default.boolean().default(false),
+    qrCodeColor: joi_1.default.string()
+        .valid(...qrCodeColors)
+        .required()
+        .messages({
+        "any.only": `QR Code color must be one of: ${qrCodeColors.join(", ")}`,
+        "any.required": "QR Code color is required",
+    }),
 });
 exports.updateGuestSchema = joi_1.default.object({
     firstName: joi_1.default.string().required(),
