@@ -8,7 +8,9 @@ const GuestSchema = new mongoose_1.Schema({
     email: { type: String, required: true, unique: true },
     phone: { type: String, required: true },
     qrCode: { type: String, required: true },
-    qrCodeColor: { type: String, enum: ["black", "blue", "red", "yellow", "green", "gold"], default: "black" },
+    qrCodeBgColor: { type: String, default: "255,255,255" },
+    qrCodeCenterColor: { type: String, default: "0,0,0" },
+    qrCodeEdgeColor: { type: String, default: "0,0,0" },
     eventId: { type: mongoose_1.Schema.Types.ObjectId, ref: "Event", required: true },
     status: {
         type: String,

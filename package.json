@@ -29,6 +29,8 @@
     "@types/node-fetch": "^2.6.12",
     "@types/nodemailer": "^6.4.17",
     "@types/qrcode": "^1.5.5",
+    "@types/qrcode-svg": "^1.1.5",
+    "@types/sharp": "^0.32.0",
     "@types/xlsx": "^0.0.36",
     "@vercel/node": "^5.1.10",
     "ts-node": "^10.9.2",
@@ -57,6 +59,8 @@
     "nodemailer": "^6.10.0",
     "nodemon": "^3.1.9",
     "qrcode": "^1.5.4",
+    "qrcode-svg": "^1.1.0",
+    "sharp": "^0.33.5",
     "stream": "^0.0.3",
     "xlsx": "^0.18.5"
   }

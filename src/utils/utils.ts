@@ -57,17 +57,15 @@ export const creatEventSchema = Joi.object({
   name: Joi.string().required(),
   date: Joi.string().required(),
   location: Joi.string().required(),
-  isActive: Joi.boolean().default(true),
+  description: Joi.string().required(),
 });
 
 export const updateEventSchema = Joi.object({
-  name: Joi.string().required(),
-  date: Joi.string().required(),
-  location: Joi.string().required(),
+  name: Joi.string().optional(),
+  date: Joi.string().optional(),
+  location: Joi.string().optional(),
+  description: Joi.string().optional(),
 });
-
-// Define allowed QR code colors
-const qrCodeColors = ["black", "blue", "red", "yellow", "green", "gold"];
 
 export const createGuestSchema = Joi.object({
   firstName: Joi.string().required(),
@@ -75,19 +73,18 @@ export const createGuestSchema = Joi.object({
   email: Joi.string().email().required(),
   phone: Joi.string().required(),
   eventId: Joi.string().required(),
-  qrCodeColor: Joi.string()
-    .valid(...qrCodeColors)
-    .required()
-    .messages({
-      "any.only": `QR Code color must be one of: ${qrCodeColors.join(", ")}`,
-      "any.required": "QR Code color is required",
-    }),
+  qrCodeBgColor: Joi.string().required(),
+  qrCodeCenterColor: Joi.string().required(),
+  qrCodeEdgeColor: Joi.string().required(),
 });
 
 export const updateGuestSchema = Joi.object({
-  firstName: Joi.string().required(),
-  lastName: Joi.string().required(),
-  email: Joi.string().email().required(),
-  phone: Joi.string().required(),
+  firstName: Joi.string().optional(),
+  lastName: Joi.string().optional(),
+  email: Joi.string().email().optional(),
+  phone: Joi.string().optional(),
   eventId: Joi.string().required(),
+  qrCodeBgColor: Joi.string().optional(),
+  qrCodeCenterColor: Joi.string().optional(),
+  qrCodeEdgeColor: Joi.string().optional(),
 });
