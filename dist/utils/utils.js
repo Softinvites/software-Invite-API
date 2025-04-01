@@ -57,12 +57,13 @@ exports.creatEventSchema = joi_1.default.object({
     name: joi_1.default.string().required(),
     date: joi_1.default.string().required(),
     location: joi_1.default.string().required(),
-    isActive: joi_1.default.boolean().default(true),
+    description: joi_1.default.string().required(),
 });
 exports.updateEventSchema = joi_1.default.object({
-    name: joi_1.default.string().required(),
-    date: joi_1.default.string().required(),
-    location: joi_1.default.string().required(),
+    name: joi_1.default.string().optional(),
+    date: joi_1.default.string().optional(),
+    location: joi_1.default.string().optional(),
+    description: joi_1.default.string().optional(),
 });
 exports.createGuestSchema = joi_1.default.object({
     firstName: joi_1.default.string().required(),
@@ -75,12 +76,12 @@ exports.createGuestSchema = joi_1.default.object({
     qrCodeEdgeColor: joi_1.default.string().required(),
 });
 exports.updateGuestSchema = joi_1.default.object({
-    firstName: joi_1.default.string().required(),
-    lastName: joi_1.default.string().required(),
-    email: joi_1.default.string().email().required(),
-    phone: joi_1.default.string().required(),
+    firstName: joi_1.default.string().optional(),
+    lastName: joi_1.default.string().optional(),
+    email: joi_1.default.string().email().optional(),
+    phone: joi_1.default.string().optional(),
     eventId: joi_1.default.string().required(),
-    qrCodeBgColor: joi_1.default.string().required(),
-    qrCodeCenterColor: joi_1.default.string().required(),
-    qrCodeEdgeColor: joi_1.default.string().required(),
+    qrCodeBgColor: joi_1.default.string().optional(),
+    qrCodeCenterColor: joi_1.default.string().optional(),
+    qrCodeEdgeColor: joi_1.default.string().optional(),
 });

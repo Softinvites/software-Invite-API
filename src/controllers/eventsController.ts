@@ -4,7 +4,7 @@ import { creatEventSchema, updateEventSchema, option } from "../utils/utils";
 
 export const createEvent = async (req: Request, res: Response) => {
   try {
-    const { name, date, location } = req.body;
+    const { name, date, location, description } = req.body;
 
     const validateEvent = creatEventSchema.validate(req.body, option);
 
@@ -12,7 +12,7 @@ export const createEvent = async (req: Request, res: Response) => {
       res.status(400).json({ Error: validateEvent.error.details[0].message });
     }
 
-    const newEvent = await Event.create({ name, date, location });
+    const newEvent = await Event.create({ name, date, location, description });
     res
       .status(201)
       .json({ message: "Event created successfully", event: newEvent });
@@ -24,7 +24,7 @@ export const createEvent = async (req: Request, res: Response) => {
 export const updateEvent = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { name, date, location } = req.body;
+    const { name, date, location, description } = req.body;
 
     const validateEvent = updateEventSchema.validate(req.body, option);
 
@@ -34,7 +34,7 @@ export const updateEvent = async (req: Request, res: Response) => {
 
     const updatedEvent = await Event.findByIdAndUpdate(
       id,
-      { name, date, location },
+      { name, date, location, description },
       {
         new: true,
         runValidators: true,
