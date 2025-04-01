@@ -11,12 +11,15 @@ import {
   deleteGuestsByEvent,
   scanQRCode,
   generateAnalytics,
+  generateTempLink
 } from "../controllers/guestController";
 import auth from "../library/middlewares/auth";
+import { combinedAuth } from "../library/middlewares/combinedAuth";
 import { uploadCSVExcel } from "../library/helpers/uploadImage";
 
 const router = express.Router();
 
+// Guest routes
 router.post("/add-guest", auth, addGuest);
 router.put("/update-guest/:id", auth, updateGuest);
 router.post(
@@ -29,11 +32,19 @@ router.post(
 router.get("/download-qrcode/:id", auth, downloadQRCode);
 router.get("/download-all-qrcode/:eventId", auth, downloadAllQRCodes);
 
+// routhers others can access temporarily
+router.post("/scan-qrcode", combinedAuth, scanQRCode);
+router.get("/events-guest/:eventId", combinedAuth, getGuestsByEvent);
+
+router.get("/events-guest/:eventId", auth, getGuestsByEvent);
 router.get("/events-guest/:eventId", auth, getGuestsByEvent);
 router.get("/single-guest/:id", auth, getGuestById);
 router.delete("/single-guest/:id", auth, deleteGuestById);
 router.delete("/event-guest/:eventId", auth, deleteGuestsByEvent);
-router.post("/scan-qrcode", auth, scanQRCode);
-router.get("/get-analytics/:eventId", auth, generateAnalytics);
+router.get("/get-analytics/", auth, generateAnalytics);
+router.post("/generate-temp-link/:eventId", auth, generateTempLink);
+
+
+
 
 export default router;
