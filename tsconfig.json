@@ -1,12 +1,17 @@
 
 {
   "compilerOptions": {
-    "module": "commonjs",           // Use CommonJS module system
-    "target": "es6",                // Use modern JS features
-    "esModuleInterop": true,        // Enable interoperability for ESM
-    "moduleResolution": "node",     // Use Node-style module resolution
-    "strict": true  ,
-    "rootDir": "./src",                                   /* Specify a file that bundles all outputs into one JavaScript file. If 'declaration' is true, also designates a file that bundles all .d.ts output. */
-    "outDir": "./dist",                 // Enable strict type-checking
-  }
+    "module": "CommonJS",
+    "target": "ES6",
+    "esModuleInterop": true,
+    "moduleResolution": "Node",
+    "strict": true,
+    "rootDir": "src",  
+    "outDir": "dist",
+    "resolveJsonModule": true,
+    "skipLibCheck": true
+  },
+  "include": ["src"],
+  "exclude": ["node_modules", "dist"]
 }
+
