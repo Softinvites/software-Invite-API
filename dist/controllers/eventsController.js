@@ -14,12 +14,12 @@ const eventmodel_1 = require("../models/eventmodel");
 const utils_1 = require("../utils/utils");
 const createEvent = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const { name, date, location } = req.body;
+        const { name, date, location, description } = req.body;
         const validateEvent = utils_1.creatEventSchema.validate(req.body, utils_1.option);
         if (validateEvent.error) {
             res.status(400).json({ Error: validateEvent.error.details[0].message });
         }
-        const newEvent = yield eventmodel_1.Event.create({ name, date, location });
+        const newEvent = yield eventmodel_1.Event.create({ name, date, location, description });
         res
             .status(201)
             .json({ message: "Event created successfully", event: newEvent });
@@ -32,12 +32,12 @@ exports.createEvent = createEvent;
 const updateEvent = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { id } = req.params;
-        const { name, date, location } = req.body;
+        const { name, date, location, description } = req.body;
         const validateEvent = utils_1.updateEventSchema.validate(req.body, utils_1.option);
         if (validateEvent.error) {
             res.status(400).json({ Error: validateEvent.error.details[0].message });
         }
-        const updatedEvent = yield eventmodel_1.Event.findByIdAndUpdate(id, { name, date, location }, {
+        const updatedEvent = yield eventmodel_1.Event.findByIdAndUpdate(id, { name, date, location, description }, {
             new: true,
             runValidators: true,
             context: "query",
