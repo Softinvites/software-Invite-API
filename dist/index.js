@@ -25,6 +25,8 @@ const corsOptions = {
         "http://100.64.100.6:3039",
         "https://www.softinvite.com",
         "https://softinvite.com/",
+        "http://localhost:3000",
+        "https://vv-doa7.vercel.app/#scan-using-file",
     ],
     credentials: true,
 };
