@@ -788,7 +788,7 @@ const generateTempLink = (req, res) => __awaiter(void 0, void 0, void 0, functio
         // Generate a JWT with event-specific data and expiration (e.g., 12 hours)
         const token = jsonwebtoken_1.default.sign({ eventId: eventId, role: "temp", type: "checkin" }, process.env.JWT_SECRET, { expiresIn: "72h" });
         // Create a temporary link with the token
-        const tempLink = `${process.env.FRONTEND_URL}/checkin/${eventId}?token=${token}`;
+        const tempLink = `${process.env.FRONTEND_URL}/guest/${eventId}?token=${token}`;
         res.status(200).json({ tempLink });
     }
     catch (error) {
