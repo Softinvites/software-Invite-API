@@ -960,7 +960,7 @@ export const generateTempLink = async (
     );
 
     // Create a temporary link with the token
-    const tempLink = `${process.env.FRONTEND_URL}/checkin/${eventId}?token=${token}`;
+    const tempLink = `${process.env.FRONTEND_URL}/guest/${eventId}?token=${token}`;
     res.status(200).json({ tempLink });
   } catch (error) {
     console.error("Error generating temp link:", error);
