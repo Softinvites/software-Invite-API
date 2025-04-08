@@ -27,6 +27,7 @@ const corsOptions = {
         "https://softinvite.com/",
         "http://localhost:3000",
         "https://vv-doa7.vercel.app/#scan-using-file",
+        "https://languid-southern-swoop.glitch.me/"
     ],
     credentials: true,
 };
