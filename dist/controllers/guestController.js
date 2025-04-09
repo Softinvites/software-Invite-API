@@ -82,7 +82,7 @@ const addGuest = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
         const bgColorHex = (0, colorUtils_1.rgbToHex)(qrCodeBgColor);
         const centerColorHex = (0, colorUtils_1.rgbToHex)(qrCodeCenterColor);
         const edgeColorHex = (0, colorUtils_1.rgbToHex)(qrCodeEdgeColor);
-        const qrCodeData = `First Name: ${firstName}\nLast Name: ${lastName}\nEmail: ${email}\nPhone: ${phone}\nEvent: ${eventName}\nDate: ${eventDate}\nLocation: ${eventLocation}\nEvent Description: ${eventDescription}`;
+        const qrCodeData = `First Name: ${firstName}\nLast Name: ${lastName}\nEvent: ${eventName}\nDate: ${eventDate}\nLocation: ${eventLocation}\nEvent Description: ${eventDescription}`;
         // Generate SVG QR Code
         const qr = new qrcode_svg_1.default({
             content: qrCodeData,
@@ -131,6 +131,7 @@ const addGuest = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
                 email,
                 phone,
                 qrCode: qrCodeUrl,
+                qrCodeData,
                 qrCodeBgColor,
                 qrCodeCenterColor,
                 qrCodeEdgeColor,
@@ -256,7 +257,7 @@ const processGuests = (guests, res) => __awaiter(void 0, void 0, void 0, functio
             const bgColorHex = (0, colorUtils_1.rgbToHex)(qrCodeBgColor);
             const centerColorHex = (0, colorUtils_1.rgbToHex)(qrCodeCenterColor);
             const edgeColorHex = (0, colorUtils_1.rgbToHex)(qrCodeEdgeColor);
-            const qrCodeData = `First Name: ${firstName}\nLast Name: ${lastName}\nEmail: ${email}\nPhone: ${phone}\nEvent: ${eventName}\nDate: ${eventDate}\nLocation: ${eventLocation}\nDescription: ${eventDescription}`;
+            const qrCodeData = `First Name: ${firstName}\nLast Name: ${lastName}\nEvent: ${eventName}\nDate: ${eventDate}\nLocation: ${eventLocation}\nDescription: ${eventDescription}`;
             const qr = new qrcode_svg_1.default({
                 content: qrCodeData,
                 padding: 4,
@@ -305,6 +306,7 @@ const processGuests = (guests, res) => __awaiter(void 0, void 0, void 0, functio
                             email,
                             phone,
                             qrCode: qrCodeUrl,
+                            qrCodeData,
                             qrCodeBgColor,
                             qrCodeCenterColor,
                             qrCodeEdgeColor,
@@ -393,7 +395,7 @@ const updateGuest = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
         // ✅ Use updated values for QR code, fallback to existing values if not updated
         const updatedFirstName = updatedGuest.firstName;
         const updatedLastName = updatedGuest.lastName;
-        const qrCodeData = `First Name: ${updatedFirstName}\nLast Name: ${updatedLastName}\nEmail: ${updatedGuest.email}\nPhone: ${updatedGuest.phone}\nEvent: ${eventName}\nDate: ${eventDate}\nLocation: ${eventLocation}\nEvent Description: ${eventDescription}`;
+        const qrCodeData = `First Name: ${updatedFirstName}\nLast Name: ${updatedLastName}\nEvent: ${eventName}\nDate: ${eventDate}\nLocation: ${eventLocation}\nEvent Description: ${eventDescription}`;
         // ✅ Generate SVG QR Code
         const qr = new qrcode_svg_1.default({
             content: qrCodeData,
@@ -477,87 +479,6 @@ const updateGuest = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
     }
 });
 exports.updateGuest = updateGuest;
-// export const downloadQRCode = async (
-//   req: Request,
-//   res: Response
-// ): Promise<void> => {
-//   try {
-//     const { id } = req.params;
-//     const guest = await Guest.findById(id);
-//     if (!guest) {
-//       res.status(404).json({ message: "Guest not found" });
-//       return;
-//     }
-//     const event = await Event.findById(guest.eventId);
-//     if (!event) {
-//       res.status(404).json({ message: "Event not found" });
-//       return;
-//     }
-//     const eventName = event.name;
-//     const eventDate = event.date;
-//     const eventLocation = event.location;
-//     const eventDescription = event.description;
-//     const bgColorHex = rgbToHex(guest.qrCodeBgColor);
-//     const centerColorHex = rgbToHex(guest.qrCodeCenterColor);
-//     const edgeColorHex = rgbToHex(guest.qrCodeEdgeColor);
-//     const qrCodeData = `First Name: ${guest.firstName}\nLast Name: ${guest.lastName}\nEmail: ${guest.email}\nPhone: ${guest.phone}\nEvent: ${eventName}\nDate: ${eventDate}\nLocation: ${eventLocation}\nEvent Description: ${eventDescription}`;
-//     const qr = new QRCode({
-//       content: qrCodeData,
-//       padding: 4,
-//       width: 256,
-//       height: 256,
-//       color: edgeColorHex,
-//       background: bgColorHex,
-//       xmlDeclaration: false,
-//     });
-//     let svg = qr.svg();
-//     // ✅ Inject Gradient into the SVG
-//     svg = svg.replace(
-//       "<svg ",
-//       `<svg xmlns="http://www.w3.org/2000/svg">
-//       <defs>
-//         <radialGradient id="grad1" cx="50%" cy="50%" r="50%">
-//           <stop offset="0%" style="stop-color:${centerColorHex}; stop-opacity:1" />
-//           <stop offset="100%" style="stop-color:${edgeColorHex}; stop-opacity:1" />
-//         </radialGradient>
-//       </defs>
-//       `
-//     );
-//     // ✅ Replace foreground color with gradient
-//     svg = svg.replace(/fill="[^"]+"/g, 'fill="url(#grad1)"');
-//     // ✅ Convert SVG to Buffer (PNG format)
-//     const svgBuffer = Buffer.from(svg);
-//     const sharp = await import("sharp");
-//     const pngBuffer = await sharp.default(svgBuffer).png().toBuffer();
-//     // ✅ Upload QR code to Cloudinary
-//     const uploadResponse: UploadApiResponse = await new Promise(
-//       (resolve, reject) => {
-//         const uploadStream = cloudinary.uploader.upload_stream(
-//           { resource_type: "image", folder: "qrcodes" },
-//           (error, result) => {
-//             if (error) {
-//               reject(error);
-//             } else {
-//               resolve(result as UploadApiResponse);
-//             }
-//           }
-//         );
-//         const readableStream = new stream.PassThrough();
-//         readableStream.end(pngBuffer);
-//         readableStream.pipe(uploadStream);
-//       }
-//     );
-//     if (!uploadResponse.secure_url) {
-//       res.status(500).json({ message: "Error uploading QR code" });
-//       return;
-//     }
-//     // ✅ Send Cloudinary URL for download
-//     res.json({ downloadUrl: uploadResponse.secure_url });
-//   } catch (error) {
-//     console.error("Error:", error);
-//     res.status(500).json({ message: "Error downloading QR code" });
-//   }
-// };
 const downloadQRCode = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { id } = req.params;
@@ -578,7 +499,7 @@ const downloadQRCode = (req, res) => __awaiter(void 0, void 0, void 0, function*
         const bgColorHex = (0, colorUtils_1.rgbToHex)(guest.qrCodeBgColor);
         const centerColorHex = (0, colorUtils_1.rgbToHex)(guest.qrCodeCenterColor);
         const edgeColorHex = (0, colorUtils_1.rgbToHex)(guest.qrCodeEdgeColor);
-        const qrCodeData = `First Name: ${guest.firstName}\nLast Name: ${guest.lastName}\nEmail: ${guest.email}\nPhone: ${guest.phone}\nEvent: ${eventName}\nDate: ${eventDate}\nLocation: ${eventLocation}\nEvent Description: ${eventDescription}`;
+        const qrCodeData = `First Name: ${guest.firstName}\nLast Name: ${guest.lastName}\nEvent: ${eventName}\nDate: ${eventDate}\nLocation: ${eventLocation}\nEvent Description: ${eventDescription}`;
         const qr = new qrcode_svg_1.default({
             content: qrCodeData,
             padding: 4,
@@ -640,7 +561,7 @@ const downloadAllQRCodes = (req, res) => __awaiter(void 0, void 0, void 0, funct
             const centerColorHex = (0, colorUtils_1.rgbToHex)(guest.qrCodeCenterColor);
             const edgeColorHex = (0, colorUtils_1.rgbToHex)(guest.qrCodeEdgeColor);
             // ✅ Generate QR Code Data
-            const qrCodeData = `First Name: ${guest.firstName}\nLast Name: ${guest.lastName}\nEmail: ${guest.email}\nPhone: ${guest.phone}\nEvent: ${eventName}\nDate: ${eventDate}\nLocation: ${eventLocation}\nEvent Description: ${eventDescription}`;
+            const qrCodeData = `First Name: ${guest.firstName}\nLast Name: ${guest.lastName}\nEvent: ${eventName}\nDate: ${eventDate}\nLocation: ${eventLocation}\nEvent Description: ${eventDescription}`;
             // ✅ Generate SVG QR Code with Gradient
             const qr = new qrcode_svg_1.default({
                 content: qrCodeData,
@@ -823,15 +744,46 @@ exports.deleteGuestsByEvent = deleteGuestsByEvent;
 //     res.status(500).json({ message: "Error scanning QR code" });
 //   }
 // };
+// export const scanQRCode = async (
+//   req: Request,
+//   res: Response
+// ): Promise<void> => {
+//   try {
+//     const { qrData } = req.body;
+//     console.log("QR Data received:", qrData);
+//     if (!qrData) {
+//       res.status(400).json({ message: "QR Code data is missing" });
+//       return;
+//     }
+//     const guest = await Guest.findOne({ qrCode: qrData });
+//     if (!guest) {
+//       res.status(404).json({ message: "Invalid QR Code" });
+//       return;
+//     }
+//     if (guest.checkedIn) {
+//       res.status(400).json({ message: "Guest already checked in" });
+//       return;
+//     }
+//     guest.checkedIn = true;
+//     guest.status = "checked-in";
+//     await guest.save();
+//     res.status(200).json({ message: "Guest checked in successfully", guest });
+//   } catch (error) {
+//     console.error("Scan QR Error:", error);
+//     res.status(500).json({ message: "Error scanning QR code" });
+//   }
+// };
 const scanQRCode = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const { qrData } = req.body;
+        let { qrData } = req.body;
         console.log("QR Data received:", qrData);
         if (!qrData) {
             res.status(400).json({ message: "QR Code data is missing" });
             return;
         }
-        const guest = yield guestmodel_1.Guest.findOne({ qrCode: qrData });
+        // Normalize line breaks to match stored data
+        qrData = qrData.replace(/\\n/g, "\n");
+        const guest = yield guestmodel_1.Guest.findOne({ qrCodeData: qrData });
         if (!guest) {
             res.status(404).json({ message: "Invalid QR Code" });
             return;
