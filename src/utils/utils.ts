@@ -70,8 +70,8 @@ export const updateEventSchema = Joi.object({
 export const createGuestSchema = Joi.object({
   firstName: Joi.string().required(),
   lastName: Joi.string().required(),
-  email: Joi.string().email().optional(),
-  phone: Joi.string().optional(),
+  email: Joi.string().email().required(),
+  phone: Joi.string().required(),
   eventId: Joi.string().required(),
   qrCodeBgColor: Joi.string().required(),
   qrCodeCenterColor: Joi.string().required(),
