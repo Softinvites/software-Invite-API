@@ -285,7 +285,8 @@ const processGuests = (guests, res) => __awaiter(void 0, void 0, void 0, functio
             // Convert SVG to PNG using sharp
             const pngBuffer = yield (0, sharp_1.default)(Buffer.from(svg)).png().toBuffer();
             return new Promise((resolve, reject) => {
-                uploadImage_1.cloudinary.uploader.upload_stream({
+                uploadImage_1.cloudinary.uploader
+                    .upload_stream({
                     folder: "qr_codes",
                     public_id: `${firstName}_${lastName}_qr`,
                     overwrite: true,
@@ -334,7 +335,8 @@ const processGuests = (guests, res) => __awaiter(void 0, void 0, void 0, functio
                         console.error("Error saving guest:", saveError);
                         reject(saveError);
                     }
-                })).end(pngBuffer);
+                }))
+                    .end(pngBuffer);
             });
         }));
         // Wait for all guests to be processed before sending the response
@@ -349,7 +351,9 @@ const processGuests = (guests, res) => __awaiter(void 0, void 0, void 0, functio
     }
     catch (error) {
         console.error("Error processing imported guests:", error);
-        res.status(500).json({ message: "Error processing imported guests", error });
+        res
+            .status(500)
+            .json({ message: "Error processing imported guests", error });
     }
 });
 const updateGuest = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
@@ -473,6 +477,87 @@ const updateGuest = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
     }
 });
 exports.updateGuest = updateGuest;
+// export const downloadQRCode = async (
+//   req: Request,
+//   res: Response
+// ): Promise<void> => {
+//   try {
+//     const { id } = req.params;
+//     const guest = await Guest.findById(id);
+//     if (!guest) {
+//       res.status(404).json({ message: "Guest not found" });
+//       return;
+//     }
+//     const event = await Event.findById(guest.eventId);
+//     if (!event) {
+//       res.status(404).json({ message: "Event not found" });
+//       return;
+//     }
+//     const eventName = event.name;
+//     const eventDate = event.date;
+//     const eventLocation = event.location;
+//     const eventDescription = event.description;
+//     const bgColorHex = rgbToHex(guest.qrCodeBgColor);
+//     const centerColorHex = rgbToHex(guest.qrCodeCenterColor);
+//     const edgeColorHex = rgbToHex(guest.qrCodeEdgeColor);
+//     const qrCodeData = `First Name: ${guest.firstName}\nLast Name: ${guest.lastName}\nEmail: ${guest.email}\nPhone: ${guest.phone}\nEvent: ${eventName}\nDate: ${eventDate}\nLocation: ${eventLocation}\nEvent Description: ${eventDescription}`;
+//     const qr = new QRCode({
+//       content: qrCodeData,
+//       padding: 4,
+//       width: 256,
+//       height: 256,
+//       color: edgeColorHex,
+//       background: bgColorHex,
+//       xmlDeclaration: false,
+//     });
+//     let svg = qr.svg();
+//     // ✅ Inject Gradient into the SVG
+//     svg = svg.replace(
+//       "<svg ",
+//       `<svg xmlns="http://www.w3.org/2000/svg">
+//       <defs>
+//         <radialGradient id="grad1" cx="50%" cy="50%" r="50%">
+//           <stop offset="0%" style="stop-color:${centerColorHex}; stop-opacity:1" />
+//           <stop offset="100%" style="stop-color:${edgeColorHex}; stop-opacity:1" />
+//         </radialGradient>
+//       </defs>
+//       `
+//     );
+//     // ✅ Replace foreground color with gradient
+//     svg = svg.replace(/fill="[^"]+"/g, 'fill="url(#grad1)"');
+//     // ✅ Convert SVG to Buffer (PNG format)
+//     const svgBuffer = Buffer.from(svg);
+//     const sharp = await import("sharp");
+//     const pngBuffer = await sharp.default(svgBuffer).png().toBuffer();
+//     // ✅ Upload QR code to Cloudinary
+//     const uploadResponse: UploadApiResponse = await new Promise(
+//       (resolve, reject) => {
+//         const uploadStream = cloudinary.uploader.upload_stream(
+//           { resource_type: "image", folder: "qrcodes" },
+//           (error, result) => {
+//             if (error) {
+//               reject(error);
+//             } else {
+//               resolve(result as UploadApiResponse);
+//             }
+//           }
+//         );
+//         const readableStream = new stream.PassThrough();
+//         readableStream.end(pngBuffer);
+//         readableStream.pipe(uploadStream);
+//       }
+//     );
+//     if (!uploadResponse.secure_url) {
+//       res.status(500).json({ message: "Error uploading QR code" });
+//       return;
+//     }
+//     // ✅ Send Cloudinary URL for download
+//     res.json({ downloadUrl: uploadResponse.secure_url });
+//   } catch (error) {
+//     console.error("Error:", error);
+//     res.status(500).json({ message: "Error downloading QR code" });
+//   }
+// };
 const downloadQRCode = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { id } = req.params;
@@ -504,7 +589,6 @@ const downloadQRCode = (req, res) => __awaiter(void 0, void 0, void 0, function*
             xmlDeclaration: false,
         });
         let svg = qr.svg();
-        // ✅ Inject Gradient into the SVG
         svg = svg.replace("<svg ", `<svg xmlns="http://www.w3.org/2000/svg">
       <defs>
         <radialGradient id="grad1" cx="50%" cy="50%" r="50%">
@@ -513,32 +597,15 @@ const downloadQRCode = (req, res) => __awaiter(void 0, void 0, void 0, function*
         </radialGradient>
       </defs>
       `);
-        // ✅ Replace foreground color with gradient
         svg = svg.replace(/fill="[^"]+"/g, 'fill="url(#grad1)"');
-        // ✅ Convert SVG to Buffer (PNG format)
+        // Convert SVG to PNG buffer
         const svgBuffer = Buffer.from(svg);
-        const sharp = yield Promise.resolve().then(() => __importStar(require("sharp")));
-        const pngBuffer = yield sharp.default(svgBuffer).png().toBuffer();
-        // ✅ Upload QR code to Cloudinary
-        const uploadResponse = yield new Promise((resolve, reject) => {
-            const uploadStream = uploadImage_1.cloudinary.uploader.upload_stream({ resource_type: "image", folder: "qrcodes" }, (error, result) => {
-                if (error) {
-                    reject(error);
-                }
-                else {
-                    resolve(result);
-                }
-            });
-            const readableStream = new stream_1.default.PassThrough();
-            readableStream.end(pngBuffer);
-            readableStream.pipe(uploadStream);
-        });
-        if (!uploadResponse.secure_url) {
-            res.status(500).json({ message: "Error uploading QR code" });
-            return;
-        }
-        // ✅ Send Cloudinary URL for download
-        res.json({ downloadUrl: uploadResponse.secure_url });
+        const pngBuffer = yield (0, sharp_1.default)(svgBuffer).png().toBuffer();
+        // Set headers to force download
+        res.setHeader("Content-Disposition", `attachment; filename="qr-${guest.firstName}-${guest.lastName}.png"`);
+        res.setHeader("Content-Type", "image/png");
+        // Send the PNG buffer
+        res.send(pngBuffer);
     }
     catch (error) {
         console.error("Error:", error);
@@ -721,7 +788,9 @@ const deleteGuestsByEvent = (req, res) => __awaiter(void 0, void 0, void 0, func
         yield Promise.allSettled(deletionPromises);
         // Ensure guests are fully removed from the database
         yield guestmodel_1.Guest.deleteMany({ eventId });
-        res.status(200).json({ message: "All guests and their QR codes deleted successfully" });
+        res
+            .status(200)
+            .json({ message: "All guests and their QR codes deleted successfully" });
     }
     catch (error) {
         console.error("Error deleting guests:", error);
@@ -730,9 +799,38 @@ const deleteGuestsByEvent = (req, res) => __awaiter(void 0, void 0, void 0, func
 });
 exports.deleteGuestsByEvent = deleteGuestsByEvent;
 // **Scan QR Code for Check-in**
+// export const scanQRCode = async (
+//   req: Request,
+//   res: Response
+// ): Promise<void> => {
+//   try {
+//     const { qrData } = req.body;
+//     const guest = await Guest.findOne({ qrCode: qrData });
+//     if (!guest) {
+//       res.status(404).json({ message: "Invalid QR Code" });
+//       return;
+//     }
+//     if (guest.checkedIn) {
+//       res.status(400).json({ message: "Guest already checked in" });
+//       return;
+//     }
+//     guest.checkedIn = true;
+//     guest.status = "checked-in";
+//     await guest.save();
+//     res.status(200).json({ message: "Guest checked in successfully", guest });
+//   } catch (error) {
+//     console.error("Scan QR Error:", error);
+//     res.status(500).json({ message: "Error scanning QR code" });
+//   }
+// };
 const scanQRCode = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { qrData } = req.body;
+        console.log("QR Data received:", qrData);
+        if (!qrData) {
+            res.status(400).json({ message: "QR Code data is missing" });
+            return;
+        }
         const guest = yield guestmodel_1.Guest.findOne({ qrCode: qrData });
         if (!guest) {
             res.status(404).json({ message: "Invalid QR Code" });
@@ -748,6 +846,7 @@ const scanQRCode = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
         res.status(200).json({ message: "Guest checked in successfully", guest });
     }
     catch (error) {
+        console.error("Scan QR Error:", error);
         res.status(500).json({ message: "Error scanning QR code" });
     }
 });
