@@ -830,7 +830,8 @@ const scanQRCode = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
             guest.checkedIn = true;
             guest.status = "checked-in";
             console.log("🔁 Updating guest status to checked-in");
-            yield guest.save();
+            const updatedGuest = yield guest.save();
+            console.log("💾 Guest saved:", updatedGuest);
         }
         // Return success message
         res.status(200).json({ message: "Guest successfully checked in", guest });
