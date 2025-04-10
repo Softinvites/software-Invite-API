@@ -871,69 +871,7 @@ export const deleteGuestsByEvent = async (
   }
 };
 
-// **Scan QR Code for Check-in**
-// export const scanQRCode = async (
-//   req: Request,
-//   res: Response
-// ): Promise<void> => {
-//   try {
-//     const { qrData } = req.body;
-//     const guest = await Guest.findOne({ qrCode: qrData });
 
-//     if (!guest) {
-//       res.status(404).json({ message: "Invalid QR Code" });
-//       return;
-//     }
-//     if (guest.checkedIn) {
-//       res.status(400).json({ message: "Guest already checked in" });
-//       return;
-//     }
-
-//     guest.checkedIn = true;
-//     guest.status = "checked-in";
-//     await guest.save();
-
-//     res.status(200).json({ message: "Guest checked in successfully", guest });
-//   } catch (error) {
-//     console.error("Scan QR Error:", error);
-//     res.status(500).json({ message: "Error scanning QR code" });
-//   }
-// };
-
-// export const scanQRCode = async (
-//   req: Request,
-//   res: Response
-// ): Promise<void> => {
-//   try {
-//     const { qrData } = req.body;
-//     console.log("QR Data received:", qrData);
-
-//     if (!qrData) {
-//       res.status(400).json({ message: "QR Code data is missing" });
-//       return;
-//     }
-
-//     const guest = await Guest.findOne({ qrCode: qrData });
-//     if (!guest) {
-//       res.status(404).json({ message: "Invalid QR Code" });
-//       return;
-//     }
-
-//     if (guest.checkedIn) {
-//       res.status(400).json({ message: "Guest already checked in" });
-//       return;
-//     }
-
-//     guest.checkedIn = true;
-//     guest.status = "checked-in";
-//     await guest.save();
-
-//     res.status(200).json({ message: "Guest checked in successfully", guest });
-//   } catch (error) {
-//     console.error("Scan QR Error:", error);
-//     res.status(500).json({ message: "Error scanning QR code" });
-//   }
-// };
 
 export const scanQRCode = async (req: Request, res: Response): Promise<void> => {
   try {
