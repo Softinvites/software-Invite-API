@@ -1013,7 +1013,8 @@ export const scanQRCode = async (
           guest.checkedIn = true;
           guest.status = "checked-in";
           console.log("🔁 Updating guest status to checked-in");
-          await guest.save();
+          const updatedGuest = await guest.save();
+         console.log("💾 Guest saved:", updatedGuest);
         }
 
     

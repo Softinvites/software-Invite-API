@@ -16,10 +16,10 @@ router.post("/import-guest-csv", uploadImage_1.uploadCSVExcel.single("file"), au
 router.get("/download-qrcode/:id", auth_1.default, guestController_1.downloadQRCode);
 router.get("/download-all-qrcode/:eventId", auth_1.default, guestController_1.downloadAllQRCodes);
 // routhers others can access temporarily
-router.post("/scan-qrcode", guestController_1.scanQRCode);
+router.post("/scan-qrcode", combinedAuth_1.combinedAuth, guestController_1.scanQRCode);
 router.get("/events-guest/:eventId", combinedAuth_1.combinedAuth, guestController_1.getGuestsByEvent);
-router.get("/events-guest/:eventId", auth_1.default, guestController_1.getGuestsByEvent);
-router.get("/events-guest/:eventId", auth_1.default, guestController_1.getGuestsByEvent);
+router.get("/events-guest/:eventId", combinedAuth_1.combinedAuth, guestController_1.getGuestsByEvent);
+//other routes
 router.get("/single-guest/:id", auth_1.default, guestController_1.getGuestById);
 router.delete("/single-guest/:id", auth_1.default, guestController_1.deleteGuestById);
 router.delete("/event-guest/:eventId", auth_1.default, guestController_1.deleteGuestsByEvent);
