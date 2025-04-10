@@ -33,11 +33,11 @@ router.get("/download-qrcode/:id", auth, downloadQRCode);
 router.get("/download-all-qrcode/:eventId", auth, downloadAllQRCodes);
 
 // routhers others can access temporarily
-router.post("/scan-qrcode", scanQRCode);
+router.post("/scan-qrcode", combinedAuth, scanQRCode);
+router.get("/events-guest/:eventId", combinedAuth, getGuestsByEvent);
 router.get("/events-guest/:eventId", combinedAuth, getGuestsByEvent);
 
-router.get("/events-guest/:eventId", auth, getGuestsByEvent);
-router.get("/events-guest/:eventId", auth, getGuestsByEvent);
+//other routes
 router.get("/single-guest/:id", auth, getGuestById);
 router.delete("/single-guest/:id", auth, deleteGuestById);
 router.delete("/event-guest/:eventId", auth, deleteGuestsByEvent);
