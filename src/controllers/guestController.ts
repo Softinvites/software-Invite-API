@@ -567,8 +567,6 @@ export const updateGuest = async (
   }
 };
 
-
-
 export const downloadQRCode = async (
   req: Request,
   res: Response
@@ -630,7 +628,10 @@ export const downloadQRCode = async (
     const pngBuffer = await sharp(svgBuffer).png().toBuffer();
 
     // Set headers to force download
-    res.setHeader("Content-Disposition", `attachment; filename="qr-${guest.firstName}-${guest.lastName}.png"`);
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="qr-${guest.firstName}-${guest.lastName}.png"`
+    );
     res.setHeader("Content-Type", "image/png");
 
     // Send the PNG buffer
@@ -871,47 +872,163 @@ export const deleteGuestsByEvent = async (
   }
 };
 
+// export const scanQRCode = async (req: Request, res: Response): Promise<void> => {
+//   try {
+//     let { qrData } = req.body;
+//     console.log("QR Data received:", qrData);
 
+//     if (!qrData) {
+//       res.status(400).json({ message: "QR Code data is missing" });
+//       return;
+//     }
 
-export const scanQRCode = async (req: Request, res: Response): Promise<void> => {
+//     // Normalize line breaks to match stored data
+//     qrData = qrData.replace(/\\n/g, "\n");
+
+//     const guest = await Guest.findOne({ qrCodeData: qrData });
+
+//     if (!guest) {
+//       console.log("Stored QR Code does not match:", qrData);
+//       res.status(404).json({ message: "Invalid QR Code" });
+//       return;
+//     }
+
+//     if (guest.checkedIn) {
+//       res.status(400).json({ message: "Guest already checked in" });
+//       return;
+//     }
+
+//     guest.checkedIn = true;
+//     guest.status = "checked-in";
+//     await guest.save();
+
+//     res.status(200).json({ message: "Guest checked in successfully", guest });
+//   } catch (error) {
+//     console.error("Scan QR Error:", error);
+//     res.status(500).json({ message: "Error scanning QR code" });
+//   }
+// };
+
+// **Generate Analytics (Used & Unused QR Codes)**
+
+// export const scanQRCode = async (
+//   req: Request,
+//   res: Response
+// ): Promise<void> => {
+//   try {
+//     const { qrData } = req.body;
+
+//     const guest = await Guest.findOne({
+//       qrCodeData: new RegExp(`^${qrData.trim()}$`, "i"),
+//     });
+
+//     if (!guest) {
+//       res.status(404).json({ message: "Guest not found for this event" });
+//       return;
+//     }
+
+//     if (guest.checkedIn) {
+//       res.status(200).json({ message: "Guest already checked in", guest });
+//       return;
+//     }
+
+//     guest.checkedIn = true;
+//     guest.status = "checked-in";
+//     await guest.save();
+
+//     res.status(200).json({ message: "Guest successfully checked in", guest });
+//     return;
+//   } catch (error) {
+//     console.error("🚨 Error during check-in:", error);
+//     res.status(500).json({ message: "Server error during check-in" });
+//     return;
+//   }
+// };
+
+// Helper function to parse the QR data (could be moved to a separate file)
+
+const parseQrData = (qrData: string) => {
+  const fields: { [key: string]: string } = {};
+
+  // Split the QR data by newline and parse each line
+  qrData.split("\n").forEach((line) => {
+    const [key, ...rest] = line.split(":");
+    if (key && rest.length > 0) {
+      fields[key.trim()] = rest.join(":").trim();
+    }
+  });
+
+  return fields;
+};
+
+export const scanQRCode = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   try {
-    let { qrData } = req.body;
-    console.log("QR Data received:", qrData);
+    // Extract qrData from the request body
+    const { qrData } = req.body;
 
+    // Check if QR data is provided
     if (!qrData) {
       res.status(400).json({ message: "QR Code data is missing" });
       return;
     }
 
-    // Normalize line breaks to match stored data
-    qrData = qrData.replace(/\\n/g, "\n"); 
+    // Parse the QR data into fields
+    const parsedQrData = parseQrData(qrData);
 
-    const guest = await Guest.findOne({ qrCodeData: qrData });
+    const firstName = parsedQrData["First Name"];
+    const lastName = parsedQrData["Last Name"];
+    const eventName = parsedQrData["Event"];
+    const eventDate = parsedQrData["Date"]; // Additional details you can store
+    const eventLocation = parsedQrData["Location"]; // Additional details you can store
+    const eventDescription = parsedQrData["Event Description"]; // Additional details you can store
 
+    // Validate that required fields are present
+    if (!firstName || !lastName || !eventName || !eventDate || !eventLocation || !eventDescription) {
+      res.status(400).json({ message: "Missing required QR fields" });
+      return;
+    }
 
+    // Query the database to find the guest based on the full QR data
+    const guest = await Guest.findOne({
+      qrCodeData: new RegExp(`^${qrData.trim()}$`, "i"),
+    });
+
+    // If the guest is not found, return 404
     if (!guest) {
-      res.status(404).json({ message: "Invalid QR Code" });
+      res.status(404).json({ message: "Guest not found for this event" });
       return;
     }
 
+    // If the guest is already checked in
     if (guest.checkedIn) {
-      res.status(400).json({ message: "Guest already checked in" });
+      res.status(200).json({ message: "Guest already checked in", guest });
       return;
     }
 
-    guest.checkedIn = true;
-    guest.status = "checked-in";
-    await guest.save();
+        // Mark the guest as checked-in
+        if (!guest.checkedIn) {
+          guest.checkedIn = true;
+          guest.status = "checked-in";
+          console.log("🔁 Updating guest status to checked-in");
+          await guest.save();
+        }
 
-    res.status(200).json({ message: "Guest checked in successfully", guest });
+    
+
+    // Return success message
+    res.status(200).json({ message: "Guest successfully checked in", guest });
+    return;
   } catch (error) {
-    console.error("Scan QR Error:", error);
-    res.status(500).json({ message: "Error scanning QR code" });
+    console.error("🚨 Error during check-in:", error);
+    res.status(500).json({ message: "Server error during check-in" });
+    return;
   }
 };
 
 
-// **Generate Analytics (Used & Unused QR Codes)**
 export const generateAnalytics = async (
   req: Request,
   res: Response
@@ -963,7 +1080,7 @@ export const generateTempLink = async (
     );
 
     // Create a temporary link with the token
-    const tempLink = `${process.env.FRONTEND_URL}/guest/${eventId}?token=${token}`;
+    const tempLink = `${process.env.FRONTEND_URL}/blog?token=${token}`;
     res.status(200).json({ tempLink });
   } catch (error) {
     console.error("Error generating temp link:", error);

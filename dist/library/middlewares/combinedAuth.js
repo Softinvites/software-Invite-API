@@ -38,7 +38,7 @@ const combinedAuth = (req, res, next) => __awaiter(void 0, void 0, void 0, funct
                 }
             }
             // ✅ Check if it's a temp token for check-in
-            if (decoded.type === "checkin" && decoded.eventId) {
+            if (decoded.type === "checkin") {
                 req.eventId = decoded.eventId;
                 return next();
             }
