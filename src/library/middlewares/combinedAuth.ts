@@ -40,7 +40,7 @@ export const combinedAuth = async (
       }
 
       // ✅ Check if it's a temp token for check-in
-      if (decoded.type === "checkin" && decoded.eventId) {
+      if (decoded.type === "checkin") {
         req.eventId = decoded.eventId as string;
         return next();
       }
