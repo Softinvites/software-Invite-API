@@ -18,9 +18,8 @@ router.get("/download-all-qrcode/:eventId", auth_1.default, guestController_1.do
 // routhers others can access temporarily
 router.post("/scan-qrcode", combinedAuth_1.combinedAuth, guestController_1.scanQRCode);
 router.get("/events-guest/:eventId", combinedAuth_1.combinedAuth, guestController_1.getGuestsByEvent);
-router.get("/events-guest/:eventId", combinedAuth_1.combinedAuth, guestController_1.getGuestsByEvent);
+router.get("/single-guest/:id", combinedAuth_1.combinedAuth, guestController_1.getGuestById);
 //other routes
-router.get("/single-guest/:id", auth_1.default, guestController_1.getGuestById);
 router.delete("/single-guest/:id", auth_1.default, guestController_1.deleteGuestById);
 router.delete("/event-guest/:eventId", auth_1.default, guestController_1.deleteGuestsByEvent);
 router.get("/get-analytics/", auth_1.default, guestController_1.generateAnalytics);
