@@ -5,8 +5,8 @@ const mongoose_1 = require("mongoose");
 const GuestSchema = new mongoose_1.Schema({
     firstName: { type: String, required: true },
     lastName: { type: String, required: true },
-    email: { type: String, required: true, unique: true },
-    phone: { type: String, required: true },
+    email: { type: String, required: false, },
+    phone: { type: String, required: false },
     qrCode: { type: String, required: true },
     qrCodeData: { type: String, required: true },
     qrCodeBgColor: { type: String, default: "255,255,255" },

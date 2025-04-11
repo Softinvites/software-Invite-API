@@ -27,20 +27,19 @@ const combinedAuth = (req, res, next) => __awaiter(void 0, void 0, void 0, funct
     }
     try {
         const decoded = jsonwebtoken_1.default.verify(token, jwtSecret);
-        // ✅ Check if decoded is a JwtPayload (not a string)
         if (typeof decoded === "object" && decoded !== null) {
-            // ✅ Check if it's an admin token
+            // ✅ Temp token for check-in staff
+            if (decoded.type === "checkin" && decoded.eventId) {
+                req.eventId = decoded.eventId;
+                return next();
+            }
+            // ✅ Admin token
             if (decoded._id) {
                 const admin = yield adminmodel_1.Admin.findById(decoded._id);
                 if (admin) {
                     req.admin = { _id: decoded._id };
                     return next();
                 }
-            }
-            // ✅ Check if it's a temp token for check-in
-            if (decoded.type === "checkin") {
-                req.eventId = decoded.eventId;
-                return next();
             }
         }
         res.status(403).json({ message: "Unauthorized access" });

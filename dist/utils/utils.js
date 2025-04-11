@@ -68,8 +68,8 @@ exports.updateEventSchema = joi_1.default.object({
 exports.createGuestSchema = joi_1.default.object({
     firstName: joi_1.default.string().required(),
     lastName: joi_1.default.string().required(),
-    email: joi_1.default.string().email().required(),
-    phone: joi_1.default.string().required(),
+    email: joi_1.default.string().email().optional(),
+    phone: joi_1.default.string().optional(),
     eventId: joi_1.default.string().required(),
     qrCodeBgColor: joi_1.default.string().required(),
     qrCodeCenterColor: joi_1.default.string().required(),
