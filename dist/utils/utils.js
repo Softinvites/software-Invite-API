@@ -11,8 +11,11 @@ exports.RegisterAdminSchema = joi_1.default.object({
     email: joi_1.default.string().email().required(),
     password: joi_1.default.string()
         .min(6)
-        .regex(/^[a-zA-Z0-9]{3,30}$/)
-        .required(),
+        .regex(/^[a-zA-Z0-9~!@#$%^&*()_\-+={[}\]|\\:;"'<>,.?/`]{6,}$/)
+        .required()
+        .messages({
+        'string.pattern.base': 'Password contains invalid characters.',
+    }),
     confirm_password: joi_1.default.string()
         .valid(joi_1.default.ref("password"))
         .required()
