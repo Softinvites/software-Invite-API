@@ -35,10 +35,10 @@ router.get("/download-all-qrcode/:eventId", auth, downloadAllQRCodes);
 // routhers others can access temporarily
 router.post("/scan-qrcode", combinedAuth, scanQRCode);
 router.get("/events-guest/:eventId", combinedAuth, getGuestsByEvent);
-router.get("/events-guest/:eventId", combinedAuth, getGuestsByEvent);
+router.get("/single-guest/:id", combinedAuth, getGuestById);
 
 //other routes
-router.get("/single-guest/:id", auth, getGuestById);
+
 router.delete("/single-guest/:id", auth, deleteGuestById);
 router.delete("/event-guest/:eventId", auth, deleteGuestsByEvent);
 router.get("/get-analytics/", auth, generateAnalytics);
