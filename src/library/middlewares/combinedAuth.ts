@@ -30,7 +30,7 @@ export const combinedAuth = async (
     if (typeof decoded === "object" && decoded !== null) {
       // ✅ Temp token for check-in staff
       if (decoded.type === "checkin" && decoded.eventId) {
-        req.eventId = decoded.eventId;
+        req.eventId = decoded.eventId;  // Extract eventId
         return next();
       }
 
@@ -50,4 +50,3 @@ export const combinedAuth = async (
     res.status(401).json({ message: "Invalid or expired token" });
   }
 };
-

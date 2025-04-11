@@ -30,7 +30,7 @@ const combinedAuth = (req, res, next) => __awaiter(void 0, void 0, void 0, funct
         if (typeof decoded === "object" && decoded !== null) {
             // ✅ Temp token for check-in staff
             if (decoded.type === "checkin" && decoded.eventId) {
-                req.eventId = decoded.eventId;
+                req.eventId = decoded.eventId; // Extract eventId
                 return next();
             }
             // ✅ Admin token
