@@ -2,7 +2,6 @@ import { Request, Response, NextFunction } from "express";
 import jwt, { JwtPayload } from "jsonwebtoken";
 import { Admin } from "../../models/adminmodel";
 
-// Extend Request to include admin and eventId
 interface AuthenticatedRequest extends Request {
   admin?: { _id: string };
   eventId?: string;
@@ -28,21 +27,20 @@ export const combinedAuth = async (
   try {
     const decoded = jwt.verify(token as string, jwtSecret) as JwtPayload | string;
 
-    // ✅ Check if decoded is a JwtPayload (not a string)
     if (typeof decoded === "object" && decoded !== null) {
-      // ✅ Check if it's an admin token
+      // ✅ Temp token for check-in staff
+      if (decoded.type === "checkin" && decoded.eventId) {
+        req.eventId = decoded.eventId;
+        return next();
+      }
+
+      // ✅ Admin token
       if (decoded._id) {
         const admin = await Admin.findById(decoded._id);
         if (admin) {
-          req.admin = { _id: decoded._id as string };
+          req.admin = { _id: decoded._id };
           return next();
         }
-      }
-
-      // ✅ Check if it's a temp token for check-in
-      if (decoded.type === "checkin") {
-        req.eventId = decoded.eventId as string;
-        return next();
       }
     }
 
@@ -52,3 +50,4 @@ export const combinedAuth = async (
     res.status(401).json({ message: "Invalid or expired token" });
   }
 };
+
