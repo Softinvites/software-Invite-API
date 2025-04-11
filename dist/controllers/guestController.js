@@ -743,9 +743,19 @@ exports.deleteGuestsByEvent = deleteGuestsByEvent;
 //   }
 // };
 // Helper function to parse the QR data (could be moved to a separate file)
+// Helper function to parse the QR data
+// const parseQrData = (qrData: string) => {
+//   const fields: { [key: string]: string } = {};
+//   qrData.split("\n").forEach((line) => {
+//     const [key, ...rest] = line.split(":");
+//     if (key && rest.length > 0) {
+//       fields[key.trim()] = rest.join(":").trim();
+//     }
+//   });
+//   return fields;
+// };
 const parseQrData = (qrData) => {
     const fields = {};
-    // Split the QR data by newline and parse each line
     qrData.split("\n").forEach((line) => {
         const [key, ...rest] = line.split(":");
         if (key && rest.length > 0) {
@@ -756,55 +766,58 @@ const parseQrData = (qrData) => {
 };
 const scanQRCode = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        // Extract qrData from the request body
         const { qrData } = req.body;
-        // Check if QR data is provided
         if (!qrData) {
             res.status(400).json({ message: "QR Code data is missing" });
             return;
         }
-        // Parse the QR data into fields
         const parsedQrData = parseQrData(qrData);
-        const firstName = parsedQrData["First Name"];
-        const lastName = parsedQrData["Last Name"];
-        const eventName = parsedQrData["Event"];
-        const eventDate = parsedQrData["Date"]; // Additional details you can store
-        const eventLocation = parsedQrData["Location"]; // Additional details you can store
-        // Validate that required fields are present
+        const clean = (val) => val.trim();
+        const firstName = clean(parsedQrData["First Name"]);
+        const lastName = clean(parsedQrData["Last Name"]);
+        const eventName = clean(parsedQrData["Event"]);
+        const eventDate = clean(parsedQrData["Date"]);
+        const eventLocation = clean(parsedQrData["Location"]);
         if (!firstName || !lastName || !eventName || !eventDate || !eventLocation) {
             res.status(400).json({ message: "Missing required QR fields" });
             return;
         }
-        // Query the database to find the guest based on the full QR data
-        const guest = yield guestmodel_1.Guest.findOne({
-            qrCodeData: new RegExp(`^${qrData.trim()}$`, "i"),
+        const foundEvent = yield eventmodel_1.Event.findOne({
+            name: new RegExp(`^${eventName}$`, "i"),
+            date: new RegExp(`^${eventDate}$`, "i"),
+            location: new RegExp(`^${eventLocation}$`, "i"),
         });
-        // If the guest is not found, return 404
+        if (!foundEvent) {
+            res.status(404).json({ message: "Event not found" });
+            return;
+        }
+        // const guest = await Guest.findOne({
+        //   firstName: new RegExp(`^${firstName}$`, "i"),
+        //   lastName: new RegExp(`^${lastName}$`, "i"),
+        //   eventId: foundEvent._id,
+        // });
+        const guest = yield guestmodel_1.Guest.findOne({
+            firstName: new RegExp(`^${firstName.replace(/\s+/g, '\\s*')}$`, "i"),
+            lastName: new RegExp(`^${lastName.replace(/\s+/g, '\\s*')}$`, "i"),
+            eventId: foundEvent._id,
+        });
         if (!guest) {
             res.status(404).json({ message: "Guest not found for this event" });
             return;
         }
-        // If the guest is already checked in
+        // ✅ TypeScript knows guest is not null from here down
         if (guest.checkedIn) {
             res.status(200).json({ message: "Guest already checked in", guest });
             return;
         }
-        // Mark the guest as checked-in
-        if (!guest.checkedIn) {
-            guest.checkedIn = true;
-            guest.status = "checked-in";
-            console.log("🔁 Updating guest status to checked-in");
-            const updatedGuest = yield guest.save();
-            console.log("💾 Guest saved:", updatedGuest);
-        }
-        // Return success message
-        res.status(200).json({ message: "Guest successfully checked in", guest });
-        return;
+        guest.checkedIn = true;
+        guest.status = "checked-in";
+        const updatedGuest = yield guest.save();
+        res.status(200).json({ message: "Guest successfully checked in", guest: updatedGuest });
     }
     catch (error) {
         console.error("🚨 Error during check-in:", error);
         res.status(500).json({ message: "Server error during check-in" });
-        return;
     }
 });
 exports.scanQRCode = scanQRCode;
