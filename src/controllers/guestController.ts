@@ -255,13 +255,13 @@ const processGuests = async (
       const eventName = event.name;
       const eventDate = event.date;
       const eventLocation = event.location;
-      const eventDescription = event.description;
 
       const bgColorHex = rgbToHex(qrCodeBgColor);
       const centerColorHex = rgbToHex(qrCodeCenterColor);
       const edgeColorHex = rgbToHex(qrCodeEdgeColor);
 
-      const qrCodeData = `First Name: ${firstName}\nLast Name: ${lastName}\nEvent: ${eventName}\nDate: ${eventDate}\nLocation: ${eventLocation}\nDescription: ${eventDescription}`;
+      const qrCodeData = `First Name: ${firstName}\nLast Name: ${lastName}\nEvent: ${eventName}\nDate: ${eventDate}\nLocation: ${eventLocation}`;
+
 
       const qr = new QRCode({
         content: qrCodeData,
@@ -341,8 +341,8 @@ const processGuests = async (
 
                     <h3>Event Details:</h3>
                     <p><strong>Date:</strong> ${eventDate}</p>
-                    <p><strong>Location:</strong> ${eventLocation}</p>
-                    <p><strong>Description:</strong> ${eventDescription}</p>
+                    <p><strong>Location:</strong> ${event.location}</p>
+                    <p><strong>Description:</strong> ${event.description}</p>
 
                     <p>Your QR code for the event is attached below. Please present this QR code upon arrival.</p>
                     <img src="${qrCodeUrl}" alt="QR Code" />
@@ -370,7 +370,7 @@ const processGuests = async (
 
     const results = await Promise.allSettled(guestPromises);
 
-    const successCount = results.filter((r) => r.status === "fulfilled").length;
+    const successCount = results.filter((r) => r.status === "fulfilled").length-1;
 
     res.status(201).json({
       message: `${successCount} guests imported successfully`,
@@ -964,10 +964,9 @@ export const scanQRCode = async (
     const eventName = parsedQrData["Event"];
     const eventDate = parsedQrData["Date"]; // Additional details you can store
     const eventLocation = parsedQrData["Location"]; // Additional details you can store
-    const eventDescription = parsedQrData["Event Description"]; // Additional details you can store
 
     // Validate that required fields are present
-    if (!firstName || !lastName || !eventName || !eventDate || !eventLocation || !eventDescription) {
+    if (!firstName || !lastName || !eventName || !eventDate || !eventLocation) {
       res.status(400).json({ message: "Missing required QR fields" });
       return;
     }
