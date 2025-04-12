@@ -1,6 +1,7 @@
 import { Schema, model, Document, Types } from "mongoose";
 
 interface GuestDocument extends Document {
+  _id: Types.ObjectId;
   firstName: string;
   lastName: string;
   email: string;
@@ -24,8 +25,8 @@ const GuestSchema = new Schema<GuestDocument>(
     lastName: { type: String, required: true },
     email: { type: String, required: false, },
     phone: { type: String, required: false },
-    qrCode: { type: String, required: true },
-    qrCodeData: { type: String, required: true }, 
+    qrCode: { type: String, required: false },
+    qrCodeData: { type: String, required: false },
     qrCodeBgColor: { type: String, default: "255,255,255" }, 
     qrCodeCenterColor: { type: String, default: "0,0,0" }, 
     qrCodeEdgeColor: { type: String, default: "0,0,0" },
