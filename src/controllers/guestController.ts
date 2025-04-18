@@ -658,10 +658,28 @@ export const downloadAllQRCodes = async (req: Request, res: Response): Promise<v
       return;
     }
 
+    // Step 1: Create archive and upload stream
     const archive = archiver('zip', { zlib: { level: 9 } });
-    const zipBufferStream = new PassThrough();
-    archive.pipe(zipBufferStream);
 
+    const uploadPromise = new Promise<string>((resolve, reject) => {
+      const uploadStream = cloudinary.uploader.upload_stream(
+        { resource_type: 'raw', folder: 'qrcodes', format: 'zip' },
+        (error, result) => {
+          if (error) {
+            console.error('Cloudinary upload error:', error);
+            reject(error);
+          } else if (result && result.secure_url) {
+            resolve(result.secure_url);
+          } else {
+            reject(new Error('Invalid Cloudinary response'));
+          }
+        }
+      );
+
+      archive.pipe(uploadStream);
+    });
+
+    // Step 2: Append QR code PNGs to archive
     for (const guest of guests) {
       const bgColorHex = rgbToHex(guest.qrCodeBgColor);
       const centerColorHex = rgbToHex(guest.qrCodeCenterColor);
@@ -710,27 +728,13 @@ export const downloadAllQRCodes = async (req: Request, res: Response): Promise<v
       });
     }
 
-    await archive.finalize();
-
-    const uploadPromise = new Promise<string>((resolve, reject) => {
-      const uploadStream = cloudinary.uploader.upload_stream(
-        { resource_type: 'raw', folder: 'qrcodes', format: 'zip' },
-        (error, result) => {
-          if (error) {
-            console.error('Cloudinary upload error:', error);
-            reject(error);
-          } else if (result && result.secure_url) {
-            resolve(result.secure_url);
-          } else {
-            reject(new Error('Invalid Cloudinary response'));
-          }
-        }
-      );
-      zipBufferStream.pipe(uploadStream);
-    });
-
+    // Step 3: Finalize and await upload
+    archive.finalize();
     const zipDownloadLink = await uploadPromise;
+
+    // Step 4: Send response
     res.status(200).json({ zipDownloadLink });
+
   } catch (error) {
     console.error('Error:', error);
     res.status(500).json({ message: 'Error generating ZIP file' });

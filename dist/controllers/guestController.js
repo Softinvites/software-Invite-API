@@ -58,7 +58,6 @@ const node_fetch_1 = __importDefault(require("node-fetch"));
 const emailService_1 = require("../library/helpers/emailService");
 const colorUtils_1 = require("../utils/colorUtils");
 const sharp_1 = __importDefault(require("sharp"));
-const stream_1 = require("stream");
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 // **Add a Guest & Generate QR Code**
 const addGuest = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
@@ -537,9 +536,24 @@ const downloadAllQRCodes = (req, res) => __awaiter(void 0, void 0, void 0, funct
             res.status(404).json({ message: 'No guests found' });
             return;
         }
+        // Step 1: Create archive and upload stream
         const archive = (0, archiver_1.default)('zip', { zlib: { level: 9 } });
-        const zipBufferStream = new stream_1.PassThrough();
-        archive.pipe(zipBufferStream);
+        const uploadPromise = new Promise((resolve, reject) => {
+            const uploadStream = uploadImage_1.cloudinary.uploader.upload_stream({ resource_type: 'raw', folder: 'qrcodes', format: 'zip' }, (error, result) => {
+                if (error) {
+                    console.error('Cloudinary upload error:', error);
+                    reject(error);
+                }
+                else if (result && result.secure_url) {
+                    resolve(result.secure_url);
+                }
+                else {
+                    reject(new Error('Invalid Cloudinary response'));
+                }
+            });
+            archive.pipe(uploadStream);
+        });
+        // Step 2: Append QR code PNGs to archive
         for (const guest of guests) {
             const bgColorHex = (0, colorUtils_1.rgbToHex)(guest.qrCodeBgColor);
             const centerColorHex = (0, colorUtils_1.rgbToHex)(guest.qrCodeCenterColor);
@@ -575,23 +589,10 @@ const downloadAllQRCodes = (req, res) => __awaiter(void 0, void 0, void 0, funct
                 name: `${guest.firstName}-${guest.lastName}.png`,
             });
         }
-        yield archive.finalize();
-        const uploadPromise = new Promise((resolve, reject) => {
-            const uploadStream = uploadImage_1.cloudinary.uploader.upload_stream({ resource_type: 'raw', folder: 'qrcodes', format: 'zip' }, (error, result) => {
-                if (error) {
-                    console.error('Cloudinary upload error:', error);
-                    reject(error);
-                }
-                else if (result && result.secure_url) {
-                    resolve(result.secure_url);
-                }
-                else {
-                    reject(new Error('Invalid Cloudinary response'));
-                }
-            });
-            zipBufferStream.pipe(uploadStream);
-        });
+        // Step 3: Finalize and await upload
+        archive.finalize();
         const zipDownloadLink = yield uploadPromise;
+        // Step 4: Send response
         res.status(200).json({ zipDownloadLink });
     }
     catch (error) {
