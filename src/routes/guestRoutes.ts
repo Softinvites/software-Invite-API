@@ -5,13 +5,15 @@ import {
   importGuests,
   downloadQRCode,
   downloadAllQRCodes,
+  downloadBatchQRCodes,
   getGuestsByEvent,
   getGuestById,
   deleteGuestById,
   deleteGuestsByEvent,
+  deleteGuestsByEventAndTimestamp,
   scanQRCode,
   generateAnalytics,
-  generateTempLink
+  generateTempLink,
 } from "../controllers/guestController";
 import auth from "../library/middlewares/auth";
 import { combinedAuth } from "../library/middlewares/combinedAuth";
@@ -31,6 +33,7 @@ router.post(
 
 router.get("/download-qrcode/:id", auth, downloadQRCode);
 router.get("/download-all-qrcode/:eventId", auth, downloadAllQRCodes);
+router.get("/batch-qrcode-download/:eventId/timestamp", auth, downloadBatchQRCodes);
 
 // routhers others can access temporarily
 router.post("/scan-qrcode", combinedAuth, scanQRCode);
@@ -41,10 +44,12 @@ router.get("/single-guest/:id", combinedAuth, getGuestById);
 
 router.delete("/single-guest/:id", auth, deleteGuestById);
 router.delete("/event-guest/:eventId", auth, deleteGuestsByEvent);
+router.delete(
+  "/delete/:eventId/timestamp",
+  auth,
+  deleteGuestsByEventAndTimestamp
+);
 router.get("/get-analytics/", auth, generateAnalytics);
 router.post("/generate-temp-link/:eventId", auth, generateTempLink);
-
-
-
 
 export default router;
