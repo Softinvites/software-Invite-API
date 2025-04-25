@@ -295,12 +295,14 @@ function processGuests(guests, res) {
                     const qrCodeUrl = yield new Promise((resolve, reject) => {
                         const uploadStream = uploadImage_1.cloudinary.uploader.upload_stream({
                             folder: 'qr_codes',
-                            public_id: `${firstName}_${lastName}_qr`,
+                            public_id: `${firstName}_${lastName}_${guestId}_qr`,
                             overwrite: true,
                             format: 'png',
                         }, (error, result) => {
-                            if (error || !(result === null || result === void 0 ? void 0 : result.secure_url))
-                                return reject(error);
+                            if (error || !(result === null || result === void 0 ? void 0 : result.secure_url)) {
+                                console.error(`❌ Cloudinary upload failed for ${firstName} ${lastName}:`, error);
+                                return reject(new Error(`Cloudinary upload failed for ${firstName} ${lastName}`));
+                            }
                             resolve(result.secure_url);
                         });
                         uploadStream.end(pngBuffer);
@@ -579,6 +581,9 @@ const downloadBatchQRCodes = (req, res) => __awaiter(void 0, void 0, void 0, fun
             eventId,
             createdAt: { $gte: startDate, $lte: endDate },
         });
+        console.log("Start:", startDate.toISOString());
+        console.log("End:", endDate.toISOString());
+        console.log("Matched guests:", guests.length);
         if (guests.length === 0) {
             res.status(404).json({ message: 'No guests found for given date range' });
             return;
@@ -737,8 +742,6 @@ const deleteGuestsByEvent = (req, res) => __awaiter(void 0, void 0, void 0, func
     }
 });
 exports.deleteGuestsByEvent = deleteGuestsByEvent;
-// controllers/guestController.ts
-// controllers/guestController.ts
 const deleteGuestsByEventAndTimestamp = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { eventId } = req.params;
