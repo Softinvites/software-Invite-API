@@ -725,6 +725,7 @@ export const downloadQRCode = async (
 
 
 // Helper function for batch processing
+
 const processBatch = async (guestsBatch: any[]) => {
   const batchPromises = guestsBatch.map(async (guest) => {
     const bgColorHex = rgbToHex(guest.qrCodeBgColor);
@@ -783,17 +784,6 @@ const processBatch = async (guestsBatch: any[]) => {
 };
 
 export const downloadAllQRCodes = async (req: Request, res: Response): Promise<void> => {
-  // Set CORS headers
-  res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
-  res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
-
-  // Handle OPTIONS request for CORS preflight
-  if (req.method === 'OPTIONS') {
-     res.status(204).end();
-     return;
-  }
 
   try {
     const { eventId } = req.params;
