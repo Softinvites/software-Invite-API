@@ -33,11 +33,6 @@ app.use(cookieParser());
 app.use(logger("dev"));
 app.use(cors(corsOptions)); // Apply CORS middleware
 
-// Security headers with helmet
-
-// Handle preflight CORS requests
-app.options("*", cors(corsOptions)); // Handle OPTIONS preflight requests
-
 // Routes
 app.use("/admin", AdminRouter);
 app.use("/events", EventRouter);
