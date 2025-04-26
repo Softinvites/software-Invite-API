@@ -34,9 +34,6 @@ app.use(express_1.default.urlencoded({ extended: true })); // No need for body-p
 app.use((0, cookie_parser_1.default)());
 app.use((0, morgan_1.default)("dev"));
 app.use((0, cors_1.default)(corsOptions)); // Apply CORS middleware
-// Security headers with helmet
-// Handle preflight CORS requests
-app.options("*", (0, cors_1.default)(corsOptions)); // Handle OPTIONS preflight requests
 // Routes
 app.use("/admin", adminRoutes_1.default);
 app.use("/events", eventsRoutes_1.default);
