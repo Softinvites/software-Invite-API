@@ -629,16 +629,6 @@ const processBatch = (guestsBatch) => __awaiter(void 0, void 0, void 0, function
     return Promise.all(batchPromises);
 });
 const downloadAllQRCodes = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    // Set CORS headers
-    res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
-    res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
-    // Handle OPTIONS request for CORS preflight
-    if (req.method === 'OPTIONS') {
-        res.status(204).end();
-        return;
-    }
     try {
         const { eventId } = req.params;
         const guests = yield guestmodel_1.Guest.find({ eventId });
