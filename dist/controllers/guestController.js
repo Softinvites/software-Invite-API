@@ -1025,18 +1025,35 @@ exports.generateAnalytics = generateAnalytics;
 const generateEventAnalytics = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { eventId } = req.params;
-        if (!eventId) {
-            res.status(400).json({ message: "Event ID is required" });
+        if (!mongoose_1.default.Types.ObjectId.isValid(eventId)) {
+            res.status(400).json({ message: 'Invalid event ID format' });
             return;
         }
-        // Total guests for this event
-        const totalGuests = yield guestmodel_1.Guest.countDocuments({ event: eventId });
-        const checkedInGuests = yield guestmodel_1.Guest.countDocuments({ event: eventId, checkedIn: true });
+        // Get all guests using `eventId` (your schema design)
+        const guests = yield guestmodel_1.Guest.find({ eventId });
+        if (!guests.length) {
+            res.status(200).json({
+                eventId,
+                totalGuests: 0,
+                checkedInGuests: 0,
+                unusedCodes: 0,
+                guestStatusBreakdown: [],
+                checkInTrend: [],
+            });
+            return;
+        }
+        const totalGuests = guests.length;
+        const checkedInGuests = yield guestmodel_1.Guest.countDocuments({
+            eventId,
+            checkedIn: true,
+        });
         const unusedCodes = totalGuests - checkedInGuests;
-        // Guest status breakdown for this event
+        // Guest status breakdown
         const guestStatusBreakdownRaw = yield guestmodel_1.Guest.aggregate([
             {
-                $match: { event: new mongoose_1.default.Types.ObjectId(eventId) },
+                $match: {
+                    eventId: new mongoose_1.default.Types.ObjectId(eventId),
+                },
             },
             {
                 $group: {
@@ -1049,11 +1066,11 @@ const generateEventAnalytics = (req, res) => __awaiter(void 0, void 0, void 0, f
             label: item._id,
             value: item.count,
         }));
-        // Check-in trend for the last 7 days for this event
+        // Check-in trend (last 7 days)
         const checkInTrendRaw = yield guestmodel_1.Guest.aggregate([
             {
                 $match: {
-                    event: new mongoose_1.default.Types.ObjectId(eventId),
+                    eventId: new mongoose_1.default.Types.ObjectId(eventId),
                     checkedIn: true,
                     updatedAt: {
                         $gte: new Date(new Date().setDate(new Date().getDate() - 7)),
@@ -1085,7 +1102,7 @@ const generateEventAnalytics = (req, res) => __awaiter(void 0, void 0, void 0, f
     }
     catch (error) {
         console.error("Error generating event analytics:", error);
-        res.status(500).json({ message: "Error generating analytics" });
+        res.status(500).json({ message: "Error generating event analytics" });
     }
 });
 exports.generateEventAnalytics = generateEventAnalytics;
