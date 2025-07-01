@@ -1259,27 +1259,45 @@ export const generateAnalytics = async (
   }
 };
 
-export const generateEventAnalytics = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
+export const generateEventAnalytics = async (req: Request, res: Response): Promise<void> => {
   try {
     const { eventId } = req.params;
 
-    if (!eventId) {
-      res.status(400).json({ message: "Event ID is required" });
+    if (!mongoose.Types.ObjectId.isValid(eventId)) {
+       res.status(400).json({ message: 'Invalid event ID format' });
+       return;
+    }
+
+    // Get all guests using `eventId` (your schema design)
+    const guests = await Guest.find({ eventId });
+
+    if (!guests.length) {
+       res.status(200).json({
+        eventId,
+        totalGuests: 0,
+        checkedInGuests: 0,
+        unusedCodes: 0,
+        guestStatusBreakdown: [],
+        checkInTrend: [],
+      });
       return;
     }
 
-    // Total guests for this event
-    const totalGuests = await Guest.countDocuments({ event: eventId });
-    const checkedInGuests = await Guest.countDocuments({ event: eventId, checkedIn: true });
+    const totalGuests = guests.length;
+
+    const checkedInGuests = await Guest.countDocuments({
+      eventId,
+      checkedIn: true,
+    });
+
     const unusedCodes = totalGuests - checkedInGuests;
 
-    // Guest status breakdown for this event
+    // Guest status breakdown
     const guestStatusBreakdownRaw = await Guest.aggregate([
       {
-        $match: { event: new mongoose.Types.ObjectId(eventId) },
+        $match: {
+          eventId: new mongoose.Types.ObjectId(eventId),
+        },
       },
       {
         $group: {
@@ -1294,11 +1312,11 @@ export const generateEventAnalytics = async (
       value: item.count,
     }));
 
-    // Check-in trend for the last 7 days for this event
+    // Check-in trend (last 7 days)
     const checkInTrendRaw = await Guest.aggregate([
       {
         $match: {
-          event: new mongoose.Types.ObjectId(eventId),
+          eventId: new mongoose.Types.ObjectId(eventId),
           checkedIn: true,
           updatedAt: {
             $gte: new Date(new Date().setDate(new Date().getDate() - 7)),
@@ -1331,7 +1349,7 @@ export const generateEventAnalytics = async (
     });
   } catch (error) {
     console.error("Error generating event analytics:", error);
-    res.status(500).json({ message: "Error generating analytics" });
+    res.status(500).json({ message: "Error generating event analytics" });
   }
 };
 
