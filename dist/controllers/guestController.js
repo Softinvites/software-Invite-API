@@ -45,7 +45,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.generateTempLink = exports.generateAnalytics = exports.scanQRCode = exports.deleteGuestsByEventAndTimestamp = exports.deleteGuestsByEvent = exports.deleteGuestById = exports.getGuestById = exports.getGuestsByEvent = exports.downloadBatchQRCodes = exports.enqueueQRCodeDownload = exports.downloadAllQRCodes = exports.downloadQRCode = exports.updateGuest = exports.importGuests = exports.addGuest = void 0;
+exports.generateTempLink = exports.generateEventAnalytics = exports.generateAnalytics = exports.scanQRCode = exports.deleteGuestsByEventAndTimestamp = exports.deleteGuestsByEvent = exports.deleteGuestById = exports.getGuestById = exports.getGuestsByEvent = exports.downloadBatchQRCodes = exports.downloadAllQRCodes = exports.downloadQRCode = exports.updateGuest = exports.importGuests = exports.addGuest = void 0;
 exports.processGuests = processGuests;
 const guestmodel_1 = require("../models/guestmodel");
 const eventmodel_1 = require("../models/eventmodel");
@@ -60,10 +60,11 @@ const emailService_1 = require("../library/helpers/emailService");
 const colorUtils_1 = require("../utils/colorUtils");
 const sharp_1 = __importDefault(require("sharp"));
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
+const mongoose_1 = __importDefault(require("mongoose"));
 // **Add a Guest & Generate QR Code**
 const addGuest = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const { firstName, lastName, email, phone, eventId, qrCodeBgColor, qrCodeCenterColor, qrCodeEdgeColor, } = req.body;
+        const { fullname, seatNo, email, phone, eventId, qrCodeBgColor, qrCodeCenterColor, qrCodeEdgeColor, } = req.body;
         // Validate input
         const validateGuest = utils_1.createGuestSchema.validate(req.body, utils_1.option);
         if (validateGuest.error) {
@@ -82,8 +83,8 @@ const addGuest = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
         const centerColorHex = (0, colorUtils_1.rgbToHex)(qrCodeCenterColor);
         const edgeColorHex = (0, colorUtils_1.rgbToHex)(qrCodeEdgeColor);
         // Create guest without qrCode and qrCodeData
-        const newGuest = new guestmodel_1.Guest(Object.assign(Object.assign({ firstName,
-            lastName,
+        const newGuest = new guestmodel_1.Guest(Object.assign(Object.assign({ fullname,
+            seatNo,
             qrCodeBgColor,
             qrCodeCenterColor,
             qrCodeEdgeColor,
@@ -129,7 +130,7 @@ const addGuest = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
         const qrCodeUrl = yield new Promise((resolve, reject) => {
             const uploadStream = uploadImage_1.cloudinary.uploader.upload_stream({
                 folder: "qr_codes",
-                public_id: `${firstName}_${lastName}_qr`,
+                public_id: `${fullname}_${seatNo}_qr`,
                 overwrite: true,
                 format: "png",
             }, (error, result) => {
@@ -148,7 +149,7 @@ const addGuest = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
         if (email) {
             const emailContent = `
         <h2>Welcome to ${eventName}!</h2>
-        <p>Dear ${firstName},</p>
+        <p>Dear ${fullname},</p>
         <p>We are delighted to invite you to <strong>${eventName}</strong>.</p>
         <h3>Event Details:</h3>
         <p><strong>Date:</strong> ${eventDate}</p>
@@ -246,7 +247,7 @@ function processGuests(guests, res) {
             const batches = chunk(guests, batchSize);
             for (const batch of batches) {
                 const settled = yield Promise.allSettled(batch.map((guest) => __awaiter(this, void 0, void 0, function* () {
-                    const { firstName, lastName, email, phone, eventId, qrCodeBgColor, qrCodeCenterColor, qrCodeEdgeColor, } = guest;
+                    const { fullname, seatNo, email, phone, eventId, qrCodeBgColor, qrCodeCenterColor, qrCodeEdgeColor, } = guest;
                     const event = yield eventmodel_1.Event.findById(eventId);
                     if (!event)
                         throw new Error('Event not found');
@@ -256,8 +257,8 @@ function processGuests(guests, res) {
                     const bgColorHex = (0, colorUtils_1.rgbToHex)(qrCodeBgColor);
                     const centerColorHex = (0, colorUtils_1.rgbToHex)(qrCodeCenterColor);
                     const edgeColorHex = (0, colorUtils_1.rgbToHex)(qrCodeEdgeColor);
-                    const newGuest = new guestmodel_1.Guest(Object.assign(Object.assign({ firstName,
-                        lastName,
+                    const newGuest = new guestmodel_1.Guest(Object.assign(Object.assign({ fullname,
+                        seatNo,
                         qrCodeBgColor,
                         qrCodeCenterColor,
                         qrCodeEdgeColor,
@@ -295,13 +296,13 @@ function processGuests(guests, res) {
                     const qrCodeUrl = yield new Promise((resolve, reject) => {
                         const uploadStream = uploadImage_1.cloudinary.uploader.upload_stream({
                             folder: 'qr_codes',
-                            public_id: `${firstName}_${lastName}_${guestId}_qr`,
+                            public_id: `${fullname}_${seatNo}_${guestId}_qr`,
                             overwrite: true,
                             format: 'png',
                         }, (error, result) => {
                             if (error || !(result === null || result === void 0 ? void 0 : result.secure_url)) {
-                                console.error(`❌ Cloudinary upload failed for ${firstName} ${lastName}:`, error);
-                                return reject(new Error(`Cloudinary upload failed for ${firstName} ${lastName}`));
+                                console.error(`❌ Cloudinary upload failed for ${fullname} ${seatNo}:`, error);
+                                return reject(new Error(`Cloudinary upload failed for ${fullname} ${seatNo}`));
                             }
                             resolve(result.secure_url);
                         });
@@ -313,7 +314,7 @@ function processGuests(guests, res) {
                     if (email) {
                         const emailContent = `
               <h2>Welcome to ${eventName}!</h2>
-              <p>Dear ${firstName},</p>
+              <p>Dear ${fullname},</p>
               <p>We are delighted to invite you to <strong>${eventName}</strong>.</p>
               <h3>Event Details:</h3>
               <p><strong>Date:</strong> ${eventDate}</p>
@@ -346,7 +347,7 @@ function processGuests(guests, res) {
 const updateGuest = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { id } = req.params;
-        const { email, firstName, lastName, eventId, qrCodeBgColor, qrCodeCenterColor, qrCodeEdgeColor } = req.body;
+        const { email, fullname, seatNo, eventId, qrCodeBgColor, qrCodeCenterColor, qrCodeEdgeColor } = req.body;
         // Validate the input
         const validateGuest = utils_1.updateGuestSchema.validate(req.body, utils_1.option);
         if (validateGuest.error) {
@@ -360,8 +361,8 @@ const updateGuest = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
             return;
         }
         // Update guest details
-        guest.firstName = firstName || guest.firstName;
-        guest.lastName = lastName || guest.lastName;
+        guest.fullname = fullname || guest.fullname;
+        guest.seatNo = seatNo || guest.seatNo;
         guest.email = email || guest.email;
         guest.eventId = eventId || guest.eventId;
         guest.qrCodeBgColor = qrCodeBgColor || guest.qrCodeBgColor;
@@ -404,7 +405,7 @@ const updateGuest = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
         // Upload PNG to Cloudinary
         const uploadResponse = yield uploadImage_1.cloudinary.uploader.upload_stream({
             folder: "qr_codes",
-            public_id: `${firstName}_${lastName}_qr`,
+            public_id: `${fullname}_${seatNo}_qr`,
             overwrite: true,
             format: "png",
         }, (error, result) => __awaiter(void 0, void 0, void 0, function* () {
@@ -423,7 +424,7 @@ const updateGuest = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
                 if (guestEmail) {
                     const emailContent = `
               <h2>Your Event QR Code Has Been Updated</h2>
-              <p>Dear ${firstName},</p>
+              <p>Dear ${fullname},</p>
               <p>Your QR code for the event has been updated.</p>
               <p>Please find your updated QR code below:</p>
               <img src="${qrCodeUrl}" alt="QR Code" />
@@ -487,7 +488,7 @@ const downloadQRCode = (req, res) => __awaiter(void 0, void 0, void 0, function*
             .resize(512, 512, { fit: 'contain' })
             .png({ compressionLevel: 9, adaptiveFiltering: true })
             .toBuffer();
-        res.setHeader('Content-Disposition', `attachment; filename="qr-${guest.firstName}-${guest.lastName}.png"`);
+        res.setHeader('Content-Disposition', `attachment; filename="qr-${guest.fullname}-${guest.seatNo}.png"`);
         res.setHeader('Content-Type', 'image/png');
         res.send(pngBuffer);
     }
@@ -570,7 +571,7 @@ exports.downloadQRCode = downloadQRCode;
 //         .png({ compressionLevel: 9, adaptiveFiltering: true })
 //         .toBuffer();
 //       archive.append(pngBuffer, {
-//         name: `${guest.firstName}-${guest.lastName}.png`,
+//         name: `${guest.fullname}-${guest.seatNo}.png`,
 //       });
 //     }
 //     // Step 3: Finalize and await upload
@@ -621,7 +622,7 @@ const processBatch = (guestsBatch) => __awaiter(void 0, void 0, void 0, function
             .png({ compressionLevel: 9, adaptiveFiltering: true })
             .toBuffer();
         return {
-            name: `${guest.firstName}-${guest.lastName}.png`,
+            name: `${guest.fullname}-${guest.seatNo}.png`,
             buffer: pngBuffer,
         };
     }));
@@ -682,13 +683,12 @@ const downloadAllQRCodes = (req, res) => __awaiter(void 0, void 0, void 0, funct
     }
 });
 exports.downloadAllQRCodes = downloadAllQRCodes;
-const enqueueQRCodeDownload = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    const { eventId } = req.params;
-    const task = new DownloadTask({ eventId });
-    yield task.save();
-    res.status(202).json({ taskId: task._id });
-});
-exports.enqueueQRCodeDownload = enqueueQRCodeDownload;
+// export const enqueueQRCodeDownload = async (req: Request, res: Response) => {
+//   const { eventId } = req.params;
+//   const task = new DownloadTask({ eventId });
+//   await task.save();
+//   res.status(202).json({ taskId: task._id });
+// };
 const downloadBatchQRCodes = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { eventId } = req.params;
@@ -755,7 +755,7 @@ const downloadBatchQRCodes = (req, res) => __awaiter(void 0, void 0, void 0, fun
                 .png({ compressionLevel: 9, adaptiveFiltering: true })
                 .toBuffer();
             archive.append(pngBuffer, {
-                name: `${guest.firstName}-${guest.lastName}.png`,
+                name: `${guest.fullname}-${guest.seatNo}.png`,
             });
         }
         archive.finalize();
@@ -948,8 +948,8 @@ const scanQRCode = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
         res.status(200).json({
             message: "Guest successfully checked in",
             guest: {
-                firstName: guest.firstName,
-                lastName: guest.lastName,
+                fullname: guest.fullname,
+                seatNo: guest.seatNo,
                 eventName: event.name,
                 eventDate: event.date,
                 eventLocation: event.location,
@@ -964,19 +964,56 @@ const scanQRCode = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
 exports.scanQRCode = scanQRCode;
 const generateAnalytics = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        // Count total events
+        // Basic counts
         const totalEvents = yield eventmodel_1.Event.countDocuments();
-        // Count total guests across all events
         const totalGuests = yield guestmodel_1.Guest.countDocuments();
-        // Count checked-in guests across all events
         const checkedInGuests = yield guestmodel_1.Guest.countDocuments({ checkedIn: true });
-        // Calculate unused codes
         const unusedCodes = totalGuests - checkedInGuests;
+        // Guest status breakdown (pie chart data)
+        const guestStatusBreakdownRaw = yield guestmodel_1.Guest.aggregate([
+            {
+                $group: {
+                    _id: "$status",
+                    count: { $sum: 1 },
+                },
+            },
+        ]);
+        const guestStatusBreakdown = guestStatusBreakdownRaw.map((item) => ({
+            label: item._id,
+            value: item.count,
+        }));
+        // Check-in trend (last 7 days)
+        const checkInTrendRaw = yield guestmodel_1.Guest.aggregate([
+            {
+                $match: {
+                    checkedIn: true,
+                    updatedAt: {
+                        $gte: new Date(new Date().setDate(new Date().getDate() - 7)),
+                    },
+                },
+            },
+            {
+                $group: {
+                    _id: {
+                        $dateToString: { format: "%Y-%m-%d", date: "$updatedAt" },
+                    },
+                    count: { $sum: 1 },
+                },
+            },
+            { $sort: { _id: 1 } },
+        ]);
+        const checkInTrend = checkInTrendRaw.map((item) => ({
+            date: item._id,
+            count: item.count,
+        }));
+        // Send everything
         res.status(200).json({
             totalEvents,
             totalGuests,
             checkedInGuests,
             unusedCodes,
+            guestStatusBreakdown,
+            checkInTrend,
         });
     }
     catch (error) {
@@ -985,6 +1022,73 @@ const generateAnalytics = (req, res) => __awaiter(void 0, void 0, void 0, functi
     }
 });
 exports.generateAnalytics = generateAnalytics;
+const generateEventAnalytics = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { eventId } = req.params;
+        if (!eventId) {
+            res.status(400).json({ message: "Event ID is required" });
+            return;
+        }
+        // Total guests for this event
+        const totalGuests = yield guestmodel_1.Guest.countDocuments({ event: eventId });
+        const checkedInGuests = yield guestmodel_1.Guest.countDocuments({ event: eventId, checkedIn: true });
+        const unusedCodes = totalGuests - checkedInGuests;
+        // Guest status breakdown for this event
+        const guestStatusBreakdownRaw = yield guestmodel_1.Guest.aggregate([
+            {
+                $match: { event: new mongoose_1.default.Types.ObjectId(eventId) },
+            },
+            {
+                $group: {
+                    _id: "$status",
+                    count: { $sum: 1 },
+                },
+            },
+        ]);
+        const guestStatusBreakdown = guestStatusBreakdownRaw.map((item) => ({
+            label: item._id,
+            value: item.count,
+        }));
+        // Check-in trend for the last 7 days for this event
+        const checkInTrendRaw = yield guestmodel_1.Guest.aggregate([
+            {
+                $match: {
+                    event: new mongoose_1.default.Types.ObjectId(eventId),
+                    checkedIn: true,
+                    updatedAt: {
+                        $gte: new Date(new Date().setDate(new Date().getDate() - 7)),
+                    },
+                },
+            },
+            {
+                $group: {
+                    _id: {
+                        $dateToString: { format: "%Y-%m-%d", date: "$updatedAt" },
+                    },
+                    count: { $sum: 1 },
+                },
+            },
+            { $sort: { _id: 1 } },
+        ]);
+        const checkInTrend = checkInTrendRaw.map((item) => ({
+            date: item._id,
+            count: item.count,
+        }));
+        res.status(200).json({
+            eventId,
+            totalGuests,
+            checkedInGuests,
+            unusedCodes,
+            guestStatusBreakdown,
+            checkInTrend,
+        });
+    }
+    catch (error) {
+        console.error("Error generating event analytics:", error);
+        res.status(500).json({ message: "Error generating analytics" });
+    }
+});
+exports.generateEventAnalytics = generateEventAnalytics;
 const generateTempLink = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { eventId } = req.params;
@@ -997,7 +1101,7 @@ const generateTempLink = (req, res) => __awaiter(void 0, void 0, void 0, functio
         // Generate a JWT with event-specific data and expiration (e.g., 12 hours)
         const token = jsonwebtoken_1.default.sign({ eventId: eventId, role: "temp", type: "checkin" }, process.env.JWT_SECRET, { expiresIn: "72h" });
         // Create a temporary link with the token
-        const tempLink = `${process.env.FRONTEND_URL}/blog?token=${token}`;
+        const tempLink = `${process.env.FRONTEND_URL}/guest?token=${token}`;
         res.status(200).json({ tempLink });
     }
     catch (error) {

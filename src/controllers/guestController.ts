@@ -12,6 +12,7 @@ import { sendEmail } from "../library/helpers/emailService";
 import { rgbToHex } from "../utils/colorUtils";
 import sharp from "sharp";
 import jwt from "jsonwebtoken";
+import mongoose from "mongoose";
 
 
 
@@ -1257,6 +1258,83 @@ export const generateAnalytics = async (
     res.status(500).json({ message: "Error generating analytics" });
   }
 };
+
+export const generateEventAnalytics = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const { eventId } = req.params;
+
+    if (!eventId) {
+      res.status(400).json({ message: "Event ID is required" });
+      return;
+    }
+
+    // Total guests for this event
+    const totalGuests = await Guest.countDocuments({ event: eventId });
+    const checkedInGuests = await Guest.countDocuments({ event: eventId, checkedIn: true });
+    const unusedCodes = totalGuests - checkedInGuests;
+
+    // Guest status breakdown for this event
+    const guestStatusBreakdownRaw = await Guest.aggregate([
+      {
+        $match: { event: new mongoose.Types.ObjectId(eventId) },
+      },
+      {
+        $group: {
+          _id: "$status",
+          count: { $sum: 1 },
+        },
+      },
+    ]);
+
+    const guestStatusBreakdown = guestStatusBreakdownRaw.map((item) => ({
+      label: item._id,
+      value: item.count,
+    }));
+
+    // Check-in trend for the last 7 days for this event
+    const checkInTrendRaw = await Guest.aggregate([
+      {
+        $match: {
+          event: new mongoose.Types.ObjectId(eventId),
+          checkedIn: true,
+          updatedAt: {
+            $gte: new Date(new Date().setDate(new Date().getDate() - 7)),
+          },
+        },
+      },
+      {
+        $group: {
+          _id: {
+            $dateToString: { format: "%Y-%m-%d", date: "$updatedAt" },
+          },
+          count: { $sum: 1 },
+        },
+      },
+      { $sort: { _id: 1 } },
+    ]);
+
+    const checkInTrend = checkInTrendRaw.map((item) => ({
+      date: item._id,
+      count: item.count,
+    }));
+
+    res.status(200).json({
+      eventId,
+      totalGuests,
+      checkedInGuests,
+      unusedCodes,
+      guestStatusBreakdown,
+      checkInTrend,
+    });
+  } catch (error) {
+    console.error("Error generating event analytics:", error);
+    res.status(500).json({ message: "Error generating analytics" });
+  }
+};
+
 
 
 export const generateTempLink = async (

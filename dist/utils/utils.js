@@ -14,7 +14,7 @@ exports.RegisterAdminSchema = joi_1.default.object({
         .regex(/^[a-zA-Z0-9~!@#$%^&*()_\-+={[}\]|\\:;"'<>,.?/`]{6,}$/)
         .required()
         .messages({
-        'string.pattern.base': 'Password contains invalid characters.',
+        "string.pattern.base": "Password contains invalid characters.",
     }),
     confirm_password: joi_1.default.string()
         .valid(joi_1.default.ref("password"))
@@ -69,18 +69,18 @@ exports.updateEventSchema = joi_1.default.object({
     description: joi_1.default.string().optional(),
 });
 exports.createGuestSchema = joi_1.default.object({
-    firstName: joi_1.default.string().required(),
-    lastName: joi_1.default.string().required(),
-    email: joi_1.default.string().email().optional().allow('', null),
-    phone: joi_1.default.string().optional().allow('', null),
+    fullname: joi_1.default.string().required(),
+    seatNo: joi_1.default.string().optional().allow("", null),
+    email: joi_1.default.string().email().optional().allow("", null),
+    phone: joi_1.default.string().optional().allow("", null),
     eventId: joi_1.default.string().required(),
     qrCodeBgColor: joi_1.default.string().required(),
     qrCodeCenterColor: joi_1.default.string().required(),
     qrCodeEdgeColor: joi_1.default.string().required(),
 });
 exports.updateGuestSchema = joi_1.default.object({
-    firstName: joi_1.default.string().optional(),
-    lastName: joi_1.default.string().optional(),
+    fullname: joi_1.default.string().required(),
+    seatNo: joi_1.default.string().optional(),
     email: joi_1.default.string().email().optional(),
     phone: joi_1.default.string().optional(),
     eventId: joi_1.default.string().required(),
