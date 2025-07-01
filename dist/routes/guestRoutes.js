@@ -25,5 +25,6 @@ router.delete("/single-guest/:id", auth_1.default, guestController_1.deleteGuest
 router.delete("/event-guest/:eventId", auth_1.default, guestController_1.deleteGuestsByEvent);
 router.delete("/delete/:eventId/timestamp", auth_1.default, guestController_1.deleteGuestsByEventAndTimestamp);
 router.get("/get-analytics/", auth_1.default, guestController_1.generateAnalytics);
+router.get("/event-analytics/:eventId", combinedAuth_1.combinedAuth, guestController_1.generateEventAnalytics);
 router.post("/generate-temp-link/:eventId", auth_1.default, guestController_1.generateTempLink);
 exports.default = router;

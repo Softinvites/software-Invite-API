@@ -13,6 +13,7 @@ import {
   deleteGuestsByEventAndTimestamp,
   scanQRCode,
   generateAnalytics,
+  generateEventAnalytics,
   generateTempLink,
 } from "../controllers/guestController";
 import auth from "../library/middlewares/auth";
@@ -50,6 +51,7 @@ router.delete(
   deleteGuestsByEventAndTimestamp
 );
 router.get("/get-analytics/", auth, generateAnalytics);
+router.get("/event-analytics/:eventId", combinedAuth, generateEventAnalytics);
 router.post("/generate-temp-link/:eventId", auth, generateTempLink);
 
 export default router;
