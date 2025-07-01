@@ -19,8 +19,8 @@ import jwt from "jsonwebtoken";
 export const addGuest = async (req: Request, res: Response): Promise<void> => {
   try {
     const {
-      firstName,
-      lastName,
+      fullname,
+      seatNo,
       email,
       phone,
       eventId,
@@ -52,8 +52,8 @@ export const addGuest = async (req: Request, res: Response): Promise<void> => {
 
   // Create guest without qrCode and qrCodeData
 const newGuest = new Guest({
-  firstName,
-  lastName,
+  fullname,
+  seatNo,
   qrCodeBgColor,
   qrCodeCenterColor,
   qrCodeEdgeColor,
@@ -121,7 +121,7 @@ const qrCodeUrl = await new Promise<string>((resolve, reject) => {
   const uploadStream = cloudinary.uploader.upload_stream(
     {
       folder: "qr_codes",
-      public_id: `${firstName}_${lastName}_qr`,
+      public_id: `${fullname}_${seatNo}_qr`,
       overwrite: true,
       format: "png",
     },
@@ -148,7 +148,7 @@ await savedGuest.save();
     if (email) {
       const emailContent = `
         <h2>Welcome to ${eventName}!</h2>
-        <p>Dear ${firstName},</p>
+        <p>Dear ${fullname},</p>
         <p>We are delighted to invite you to <strong>${eventName}</strong>.</p>
         <h3>Event Details:</h3>
         <p><strong>Date:</strong> ${eventDate}</p>
@@ -248,8 +248,8 @@ export const importGuests = async (
 // ✅ Process Imported Guests from CSV/Excel
 
 type GuestType = {
-  firstName: string;
-  lastName: string;
+  fullname: string;
+  seatNo: string;
   email?: string;
   phone?: string;
   eventId: string;
@@ -277,8 +277,8 @@ export async function processGuests(
       const settled = await Promise.allSettled(
         batch.map(async (guest) => {
           const {
-            firstName,
-            lastName,
+            fullname,
+            seatNo,
             email,
             phone,
             eventId,
@@ -299,8 +299,8 @@ export async function processGuests(
           const edgeColorHex = rgbToHex(qrCodeEdgeColor);
 
           const newGuest = new Guest({
-            firstName,
-            lastName,
+            fullname,
+            seatNo,
             qrCodeBgColor,
             qrCodeCenterColor,
             qrCodeEdgeColor,
@@ -353,14 +353,14 @@ export async function processGuests(
             const uploadStream = cloudinary.uploader.upload_stream(
               {
                 folder: 'qr_codes',
-                public_id: `${firstName}_${lastName}_${guestId}_qr`,
+                public_id: `${fullname}_${seatNo}_${guestId}_qr`,
                 overwrite: true,
                 format: 'png',
               },
               (error, result) => {
                 if (error || !result?.secure_url) {
-                  console.error(`❌ Cloudinary upload failed for ${firstName} ${lastName}:`, error);
-                  return reject(new Error(`Cloudinary upload failed for ${firstName} ${lastName}`));
+                  console.error(`❌ Cloudinary upload failed for ${fullname} ${seatNo}:`, error);
+                  return reject(new Error(`Cloudinary upload failed for ${fullname} ${seatNo}`));
                 }
                 resolve(result.secure_url);
               }
@@ -375,7 +375,7 @@ export async function processGuests(
           if (email) {
             const emailContent = `
               <h2>Welcome to ${eventName}!</h2>
-              <p>Dear ${firstName},</p>
+              <p>Dear ${fullname},</p>
               <p>We are delighted to invite you to <strong>${eventName}</strong>.</p>
               <h3>Event Details:</h3>
               <p><strong>Date:</strong> ${eventDate}</p>
@@ -415,7 +415,7 @@ export async function processGuests(
 export const updateGuest = async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
-    const { email, firstName, lastName, eventId, qrCodeBgColor, qrCodeCenterColor, qrCodeEdgeColor } = req.body;
+    const { email, fullname, seatNo, eventId, qrCodeBgColor, qrCodeCenterColor, qrCodeEdgeColor } = req.body;
 
     // Validate the input
     const validateGuest = updateGuestSchema.validate(req.body, option);
@@ -432,8 +432,8 @@ export const updateGuest = async (req: Request, res: Response): Promise<void> =>
     }
 
     // Update guest details
-    guest.firstName = firstName || guest.firstName;
-    guest.lastName = lastName || guest.lastName;
+    guest.fullname = fullname || guest.fullname;
+    guest.seatNo = seatNo || guest.seatNo;
     guest.email = email || guest.email;
     guest.eventId = eventId || guest.eventId;
     guest.qrCodeBgColor = qrCodeBgColor || guest.qrCodeBgColor;
@@ -491,7 +491,7 @@ export const updateGuest = async (req: Request, res: Response): Promise<void> =>
     const uploadResponse = await cloudinary.uploader.upload_stream(
       {
         folder: "qr_codes",
-        public_id: `${firstName}_${lastName}_qr`,
+        public_id: `${fullname}_${seatNo}_qr`,
         overwrite: true,
         format: "png",
       },
@@ -515,7 +515,7 @@ export const updateGuest = async (req: Request, res: Response): Promise<void> =>
           if (guestEmail) {
             const emailContent = `
               <h2>Your Event QR Code Has Been Updated</h2>
-              <p>Dear ${firstName},</p>
+              <p>Dear ${fullname},</p>
               <p>Your QR code for the event has been updated.</p>
               <p>Please find your updated QR code below:</p>
               <img src="${qrCodeUrl}" alt="QR Code" />
@@ -605,7 +605,7 @@ export const downloadQRCode = async (
 
     res.setHeader(
       'Content-Disposition',
-      `attachment; filename="qr-${guest.firstName}-${guest.lastName}.png"`
+      `attachment; filename="qr-${guest.fullname}-${guest.seatNo}.png"`
     );
     res.setHeader('Content-Type', 'image/png');
     res.send(pngBuffer);
@@ -703,7 +703,7 @@ export const downloadQRCode = async (
 //         .toBuffer();
 
 //       archive.append(pngBuffer, {
-//         name: `${guest.firstName}-${guest.lastName}.png`,
+//         name: `${guest.fullname}-${guest.seatNo}.png`,
 //       });
 //     }
 
@@ -774,7 +774,7 @@ const processBatch = async (guestsBatch: any[]) => {
       .toBuffer();
 
     return {
-      name: `${guest.firstName}-${guest.lastName}.png`,
+      name: `${guest.fullname}-${guest.seatNo}.png`,
       buffer: pngBuffer,
     };
   });
@@ -846,6 +846,16 @@ export const downloadAllQRCodes = async (req: Request, res: Response): Promise<v
      return;
   }
 };
+
+// export const enqueueQRCodeDownload = async (req: Request, res: Response) => {
+//   const { eventId } = req.params;
+
+//   const task = new DownloadTask({ eventId });
+//   await task.save();
+
+//   res.status(202).json({ taskId: task._id });
+// };
+
 
 
 export const downloadBatchQRCodes = async (req: Request, res: Response): Promise<void> => {
@@ -934,7 +944,7 @@ console.log("Matched guests:", guests.length);
         .toBuffer();
 
       archive.append(pngBuffer, {
-        name: `${guest.firstName}-${guest.lastName}.png`,
+        name: `${guest.fullname}-${guest.seatNo}.png`,
       });
     }
 
@@ -1168,8 +1178,8 @@ export const scanQRCode = async (
     res.status(200).json({
       message: "Guest successfully checked in",
       guest: {
-        firstName: guest.firstName,
-        lastName: guest.lastName,
+        fullname: guest.fullname,
+        seatNo: guest.seatNo,
         eventName: event.name,
         eventDate: event.date,
         eventLocation: event.location,
@@ -1181,34 +1191,73 @@ export const scanQRCode = async (
   }
 };
 
+
 export const generateAnalytics = async (
   req: Request,
   res: Response
 ): Promise<void> => {
   try {
-    // Count total events
+    // Basic counts
     const totalEvents = await Event.countDocuments();
-
-    // Count total guests across all events
     const totalGuests = await Guest.countDocuments();
-
-    // Count checked-in guests across all events
     const checkedInGuests = await Guest.countDocuments({ checkedIn: true });
-
-    // Calculate unused codes
     const unusedCodes = totalGuests - checkedInGuests;
 
+    // Guest status breakdown (pie chart data)
+    const guestStatusBreakdownRaw = await Guest.aggregate([
+      {
+        $group: {
+          _id: "$status",
+          count: { $sum: 1 },
+        },
+      },
+    ]);
+    const guestStatusBreakdown = guestStatusBreakdownRaw.map((item) => ({
+      label: item._id,
+      value: item.count,
+    }));
+
+    // Check-in trend (last 7 days)
+    const checkInTrendRaw = await Guest.aggregate([
+      {
+        $match: {
+          checkedIn: true,
+          updatedAt: {
+            $gte: new Date(new Date().setDate(new Date().getDate() - 7)),
+          },
+        },
+      },
+      {
+        $group: {
+          _id: {
+            $dateToString: { format: "%Y-%m-%d", date: "$updatedAt" },
+          },
+          count: { $sum: 1 },
+        },
+      },
+      { $sort: { _id: 1 } },
+    ]);
+
+    const checkInTrend = checkInTrendRaw.map((item) => ({
+      date: item._id,
+      count: item.count,
+    }));
+
+    // Send everything
     res.status(200).json({
       totalEvents,
       totalGuests,
       checkedInGuests,
       unusedCodes,
+      guestStatusBreakdown,
+      checkInTrend,
     });
   } catch (error) {
     console.error("Error generating analytics:", error);
     res.status(500).json({ message: "Error generating analytics" });
   }
 };
+
 
 export const generateTempLink = async (
   req: Request,
@@ -1232,7 +1281,7 @@ export const generateTempLink = async (
     );
 
     // Create a temporary link with the token
-    const tempLink = `${process.env.FRONTEND_URL}/blog?token=${token}`;
+    const tempLink = `${process.env.FRONTEND_URL}/guest?token=${token}`;
     res.status(200).json({ tempLink });
   } catch (error) {
     console.error("Error generating temp link:", error);
