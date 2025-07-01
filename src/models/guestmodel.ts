@@ -2,8 +2,8 @@ import { Schema, model, Document, Types } from "mongoose";
 
 interface GuestDocument extends Document {
   _id: Types.ObjectId;
-  firstName: string;
-  lastName: string;
+  fullname: string;
+  seatNo: string;
   email: string;
   phone: string;
   qrCode: string;
@@ -21,8 +21,8 @@ interface GuestDocument extends Document {
 
 const GuestSchema = new Schema<GuestDocument>(
   {
-    firstName: { type: String, required: true },
-    lastName: { type: String, required: true },
+    fullname: { type: String, required: true },
+    seatNo: { type: String, required: false },
     email: { type: String, required: false, },
     phone: { type: String, required: false },
     qrCode: { type: String, required: false },

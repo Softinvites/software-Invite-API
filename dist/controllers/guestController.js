@@ -45,7 +45,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.generateTempLink = exports.generateAnalytics = exports.scanQRCode = exports.deleteGuestsByEventAndTimestamp = exports.deleteGuestsByEvent = exports.deleteGuestById = exports.getGuestById = exports.getGuestsByEvent = exports.downloadBatchQRCodes = exports.downloadAllQRCodes = exports.downloadQRCode = exports.updateGuest = exports.importGuests = exports.addGuest = void 0;
+exports.generateTempLink = exports.generateAnalytics = exports.scanQRCode = exports.deleteGuestsByEventAndTimestamp = exports.deleteGuestsByEvent = exports.deleteGuestById = exports.getGuestById = exports.getGuestsByEvent = exports.downloadBatchQRCodes = exports.enqueueQRCodeDownload = exports.downloadAllQRCodes = exports.downloadQRCode = exports.updateGuest = exports.importGuests = exports.addGuest = void 0;
 exports.processGuests = processGuests;
 const guestmodel_1 = require("../models/guestmodel");
 const eventmodel_1 = require("../models/eventmodel");
@@ -682,6 +682,13 @@ const downloadAllQRCodes = (req, res) => __awaiter(void 0, void 0, void 0, funct
     }
 });
 exports.downloadAllQRCodes = downloadAllQRCodes;
+const enqueueQRCodeDownload = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const { eventId } = req.params;
+    const task = new DownloadTask({ eventId });
+    yield task.save();
+    res.status(202).json({ taskId: task._id });
+});
+exports.enqueueQRCodeDownload = enqueueQRCodeDownload;
 const downloadBatchQRCodes = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { eventId } = req.params;
