@@ -5,19 +5,18 @@ export const RegisterAdminSchema = Joi.object({
   name: Joi.string().required(),
   email: Joi.string().email().required(),
   password: Joi.string()
-      .min(6)
-      .regex(/^[a-zA-Z0-9~!@#$%^&*()_\-+={[}\]|\\:;"'<>,.?/`]{6,}$/)
-      .required()
-      .messages({
-        'string.pattern.base': 'Password contains invalid characters.',
-      }),
+    .min(6)
+    .regex(/^[a-zA-Z0-9~!@#$%^&*()_\-+={[}\]|\\:;"'<>,.?/`]{6,}$/)
+    .required()
+    .messages({
+      "string.pattern.base": "Password contains invalid characters.",
+    }),
   confirm_password: Joi.string()
-      .valid(Joi.ref("password"))
-      .required()
-      .label("confirm password")
-      .messages({ "any.only": "{{#label}} does not match" }),
-  });
-  
+    .valid(Joi.ref("password"))
+    .required()
+    .label("confirm password")
+    .messages({ "any.only": "{{#label}} does not match" }),
+});
 
 export const LoginAdminSchema = Joi.object({
   email: Joi.string().email().required(),
@@ -72,10 +71,10 @@ export const updateEventSchema = Joi.object({
 });
 
 export const createGuestSchema = Joi.object({
-  firstName: Joi.string().required(),
-  lastName: Joi.string().required(),
-  email: Joi.string().email().optional().allow('', null),
-  phone: Joi.string().optional().allow('', null),
+  fullname: Joi.string().required(),
+  seatNo: Joi.string().optional().allow("", null),
+  email: Joi.string().email().optional().allow("", null),
+  phone: Joi.string().optional().allow("", null),
   eventId: Joi.string().required(),
   qrCodeBgColor: Joi.string().required(),
   qrCodeCenterColor: Joi.string().required(),
@@ -83,8 +82,8 @@ export const createGuestSchema = Joi.object({
 });
 
 export const updateGuestSchema = Joi.object({
-  firstName: Joi.string().optional(),
-  lastName: Joi.string().optional(),
+  fullname: Joi.string().required(),
+  seatNo: Joi.string().optional(),
   email: Joi.string().email().optional(),
   phone: Joi.string().optional(),
   eventId: Joi.string().required(),
