@@ -5,6 +5,7 @@ interface EventDocument extends Document {
   date: string;
   location: string;
   description: string;
+  iv: string;
   isActive: boolean;
 }
 
@@ -13,6 +14,7 @@ const EventSchema = new Schema({
   date: { type: String, required: true },
   location: { type: String, required: true },
   description: { type: String, required: true, trim: true, maxlength: 3000 },
+  iv: { type: String, required: true }, 
   isActive: { type: Boolean, default: true },
 },
 

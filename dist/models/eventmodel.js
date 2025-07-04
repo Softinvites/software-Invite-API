@@ -7,6 +7,7 @@ const EventSchema = new mongoose_1.Schema({
     date: { type: String, required: true },
     location: { type: String, required: true },
     description: { type: String, required: true, trim: true, maxlength: 3000 },
+    iv: { type: String, required: true },
     isActive: { type: Boolean, default: true },
 }, {
     timestamps: true,

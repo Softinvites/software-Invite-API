@@ -3,9 +3,11 @@ import { Schema, model, Document, Types } from "mongoose";
 interface GuestDocument extends Document {
   _id: Types.ObjectId;
   fullname: string;
-  seatNo: string;
+  TableNo: string;
   email: string;
   phone: string;
+  message:string;
+  others:string;
   qrCode: string;
   qrCodeData: string;
   qrCodeBgColor: string;
@@ -22,9 +24,11 @@ interface GuestDocument extends Document {
 const GuestSchema = new Schema<GuestDocument>(
   {
     fullname: { type: String, required: true },
-    seatNo: { type: String, required: false },
+    TableNo: { type: String, required: false },
     email: { type: String, required: false, },
     phone: { type: String, required: false },
+    message: { type: String, required: true },
+    others: { type: String, required: false },
     qrCode: { type: String, required: false },
     qrCodeData: { type: String, required: false },
     qrCodeBgColor: { type: String, default: "255,255,255" }, 

@@ -31,6 +31,7 @@
     "@types/p-limit": "^2.2.0",
     "@types/qrcode": "^1.5.5",
     "@types/qrcode-svg": "^1.1.5",
+    "@types/sanitize-html": "^2.16.0",
     "@types/sharp": "^0.32.0",
     "@types/xlsx": "^0.0.36",
     "@vercel/node": "^5.1.10",
@@ -63,6 +64,7 @@
     "p-limit": "^6.2.0",
     "qrcode": "^1.5.4",
     "qrcode-svg": "^1.1.0",
+    "sanitize-html": "^2.17.0",
     "sharp": "^0.33.5",
     "stream": "^0.0.3",
     "xlsx": "^0.18.5"
