@@ -61,6 +61,7 @@ export const creatEventSchema = Joi.object({
   date: Joi.string().required(),
   location: Joi.string().required(),
   description: Joi.string().required(),
+  // iv: Joi.string().base64().required() 
 });
 
 export const updateEventSchema = Joi.object({
@@ -68,13 +69,16 @@ export const updateEventSchema = Joi.object({
   date: Joi.string().optional(),
   location: Joi.string().optional(),
   description: Joi.string().optional(),
+  // iv: Joi.string().base64().optional(), 
 });
 
 export const createGuestSchema = Joi.object({
   fullname: Joi.string().required(),
-  seatNo: Joi.string().optional().allow("", null),
+  TableNo: Joi.string().optional().allow("", null),
   email: Joi.string().email().optional().allow("", null),
   phone: Joi.string().optional().allow("", null),
+  message: Joi.string().required(),
+  others: Joi.string().optional().allow("", null),
   eventId: Joi.string().required(),
   qrCodeBgColor: Joi.string().required(),
   qrCodeCenterColor: Joi.string().required(),
@@ -82,10 +86,12 @@ export const createGuestSchema = Joi.object({
 });
 
 export const updateGuestSchema = Joi.object({
-  fullname: Joi.string().required(),
-  seatNo: Joi.string().optional(),
+  fullname: Joi.string().optional(),
+  TableNo: Joi.string().optional(),
   email: Joi.string().email().optional(),
   phone: Joi.string().optional(),
+  message: Joi.string().optional(),
+  others: Joi.string().optional(),
   eventId: Joi.string().required(),
   qrCodeBgColor: Joi.string().optional(),
   qrCodeCenterColor: Joi.string().optional(),

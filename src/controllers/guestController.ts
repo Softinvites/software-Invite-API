@@ -13,17 +13,18 @@ import { rgbToHex } from "../utils/colorUtils";
 import sharp from "sharp";
 import jwt from "jsonwebtoken";
 import mongoose from "mongoose";
-
-
+import sanitizeHtml from "sanitize-html";
 
 // **Add a Guest & Generate QR Code**
 export const addGuest = async (req: Request, res: Response): Promise<void> => {
   try {
     const {
       fullname,
-      seatNo,
+      TableNo,
       email,
       phone,
+      message,
+      others,
       eventId,
       qrCodeBgColor,
       qrCodeCenterColor,
@@ -44,120 +45,120 @@ export const addGuest = async (req: Request, res: Response): Promise<void> => {
     }
 
     const eventName = event.name;
-    const eventDate = event.date;
-    const eventLocation = event.location;
+    const iv = event.iv;
+    // const eventDate = event.date;
+    // const eventLocation = event.location;
 
     const bgColorHex = rgbToHex(qrCodeBgColor);
     const centerColorHex = rgbToHex(qrCodeCenterColor);
     const edgeColorHex = rgbToHex(qrCodeEdgeColor);
 
-  // Create guest without qrCode and qrCodeData
-const newGuest = new Guest({
-  fullname,
-  seatNo,
-  qrCodeBgColor,
-  qrCodeCenterColor,
-  qrCodeEdgeColor,
-  eventId,
-  ...(phone && { phone }),
-  ...(email && { email }),
-});
+    // Create guest without qrCode and qrCodeData
+    const newGuest = new Guest({
+      fullname,
+      message,
+      qrCodeBgColor,
+      qrCodeCenterColor,
+      qrCodeEdgeColor,
+      eventId,
+      ...(email && { email }),
+      ...(phone && { phone }),
+      ...(TableNo && { TableNo }),
+      ...(others && { others }),
+    });
 
-const savedGuest = await newGuest.save(); // Save so we can use the ID
+    const savedGuest = await newGuest.save(); // Save so we can use the ID
 
-// Generate QR code data
-const guestId = savedGuest._id.toString();
-const qrCodeData = guestId;
+    // Generate QR code data
+    const guestId = savedGuest._id.toString();
+    const qrCodeData = guestId;
 
-// Generate QR code
-const qr = new QRCode({
-  content: qrCodeData,
-  padding: 5,
-  width: 512,
-  height: 512,
-  color: edgeColorHex,
-  background: bgColorHex,
-  xmlDeclaration: false,
-});
+    // Generate QR code
+    const qr = new QRCode({
+      content: qrCodeData,
+      padding: 5,
+      width: 512,
+      height: 512,
+      color: edgeColorHex,
+      background: bgColorHex,
+      xmlDeclaration: false,
+    });
 
-let svg = qr.svg();  
+    let svg = qr.svg();
 
-// Insert gradient into the SVG  
-svg = svg.replace(  
-  /<svg([^>]*)>/,  
-  `<svg$1>  
+    // Insert gradient into the SVG
+    svg = svg.replace(
+      /<svg([^>]*)>/,
+      `<svg$1>  
     <defs>  
       <radialGradient id="grad1" cx="50%" cy="50%" r="50%" fx="50%" fy="50%">  
         <stop offset="0%" stop-color="${centerColorHex}" stop-opacity="1"/>  
         <stop offset="100%" stop-color="${edgeColorHex}" stop-opacity="1"/>  
       </radialGradient>  
-    </defs>`  
-);  
+    </defs>`
+    );
 
-// Adjust the QR code style  
-svg = svg.replace(  
-  /<rect([^>]*?)(?=style="fill:#[0-9a-fA-F]{3,6};")/g,  
-  (match, group1) => `<rect${group1}style="fill:url(#grad1);"/>`  
-);  
+    // Adjust the QR code style
+    svg = svg.replace(
+      /<rect([^>]*?)(?=style="fill:#[0-9a-fA-F]{3,6};")/g,
+      (match, group1) => `<rect${group1}style="fill:url(#grad1);"/>`
+    );
 
-// Keep the background rectangle unchanged  
-svg = svg.replace(  
-  /<rect([^>]*?)style="fill:#[0-9a-fA-F]{3,6};([^"]*)"/g,  
-  (match, group1, group2) => {  
-    const isBoundingRect = /x="0".*y="0"/.test(group1);  
-    return isBoundingRect  
-      ? `<rect${group1}style="fill:${bgColorHex};${group2}"/>`  
-      : match; // No change to already matched rectangles  
-  }  
-);  
-
-// Convert to PNG  
-const pngBuffer = await sharp(Buffer.from(svg))  
-  .resize(512, 512, { fit: "contain" })  
-  .png({ compressionLevel: 9, adaptiveFiltering: true })  
-  .toBuffer();  
-
-// Upload to Cloudinary
-const qrCodeUrl = await new Promise<string>((resolve, reject) => {
-  const uploadStream = cloudinary.uploader.upload_stream(
-    {
-      folder: "qr_codes",
-      public_id: `${fullname}_${seatNo}_qr`,
-      overwrite: true,
-      format: "png",
-    },
-    (error, result) => {
-      if (error || !result?.secure_url) {
-        return reject(error);
+    // Keep the background rectangle unchanged
+    svg = svg.replace(
+      /<rect([^>]*?)style="fill:#[0-9a-fA-F]{3,6};([^"]*)"/g,
+      (match, group1, group2) => {
+        const isBoundingRect = /x="0".*y="0"/.test(group1);
+        return isBoundingRect
+          ? `<rect${group1}style="fill:${bgColorHex};${group2}"/>`
+          : match; // No change to already matched rectangles
       }
-      resolve(result.secure_url);
-    }
-  );
+    );
 
-  uploadStream.end(pngBuffer);
-});
+    // Convert to PNG
+    const pngBuffer = await sharp(Buffer.from(svg))
+      .resize(512, 512, { fit: "contain" })
+      .png({ compressionLevel: 9, adaptiveFiltering: true })
+      .toBuffer();
 
-// Update the saved guest with qrCode and qrCodeData
-savedGuest.qrCode = qrCodeUrl;
-savedGuest.qrCodeData = qrCodeData;
+    // Upload to Cloudinary
+    const qrCodeUrl = await new Promise<string>((resolve, reject) => {
+      const uploadStream = cloudinary.uploader.upload_stream(
+        {
+          folder: "qr_codes",
+          public_id: `${fullname}_qr`,
+          overwrite: true,
+          format: "png",
+        },
+        (error, result) => {
+          if (error || !result?.secure_url) {
+            return reject(error);
+          }
+          resolve(result.secure_url);
+        }
+      );
 
-// Save the guest with QR code data
-await savedGuest.save();
+      uploadStream.end(pngBuffer);
+    });
 
-    
+    // Update the saved guest with qrCode and qrCodeData
+    savedGuest.qrCode = qrCodeUrl;
+    savedGuest.qrCodeData = qrCodeData;
+
+    // Save the guest with QR code data
+    await savedGuest.save();
 
     if (email) {
+      const sanitizedMessage = sanitizeHtml(message, {
+        allowedTags: ["p", "b", "i", "strong", "em", "ul", "li", "br"],
+        allowedAttributes: {},
+      });
       const emailContent = `
         <h2>Welcome to ${eventName}!</h2>
         <p>Dear ${fullname},</p>
-        <p>We are delighted to invite you to <strong>${eventName}</strong>.</p>
-        <h3>Event Details:</h3>
-        <p><strong>Date:</strong> ${eventDate}</p>
-        <p><strong>Location:</strong> ${eventLocation}</p>
-        <p><strong>Description:</strong> ${event.description}</p>
-        <p>Your QR code for the event is attached below. Please present this QR code upon arrival.</p>
-        <img src=\"${qrCodeUrl}\" alt=\"QR Code\" />
-        <p>See you at ${eventName}!</p>
+         <p>${sanitizedMessage}</p>
+         <p><strong>IV Image:</strong></p>
+        <img src="${iv}" alt="Invitation" width="300"/>
       `;
 
       try {
@@ -168,15 +169,14 @@ await savedGuest.save();
       }
     }
 
-    res.status(201).json({ message: "Guest created successfully", guest: savedGuest });
-
+    res
+      .status(201)
+      .json({ message: "Guest created successfully", guest: savedGuest });
   } catch (error) {
     console.error("Error:", error);
     res.status(500).json({ message: "Error creating guest", error });
   }
 };
-
-
 
 // ✅ Import Guests from CSV/Excel and delete from Cloudinary
 export const importGuests = async (
@@ -250,9 +250,11 @@ export const importGuests = async (
 
 type GuestType = {
   fullname: string;
-  seatNo: string;
+  TableNo?: string;
   email?: string;
   phone?: string;
+  message: string;
+  others: string;
   eventId: string;
   qrCodeBgColor: string;
   qrCodeCenterColor: string;
@@ -279,9 +281,11 @@ export async function processGuests(
         batch.map(async (guest) => {
           const {
             fullname,
-            seatNo,
+            TableNo,
             email,
             phone,
+            message,
+            others,
             eventId,
             qrCodeBgColor,
             qrCodeCenterColor,
@@ -289,11 +293,10 @@ export async function processGuests(
           } = guest;
 
           const event = await Event.findById(eventId);
-          if (!event) throw new Error('Event not found');
+          if (!event) throw new Error("Event not found");
 
           const eventName = event.name;
-          const eventDate = event.date;
-          const eventLocation = event.location;
+          const iv = event.iv
 
           const bgColorHex = rgbToHex(qrCodeBgColor);
           const centerColorHex = rgbToHex(qrCodeCenterColor);
@@ -301,13 +304,15 @@ export async function processGuests(
 
           const newGuest = new Guest({
             fullname,
-            seatNo,
+            TableNo,
+            message,
             qrCodeBgColor,
             qrCodeCenterColor,
             qrCodeEdgeColor,
             eventId,
             ...(phone && { phone }),
             ...(email && { email }),
+            ...(others && { others }),
           });
 
           const savedGuest = await newGuest.save();
@@ -346,22 +351,29 @@ export async function processGuests(
           );
 
           const pngBuffer = await sharp(Buffer.from(svg))
-            .resize(512, 512, { fit: 'contain' })
+            .resize(512, 512, { fit: "contain" })
             .png({ compressionLevel: 9, adaptiveFiltering: true })
             .toBuffer();
 
           const qrCodeUrl = await new Promise<string>((resolve, reject) => {
             const uploadStream = cloudinary.uploader.upload_stream(
               {
-                folder: 'qr_codes',
-                public_id: `${fullname}_${seatNo}_${guestId}_qr`,
+                folder: "qr_codes",
+                public_id: `${fullname}_${TableNo}_${guestId}_qr`,
                 overwrite: true,
-                format: 'png',
+                format: "png",
               },
               (error, result) => {
                 if (error || !result?.secure_url) {
-                  console.error(`❌ Cloudinary upload failed for ${fullname} ${seatNo}:`, error);
-                  return reject(new Error(`Cloudinary upload failed for ${fullname} ${seatNo}`));
+                  console.error(
+                    `❌ Cloudinary upload failed for ${fullname} ${TableNo}:`,
+                    error
+                  );
+                  return reject(
+                    new Error(
+                      `Cloudinary upload failed for ${fullname} ${TableNo}`
+                    )
+                  );
                 }
                 resolve(result.secure_url);
               }
@@ -374,19 +386,22 @@ export async function processGuests(
           await savedGuest.save();
 
           if (email) {
+            const sanitizedMessage = sanitizeHtml(message, {
+              allowedTags: ["p", "b", "i", "strong", "em", "ul", "li", "br"],
+              allowedAttributes: {},
+            });
             const emailContent = `
               <h2>Welcome to ${eventName}!</h2>
               <p>Dear ${fullname},</p>
-              <p>We are delighted to invite you to <strong>${eventName}</strong>.</p>
-              <h3>Event Details:</h3>
-              <p><strong>Date:</strong> ${eventDate}</p>
-              <p><strong>Location:</strong> ${eventLocation}</p>
-              <p><strong>Description:</strong> ${event.description}</p>
-              <p>Your QR code for the event is attached below. Please present this QR code upon arrival.</p>
-              <img src="${qrCodeUrl}" alt="QR Code" />
-              <p>See you at ${eventName}!</p>
+               <p>${sanitizedMessage}</p>
+               <p><strong>IV Image:</strong></p>
+               <img src="${iv}" alt="Invitation" width="300"/>
             `;
-            await sendEmail(email, `Your Invitation to ${eventName}`, emailContent);
+            await sendEmail(
+              email,
+              `Your Invitation to ${eventName}`,
+              emailContent
+            );
           }
 
           return { email, success: true };
@@ -396,27 +411,39 @@ export async function processGuests(
       results.push(...settled);
     }
 
-    const successCount = results.filter((r) => r.status === 'fulfilled').length;
+    const successCount = results.filter((r) => r.status === "fulfilled").length;
 
     res.status(201).json({
       message: `${successCount} guests imported successfully`,
       errors: results
-        .filter((r) => r.status === 'rejected')
+        .filter((r) => r.status === "rejected")
         .map((err) => err.reason),
     });
   } catch (error) {
-    console.error('Error processing imported guests:', error);
-    res.status(500).json({ message: 'Error processing imported guests', error });
+    console.error("Error processing imported guests:", error);
+    res
+      .status(500)
+      .json({ message: "Error processing imported guests", error });
   }
 }
 
-
-
-
-export const updateGuest = async (req: Request, res: Response): Promise<void> => {
+export const updateGuest = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   try {
     const { id } = req.params;
-    const { email, fullname, seatNo, eventId, qrCodeBgColor, qrCodeCenterColor, qrCodeEdgeColor } = req.body;
+    const {
+      email,
+      phone,
+      fullname,
+      TableNo,
+      message,
+      others,
+      qrCodeBgColor,
+      qrCodeCenterColor,
+      qrCodeEdgeColor,
+    } = req.body;
 
     // Validate the input
     const validateGuest = updateGuestSchema.validate(req.body, option);
@@ -432,122 +459,118 @@ export const updateGuest = async (req: Request, res: Response): Promise<void> =>
       return;
     }
 
-    // Update guest details
+    // Track whether QR colors were updated
+    const qrColorsChanged =
+      qrCodeBgColor !== guest.qrCodeBgColor ||
+      qrCodeCenterColor !== guest.qrCodeCenterColor ||
+      qrCodeEdgeColor !== guest.qrCodeEdgeColor;
+
+    // Update guest fields
     guest.fullname = fullname || guest.fullname;
-    guest.seatNo = seatNo || guest.seatNo;
+    guest.TableNo = TableNo || guest.TableNo;
     guest.email = email || guest.email;
-    guest.eventId = eventId || guest.eventId;
-    guest.qrCodeBgColor = qrCodeBgColor || guest.qrCodeBgColor;
-    guest.qrCodeCenterColor = qrCodeCenterColor || guest.qrCodeCenterColor;
-    guest.qrCodeEdgeColor = qrCodeEdgeColor || guest.qrCodeEdgeColor;
+    guest.phone = phone || guest.phone;
+    guest.message = sanitizeHtml(message) || guest.message;
+    guest.others = others || guest.others;
 
-    const updatedGuest = await guest.save();
+    if (qrColorsChanged) {
+      guest.qrCodeBgColor = qrCodeBgColor || guest.qrCodeBgColor;
+      guest.qrCodeCenterColor = qrCodeCenterColor || guest.qrCodeCenterColor;
+      guest.qrCodeEdgeColor = qrCodeEdgeColor || guest.qrCodeEdgeColor;
 
-    // Generate QR code data using guestId
-    const guestId = updatedGuest._id.toString();
-    const qrCodeData = guestId;
+      // Generate QR code with updated colors
+      const qr = new QRCode({
+        content: guest._id.toString(),
+        padding: 5,
+        width: 512,
+        height: 512,
+        color: qrCodeEdgeColor,
+        background: qrCodeBgColor,
+        xmlDeclaration: false,
+      });
 
-    // Generate QR code
-    const qr = new QRCode({
-      content: qrCodeData,
-      padding: 5,
-      width: 512,
-      height: 512,
-      color: qrCodeEdgeColor,
-      background: qrCodeBgColor,
-      xmlDeclaration: false,
-    });
+      let svg = qr.svg();
 
-    let svg = qr.svg();
+      svg = svg.replace(
+        /<svg([^>]*)>/,
+        `<svg$1>
+          <defs>
+            <radialGradient id="grad1" cx="50%" cy="50%" r="50%" fx="50%" fy="50%">
+              <stop offset="0%" stop-color="${qrCodeCenterColor}" stop-opacity="1"/>
+              <stop offset="100%" stop-color="${qrCodeEdgeColor}" stop-opacity="1"/>
+            </radialGradient>
+          </defs>`
+      );
 
-    // Insert gradient into the SVG
-    svg = svg.replace(
-      /<svg([^>]*)>/,
-      `<svg$1>
-        <defs>
-          <radialGradient id="grad1" cx="50%" cy="50%" r="50%" fx="50%" fy="50%">
-            <stop offset="0%" stop-color="${qrCodeCenterColor}" stop-opacity="1"/>
-            <stop offset="100%" stop-color="${qrCodeEdgeColor}" stop-opacity="1"/>
-          </radialGradient>
-        </defs>`
-    );
-
-    // Adjust the QR code style
-    svg = svg.replace(
-      /<rect([^>]*?)style="fill:#[0-9a-fA-F]{3,6};([^"]*)"/g,
-      (match, group1, group2) => {
-        const isBoundingRect = /x="0".*y="0"/.test(group1);
-        return isBoundingRect
-          ? `<rect${group1}style="fill:${qrCodeBgColor};${group2}"/>`
-          : `<rect${group1}style="fill:url(#grad1);${group2}"/>`;
-      }
-    );
-
-    const pngBuffer = await sharp(Buffer.from(svg))
-      .resize(512, 512, { fit: 'contain' })
-      .png({ compressionLevel: 9, adaptiveFiltering: true })
-      .toBuffer();
-
-    // Upload PNG to Cloudinary
-    const uploadResponse = await cloudinary.uploader.upload_stream(
-      {
-        folder: "qr_codes",
-        public_id: `${fullname}_${seatNo}_qr`,
-        overwrite: true,
-        format: "png",
-      },
-      async (error, result) => {
-        if (error) {
-          console.error("Cloudinary Upload Error:", error);
-          res.status(500).json({ message: "Error uploading QR code", error });
-          return;
+      svg = svg.replace(
+        /<rect([^>]*?)style="fill:#[0-9a-fA-F]{3,6};([^"]*)"/g,
+        (match, group1, group2) => {
+          const isBoundingRect = /x="0".*y="0"/.test(group1);
+          return isBoundingRect
+            ? `<rect${group1}style="fill:${qrCodeBgColor};${group2}"/>`
+            : `<rect${group1}style="fill:url(#grad1);${group2}"/>`;
         }
+      );
 
-        const qrCodeUrl = result?.secure_url;
+      const pngBuffer = await sharp(Buffer.from(svg))
+        .resize(512, 512, { fit: "contain" })
+        .png({ compressionLevel: 9, adaptiveFiltering: true })
+        .toBuffer();
 
-        // Update guest with new QR Code URL
-        updatedGuest.qrCode = qrCodeUrl ?? updatedGuest.qrCode;
-        const guestEmail = updatedGuest.email;
-
-        try {
-          await updatedGuest.save();
-
-          // Send email notification with updated QR Code
-          if (guestEmail) {
-            const emailContent = `
-              <h2>Your Event QR Code Has Been Updated</h2>
-              <p>Dear ${fullname},</p>
-              <p>Your QR code for the event has been updated.</p>
-              <p>Please find your updated QR code below:</p>
-              <img src="${qrCodeUrl}" alt="QR Code" />
-              <p>Thank you, and we look forward to seeing you at the event!</p>
-            `;
-
-            await sendEmail(
-              guestEmail,
-              `Your Updated QR Code`,
-              emailContent
-            );
+      const uploadResponse = await cloudinary.uploader.upload_stream(
+        {
+          folder: "qr_codes",
+          public_id: `${fullname}_qr`,
+          overwrite: true,
+          format: "png",
+        },
+        async (error, result) => {
+          if (error) {
+            console.error("Cloudinary Upload Error:", error);
+            res.status(500).json({ message: "Error uploading QR code", error });
+            return;
           }
 
-          res.status(200).json({
-            message: "Guest updated successfully and notified via email",
-            guest: updatedGuest,
-          });
-        } catch (saveError) {
-          console.error("Error saving updated guest:", saveError);
-          res.status(500).json({ message: "Error saving guest", saveError });
-        }
-      }
-    );
+          guest.qrCode = result?.secure_url ?? guest.qrCode;
 
-    uploadResponse.end(pngBuffer);
+          try {
+            await guest.save();
+
+            if (guest.email) {
+              const emailContent = `
+                <h2>Your Event QR Code Has Been Updated</h2>
+                <p>Dear ${guest.fullname},</p>
+                <p>Your QR code for the event has been updated.</p>
+                <p><img src="${guest.qrCode}" alt="QR Code" /></p>
+              `;
+
+              await sendEmail(
+                guest.email,
+                `Your Updated QR Code`,
+                emailContent
+              );
+            }
+
+            res.status(200).json({
+              message: "Guest updated successfully and QR code regenerated",
+              guest,
+            });
+          } catch (saveError) {
+            res.status(500).json({ message: "Error saving guest", saveError });
+          }
+        }
+      );
+
+      uploadResponse.end(pngBuffer);
+    } else {
+      // Save without regenerating QR code
+      await guest.save();
+      res.status(200).json({ message: "Guest updated successfully", guest });
+    }
   } catch (error) {
-    console.error("Error:", error);
     res.status(500).json({ message: "Error updating guest", error });
   }
 };
-
 
 export const downloadQRCode = async (
   req: Request,
@@ -558,7 +581,7 @@ export const downloadQRCode = async (
     const guest = await Guest.findById(id);
 
     if (!guest) {
-      res.status(404).json({ message: 'Guest not found' });
+      res.status(404).json({ message: "Guest not found" });
       return;
     }
 
@@ -600,132 +623,21 @@ export const downloadQRCode = async (
     );
 
     const pngBuffer = await sharp(Buffer.from(svg))
-      .resize(512, 512, { fit: 'contain' })
+      .resize(512, 512, { fit: "contain" })
       .png({ compressionLevel: 9, adaptiveFiltering: true })
       .toBuffer();
 
     res.setHeader(
-      'Content-Disposition',
-      `attachment; filename="qr-${guest.fullname}-${guest.seatNo}.png"`
+      "Content-Disposition",
+      `attachment; filename="qr-${guest.fullname}-${guest.TableNo}.png"`
     );
-    res.setHeader('Content-Type', 'image/png');
+    res.setHeader("Content-Type", "image/png");
     res.send(pngBuffer);
   } catch (error) {
-    console.error('Error:', error);
-    res.status(500).json({ message: 'Error downloading QR code' });
+    console.error("Error:", error);
+    res.status(500).json({ message: "Error downloading QR code" });
   }
 };
-
-
-// export const downloadAllQRCodes = async (req: Request, res: Response): Promise<void> => {
-
-//   res.setHeader("Access-Control-Allow-Origin", req.headers.origin || "*");
-//   res.setHeader("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization");
-//   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-//   res.setHeader("Access-Control-Allow-Credentials", "true");
-
-//   if (req.method === 'OPTIONS') {
-//     res.status(204).end();
-//     return;
-//   }
-
-//   try {
-//     const { eventId } = req.params;
-//     const guests = await Guest.find({ eventId });
-
-//     if (guests.length === 0) {
-//       res.status(404).json({ message: 'No guests found' });
-//       return;
-//     }
-
-//     // Step 1: Create archive and upload stream
-//     const archive = archiver('zip', { zlib: { level: 9 } });
-
-//     const uploadPromise = new Promise<string>((resolve, reject) => {
-//       const uploadStream = cloudinary.uploader.upload_stream(
-//         { resource_type: 'raw', folder: 'qrcodes', format: 'zip' },
-//         (error, result) => {
-//           if (error) {
-//             console.error('Cloudinary upload error:', error);
-//             reject(error);
-//           } else if (result && result.secure_url) {
-//             resolve(result.secure_url);
-//           } else {
-//             reject(new Error('Invalid Cloudinary response'));
-//           }
-//         }
-//       );
-
-//       archive.pipe(uploadStream);
-//     });
-
-//     // Step 2: Append QR code PNGs to archive
-//     for (const guest of guests) {
-//       const bgColorHex = rgbToHex(guest.qrCodeBgColor);
-//       const centerColorHex = rgbToHex(guest.qrCodeCenterColor);
-//       const edgeColorHex = rgbToHex(guest.qrCodeEdgeColor);
-
-//       const qr = new QRCode({
-//         content: guest._id.toString(),
-//         padding: 5,
-//         width: 512,
-//         height: 512,
-//         color: edgeColorHex,
-//         background: bgColorHex,
-//         xmlDeclaration: false,
-//       });
-
-//       let svg = qr.svg();
-
-//       svg = svg.replace(
-//         /<svg([^>]*)>/,
-//         `<svg$1>
-//           <defs>
-//             <radialGradient id="grad1" cx="50%" cy="50%" r="50%" fx="50%" fy="50%">
-//               <stop offset="0%" stop-color="${centerColorHex}" stop-opacity="1"/>
-//               <stop offset="100%" stop-color="${edgeColorHex}" stop-opacity="1"/>
-//             </radialGradient>
-//           </defs>`
-//       );
-
-//       svg = svg.replace(
-//         /<rect([^>]*?)style="fill:#[0-9a-fA-F]{3,6};([^"]*)"/g,
-//         (match, group1, group2) => {
-//           const isBoundingRect = /x="0".*y="0"/.test(group1);
-//           return isBoundingRect
-//             ? `<rect${group1}style="fill:${bgColorHex};${group2}"/>`
-//             : `<rect${group1}style="fill:url(#grad1);${group2}"/>`;
-//         }
-//       );
-
-//       const pngBuffer = await sharp(Buffer.from(svg))
-//         .resize(512, 512, { fit: 'contain' })
-//         .png({ compressionLevel: 9, adaptiveFiltering: true })
-//         .toBuffer();
-
-//       archive.append(pngBuffer, {
-//         name: `${guest.fullname}-${guest.seatNo}.png`,
-//       });
-//     }
-
-//     // Step 3: Finalize and await upload
-//     archive.finalize();
-//     const zipDownloadLink = await uploadPromise;
-
-//     // Step 4: Send response
-//     res.status(200).json({ zipDownloadLink });
-
-//   } catch (error) {
-//     console.error('Error:', error);
-//     res.status(500).json({ message: 'Error generating ZIP file' });
-//   }
-// };
-
-
-// Helper function to convert RGB to Hex
-
-
-// Helper function for batch processing
 
 const processBatch = async (guestsBatch: any[]) => {
   const batchPromises = guestsBatch.map(async (guest) => {
@@ -770,12 +682,12 @@ const processBatch = async (guestsBatch: any[]) => {
 
     // Convert SVG to PNG and return buffer
     const pngBuffer = await sharp(Buffer.from(svg))
-      .resize(512, 512, { fit: 'contain' })
+      .resize(512, 512, { fit: "contain" })
       .png({ compressionLevel: 9, adaptiveFiltering: true })
       .toBuffer();
 
     return {
-      name: `${guest.fullname}-${guest.seatNo}.png`,
+      name: `${guest.fullname}-${guest.TableNo}.png`,
       buffer: pngBuffer,
     };
   });
@@ -784,30 +696,32 @@ const processBatch = async (guestsBatch: any[]) => {
   return Promise.all(batchPromises);
 };
 
-export const downloadAllQRCodes = async (req: Request, res: Response): Promise<void> => {
-
+export const downloadAllQRCodes = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   try {
     const { eventId } = req.params;
     const guests = await Guest.find({ eventId });
 
     if (guests.length === 0) {
-       res.status(404).json({ message: 'No guests found' });
-       return;
+      res.status(404).json({ message: "No guests found" });
+      return;
     }
 
     // Create a ZIP archive and prepare upload stream
-    const archive = archiver('zip', { zlib: { level: 9 } });
+    const archive = archiver("zip", { zlib: { level: 9 } });
     const uploadPromise = new Promise<string>((resolve, reject) => {
       const uploadStream = cloudinary.uploader.upload_stream(
-        { resource_type: 'raw', folder: 'qrcodes', format: 'zip' },
+        { resource_type: "raw", folder: "qrcodes", format: "zip" },
         (error, result) => {
           if (error) {
-            console.error('Cloudinary upload error:', error);
+            console.error("Cloudinary upload error:", error);
             reject(error);
           } else if (result?.secure_url) {
             resolve(result.secure_url);
           } else {
-            reject(new Error('Invalid Cloudinary response'));
+            reject(new Error("Invalid Cloudinary response"));
           }
         }
       );
@@ -838,28 +752,19 @@ export const downloadAllQRCodes = async (req: Request, res: Response): Promise<v
     const zipDownloadLink = await uploadPromise;
 
     // Return the Cloudinary URL of the zip file
-     res.status(200).json({ zipDownloadLink });
-     return;
-
+    res.status(200).json({ zipDownloadLink });
+    return;
   } catch (error) {
-    console.error('Error:', error);
-     res.status(500).json({ message: 'Error generating ZIP file' });
-     return;
+    console.error("Error:", error);
+    res.status(500).json({ message: "Error generating ZIP file" });
+    return;
   }
 };
 
-// export const enqueueQRCodeDownload = async (req: Request, res: Response) => {
-//   const { eventId } = req.params;
-
-//   const task = new DownloadTask({ eventId });
-//   await task.save();
-
-//   res.status(202).json({ taskId: task._id });
-// };
-
-
-
-export const downloadBatchQRCodes = async (req: Request, res: Response): Promise<void> => {
+export const downloadBatchQRCodes = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   try {
     const { eventId } = req.params;
     const { start, end } = req.query;
@@ -872,29 +777,28 @@ export const downloadBatchQRCodes = async (req: Request, res: Response): Promise
       eventId,
       createdAt: { $gte: startDate, $lte: endDate },
     });
-  console.log("Start:", startDate.toISOString());
-console.log("End:", endDate.toISOString());
-console.log("Matched guests:", guests.length);
-
+    console.log("Start:", startDate.toISOString());
+    console.log("End:", endDate.toISOString());
+    console.log("Matched guests:", guests.length);
 
     if (guests.length === 0) {
-      res.status(404).json({ message: 'No guests found for given date range' });
+      res.status(404).json({ message: "No guests found for given date range" });
       return;
     }
 
-    const archive = archiver('zip', { zlib: { level: 9 } });
+    const archive = archiver("zip", { zlib: { level: 9 } });
 
     const uploadPromise = new Promise<string>((resolve, reject) => {
       const uploadStream = cloudinary.uploader.upload_stream(
-        { resource_type: 'raw', folder: 'qrcodes', format: 'zip' },
+        { resource_type: "raw", folder: "qrcodes", format: "zip" },
         (error, result) => {
           if (error) {
-            console.error('Cloudinary upload error:', error);
+            console.error("Cloudinary upload error:", error);
             reject(error);
           } else if (result && result.secure_url) {
             resolve(result.secure_url);
           } else {
-            reject(new Error('Invalid Cloudinary response'));
+            reject(new Error("Invalid Cloudinary response"));
           }
         }
       );
@@ -940,12 +844,12 @@ console.log("Matched guests:", guests.length);
       );
 
       const pngBuffer = await sharp(Buffer.from(svg))
-        .resize(512, 512, { fit: 'contain' })
+        .resize(512, 512, { fit: "contain" })
         .png({ compressionLevel: 9, adaptiveFiltering: true })
         .toBuffer();
 
       archive.append(pngBuffer, {
-        name: `${guest.fullname}-${guest.seatNo}.png`,
+        name: `${guest.fullname}-${guest.TableNo}.png`,
       });
     }
 
@@ -953,10 +857,9 @@ console.log("Matched guests:", guests.length);
     const zipDownloadLink = await uploadPromise;
 
     res.status(200).json({ zipDownloadLink });
-
   } catch (error) {
-    console.error('Error:', error);
-    res.status(500).json({ message: 'Error generating QR batch ZIP' });
+    console.error("Error:", error);
+    res.status(500).json({ message: "Error generating QR batch ZIP" });
   }
 };
 
@@ -980,6 +883,7 @@ export const getGuestsByEvent = async (
     res.status(500).json({ message: "Error fetching guests" });
   }
 };
+
 // **Get Single Guest for an Event**
 export const getGuestById = async (
   req: Request,
@@ -1081,7 +985,9 @@ export const deleteGuestsByEventAndTimestamp = async (
 
     // 1️⃣ Validate inputs
     if (!start || !end) {
-      res.status(400).json({ message: "start and end query params are required" });
+      res
+        .status(400)
+        .json({ message: "start and end query params are required" });
       return;
     }
     const startDate = new Date(start as string);
@@ -1098,7 +1004,9 @@ export const deleteGuestsByEventAndTimestamp = async (
     });
 
     if (guests.length === 0) {
-      res.status(404).json({ message: "No guests found for that event/date range" });
+      res
+        .status(404)
+        .json({ message: "No guests found for that event/date range" });
       return;
     }
 
@@ -1121,7 +1029,9 @@ export const deleteGuestsByEventAndTimestamp = async (
 
     res
       .status(200)
-      .json({ message: `Deleted ${result.deletedCount} guests for event ${eventId}` });
+      .json({
+        message: `Deleted ${result.deletedCount} guests for event ${eventId}`,
+      });
   } catch (error) {
     console.error("Error deleting guests by event+timestamp:", error);
     res.status(500).json({ message: "Internal server error" });
@@ -1180,10 +1090,8 @@ export const scanQRCode = async (
       message: "Guest successfully checked in",
       guest: {
         fullname: guest.fullname,
-        seatNo: guest.seatNo,
-        eventName: event.name,
-        eventDate: event.date,
-        eventLocation: event.location,
+        TableNo: guest.TableNo,
+        others: guest.others,
       },
     });
   } catch (error) {
@@ -1191,7 +1099,6 @@ export const scanQRCode = async (
     res.status(500).json({ message: "Server error during check-in" });
   }
 };
-
 
 export const generateAnalytics = async (
   req: Request,
@@ -1259,20 +1166,23 @@ export const generateAnalytics = async (
   }
 };
 
-export const generateEventAnalytics = async (req: Request, res: Response): Promise<void> => {
+export const generateEventAnalytics = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   try {
     const { eventId } = req.params;
 
     if (!mongoose.Types.ObjectId.isValid(eventId)) {
-       res.status(400).json({ message: 'Invalid event ID format' });
-       return;
+      res.status(400).json({ message: "Invalid event ID format" });
+      return;
     }
 
     // Get all guests using `eventId` (your schema design)
     const guests = await Guest.find({ eventId });
 
     if (!guests.length) {
-       res.status(200).json({
+      res.status(200).json({
         eventId,
         totalGuests: 0,
         checkedInGuests: 0,
@@ -1352,8 +1262,6 @@ export const generateEventAnalytics = async (req: Request, res: Response): Promi
     res.status(500).json({ message: "Error generating event analytics" });
   }
 };
-
-
 
 export const generateTempLink = async (
   req: Request,

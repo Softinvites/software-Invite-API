@@ -4,9 +4,11 @@ exports.Guest = void 0;
 const mongoose_1 = require("mongoose");
 const GuestSchema = new mongoose_1.Schema({
     fullname: { type: String, required: true },
-    seatNo: { type: String, required: false },
+    TableNo: { type: String, required: false },
     email: { type: String, required: false, },
     phone: { type: String, required: false },
+    message: { type: String, required: true },
+    others: { type: String, required: false },
     qrCode: { type: String, required: false },
     qrCodeData: { type: String, required: false },
     qrCodeBgColor: { type: String, default: "255,255,255" },
