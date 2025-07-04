@@ -61,28 +61,34 @@ exports.creatEventSchema = joi_1.default.object({
     date: joi_1.default.string().required(),
     location: joi_1.default.string().required(),
     description: joi_1.default.string().required(),
+    // iv: Joi.string().base64().required() 
 });
 exports.updateEventSchema = joi_1.default.object({
     name: joi_1.default.string().optional(),
     date: joi_1.default.string().optional(),
     location: joi_1.default.string().optional(),
     description: joi_1.default.string().optional(),
+    // iv: Joi.string().base64().optional(), 
 });
 exports.createGuestSchema = joi_1.default.object({
     fullname: joi_1.default.string().required(),
-    seatNo: joi_1.default.string().optional().allow("", null),
+    TableNo: joi_1.default.string().optional().allow("", null),
     email: joi_1.default.string().email().optional().allow("", null),
     phone: joi_1.default.string().optional().allow("", null),
+    message: joi_1.default.string().required(),
+    others: joi_1.default.string().optional().allow("", null),
     eventId: joi_1.default.string().required(),
     qrCodeBgColor: joi_1.default.string().required(),
     qrCodeCenterColor: joi_1.default.string().required(),
     qrCodeEdgeColor: joi_1.default.string().required(),
 });
 exports.updateGuestSchema = joi_1.default.object({
-    fullname: joi_1.default.string().required(),
-    seatNo: joi_1.default.string().optional(),
+    fullname: joi_1.default.string().optional(),
+    TableNo: joi_1.default.string().optional(),
     email: joi_1.default.string().email().optional(),
     phone: joi_1.default.string().optional(),
+    message: joi_1.default.string().optional(),
+    others: joi_1.default.string().optional(),
     eventId: joi_1.default.string().required(),
     qrCodeBgColor: joi_1.default.string().optional(),
     qrCodeCenterColor: joi_1.default.string().optional(),
