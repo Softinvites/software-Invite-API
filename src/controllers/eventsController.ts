@@ -15,22 +15,27 @@ export const createEvent = async (req: Request, res: Response): Promise<void> =>
        return;
     }
 
-    if (!req.file) {
-       res.status(400).json({ Error: "PNG invitation image (iv) is required." });
-       return;
+    let ivImageUrl: string | undefined;
+
+    // Check if a file was uploaded
+    if (req.file) {
+      // ⬇️ Upload req.file.buffer to Cloudinary or other image service
+      // Placeholder for actual upload logic
+      ivImageUrl = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
     }
 
-    // ⬇️ Upload `req.file.buffer` to Cloudinary or other image service
-    // Placeholder for actual upload logic
-    const ivImageUrl = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
-
-    const newEvent = await Event.create({
+    const newEventData: any = {
       name,
       date,
       location,
       description,
-      iv: ivImageUrl
-    });
+    };
+
+    if (ivImageUrl) {
+      newEventData.iv = ivImageUrl;
+    }
+
+    const newEvent = await Event.create(newEventData);
 
     // Send email notification (unchanged)
     const adminEmail = "softinvites@gmail.com";
@@ -46,14 +51,13 @@ export const createEvent = async (req: Request, res: Response): Promise<void> =>
     </ul>
     <p>Log in to view more details.</p>
   `;
-  await sendEmail(adminEmail, `New Event Created: ${name}`, emailContent);
+    await sendEmail(adminEmail, `New Event Created: ${name}`, emailContent);
 
     res.status(201).json({ message: "Event created successfully", event: newEvent });
   } catch (error) {
     res.status(500).json({ message: "Error creating event", error });
   }
 };
-
 // export const updateEvent = async (req: Request, res: Response) => {
 //   try {
 //     const { id } = req.params;
