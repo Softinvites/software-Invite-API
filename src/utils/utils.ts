@@ -61,7 +61,7 @@ export const creatEventSchema = Joi.object({
   date: Joi.string().required(),
   location: Joi.string().required(),
   description: Joi.string().required(),
-  // iv: Joi.string().base64().required() 
+  iv: Joi.string().base64().optional() 
 });
 
 export const updateEventSchema = Joi.object({
@@ -69,7 +69,7 @@ export const updateEventSchema = Joi.object({
   date: Joi.string().optional(),
   location: Joi.string().optional(),
   description: Joi.string().optional(),
-  // iv: Joi.string().base64().optional(), 
+  iv: Joi.string().base64().optional(), 
 });
 
 export const createGuestSchema = Joi.object({

@@ -22,20 +22,23 @@ const createEvent = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
             res.status(400).json({ Error: validateEvent.error.details[0].message });
             return;
         }
-        if (!req.file) {
-            res.status(400).json({ Error: "PNG invitation image (iv) is required." });
-            return;
+        let ivImageUrl;
+        // Check if a file was uploaded
+        if (req.file) {
+            // ⬇️ Upload req.file.buffer to Cloudinary or other image service
+            // Placeholder for actual upload logic
+            ivImageUrl = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
         }
-        // ⬇️ Upload `req.file.buffer` to Cloudinary or other image service
-        // Placeholder for actual upload logic
-        const ivImageUrl = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
-        const newEvent = yield eventmodel_1.Event.create({
+        const newEventData = {
             name,
             date,
             location,
             description,
-            iv: ivImageUrl
-        });
+        };
+        if (ivImageUrl) {
+            newEventData.iv = ivImageUrl;
+        }
+        const newEvent = yield eventmodel_1.Event.create(newEventData);
         // Send email notification (unchanged)
         const adminEmail = "softinvites@gmail.com";
         const emailContent = `
