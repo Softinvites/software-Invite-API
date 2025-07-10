@@ -45,7 +45,7 @@ export const addGuest = async (req: Request, res: Response): Promise<void> => {
     }
 
     const eventName = event.name;
-    const iv = event.iv;
+    // const iv = event.iv;
     // const eventDate = event.date;
     // const eventLocation = event.location;
 
@@ -157,8 +157,6 @@ export const addGuest = async (req: Request, res: Response): Promise<void> => {
         <h2>Welcome to ${eventName}!</h2>
         <p>Dear ${fullname},</p>
          <p>${sanitizedMessage}</p>
-         <p><strong>IV Image:</strong></p>
-        <img src="${iv}" alt="Invitation" width="300"/>
       `;
 
       try {
@@ -296,7 +294,6 @@ export async function processGuests(
           if (!event) throw new Error("Event not found");
 
           const eventName = event.name;
-          const iv = event.iv
 
           const bgColorHex = rgbToHex(qrCodeBgColor);
           const centerColorHex = rgbToHex(qrCodeCenterColor);
@@ -394,8 +391,6 @@ export async function processGuests(
               <h2>Welcome to ${eventName}!</h2>
               <p>Dear ${fullname},</p>
                <p>${sanitizedMessage}</p>
-               <p><strong>IV Image:</strong></p>
-               <img src="${iv}" alt="Invitation" width="300"/>
             `;
             await sendEmail(
               email,
