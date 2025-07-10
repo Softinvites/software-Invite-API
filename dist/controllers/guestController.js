@@ -78,7 +78,7 @@ const addGuest = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
             return;
         }
         const eventName = event.name;
-        const iv = event.iv;
+        // const iv = event.iv;
         // const eventDate = event.date;
         // const eventLocation = event.location;
         const bgColorHex = (0, colorUtils_1.rgbToHex)(qrCodeBgColor);
@@ -157,8 +157,6 @@ const addGuest = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
         <h2>Welcome to ${eventName}!</h2>
         <p>Dear ${fullname},</p>
          <p>${sanitizedMessage}</p>
-         <p><strong>IV Image:</strong></p>
-        <img src="${iv}" alt="Invitation" width="300"/>
       `;
             try {
                 yield (0, emailService_1.sendEmail)(email, `Your Invitation to ${eventName}`, emailContent);
@@ -255,7 +253,6 @@ function processGuests(guests, res) {
                     if (!event)
                         throw new Error("Event not found");
                     const eventName = event.name;
-                    const iv = event.iv;
                     const bgColorHex = (0, colorUtils_1.rgbToHex)(qrCodeBgColor);
                     const centerColorHex = (0, colorUtils_1.rgbToHex)(qrCodeCenterColor);
                     const edgeColorHex = (0, colorUtils_1.rgbToHex)(qrCodeEdgeColor);
@@ -323,8 +320,6 @@ function processGuests(guests, res) {
               <h2>Welcome to ${eventName}!</h2>
               <p>Dear ${fullname},</p>
                <p>${sanitizedMessage}</p>
-               <p><strong>IV Image:</strong></p>
-               <img src="${iv}" alt="Invitation" width="300"/>
             `;
                         yield (0, emailService_1.sendEmail)(email, `Your Invitation to ${eventName}`, emailContent);
                     }

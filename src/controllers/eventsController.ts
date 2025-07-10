@@ -2,7 +2,7 @@ import { Request, Response } from "express";
 import { Event } from "../models/eventmodel";
 import { creatEventSchema, updateEventSchema, option } from "../utils/utils";
 import { sendEmail } from "../library/helpers/emailService";
-
+import { cloudinary } from "../library/helpers/uploadImage"; // Adjust import as needed
 
 export const createEvent = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -58,6 +58,7 @@ export const createEvent = async (req: Request, res: Response): Promise<void> =>
     res.status(500).json({ message: "Error creating event", error });
   }
 };
+
 // export const updateEvent = async (req: Request, res: Response) => {
 //   try {
 //     const { id } = req.params;
