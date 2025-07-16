@@ -61,14 +61,14 @@ exports.creatEventSchema = joi_1.default.object({
     date: joi_1.default.string().required(),
     location: joi_1.default.string().required(),
     description: joi_1.default.string().required(),
-    // iv: Joi.string().base64().required() 
+    iv: joi_1.default.string().base64().optional()
 });
 exports.updateEventSchema = joi_1.default.object({
     name: joi_1.default.string().optional(),
     date: joi_1.default.string().optional(),
     location: joi_1.default.string().optional(),
     description: joi_1.default.string().optional(),
-    // iv: Joi.string().base64().optional(), 
+    iv: joi_1.default.string().base64().optional(),
 });
 exports.createGuestSchema = joi_1.default.object({
     fullname: joi_1.default.string().required(),
