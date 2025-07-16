@@ -1,34 +1,46 @@
-import nodemailer from "nodemailer";
-import dotenv from "dotenv";
+// library/helpers/emailService.ts
+import { invokeLambda } from '../../utils/lambdaUtils';
+import { uploadToS3} from '../../utils/s3Utils';
 
-dotenv.config();
-
-// Create a transporter using Gmail's SMTP
-const transporter = nodemailer.createTransport({
-  service: "gmail",
-  auth: {
-    user: process.env.GMAIL_ADDRESS, // Your Gmail email address
-    pass: process.env.GMAIL_PASSWORD, // Your Gmail password or App Password
-  },
-});
-
-// Define email options
 export const sendEmail = async (
-  recipient: string,
+  to: string,
   subject: string,
   htmlContent: string,
+  attachments?: Array<{
+    filename: string;
+    content: Buffer;
+    contentType: string;
+  }>
 ) => {
   try {
-    const mailOptions = {
-      from: `"Soft Invites" <${process.env.GMAIL_ADDRESS}>`,
-      to: recipient,
-      subject,
-      html: htmlContent,
-    };
+    // If in development, use local email sending
+    if (process.env.NODE_ENV === 'development') {
+      console.log('Would send email:', { to, subject });
+      return;
+    }
 
-    const info = await transporter.sendMail(mailOptions);
-    console.log("Email sent: ", info.messageId);
+    // Upload attachments to S3 if any
+    const attachmentPromises = (attachments || []).map(async (attachment) => {
+      const s3Key = `email-attachments/${Date.now()}_${attachment.filename}`;
+      await uploadToS3(attachment.content, s3Key, attachment.contentType);
+      return {
+        filename: attachment.filename,
+        s3Key,
+        contentType: attachment.contentType
+      };
+    });
+
+    const emailAttachments = await Promise.all(attachmentPromises);
+
+    // Invoke Lambda for production
+    await invokeLambda(process.env.EMAIL_LAMBDA_FUNCTION_NAME!, {
+      to,
+      subject,
+      htmlContent,
+      attachments: emailAttachments
+    });
   } catch (error) {
-    console.error("Error sending email: ", error);
+    console.error('Error in sendEmail:', error);
+    throw error;
   }
 };
