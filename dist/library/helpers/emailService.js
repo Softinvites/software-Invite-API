@@ -8,36 +8,40 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
         step((generator = generator.apply(thisArg, _arguments || [])).next());
     });
 };
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.sendEmail = void 0;
-const nodemailer_1 = __importDefault(require("nodemailer"));
-const dotenv_1 = __importDefault(require("dotenv"));
-dotenv_1.default.config();
-// Create a transporter using Gmail's SMTP
-const transporter = nodemailer_1.default.createTransport({
-    service: "gmail",
-    auth: {
-        user: process.env.GMAIL_ADDRESS, // Your Gmail email address
-        pass: process.env.GMAIL_PASSWORD, // Your Gmail password or App Password
-    },
-});
-// Define email options
-const sendEmail = (recipient, subject, htmlContent) => __awaiter(void 0, void 0, void 0, function* () {
+// library/helpers/emailService.ts
+const lambdaUtils_1 = require("../../utils/lambdaUtils");
+const s3Utils_1 = require("../../utils/s3Utils");
+const sendEmail = (to, subject, htmlContent, attachments) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const mailOptions = {
-            from: `"Soft Invites" <${process.env.GMAIL_ADDRESS}>`,
-            to: recipient,
+        // If in development, use local email sending
+        if (process.env.NODE_ENV === 'development') {
+            console.log('Would send email:', { to, subject });
+            return;
+        }
+        // Upload attachments to S3 if any
+        const attachmentPromises = (attachments || []).map((attachment) => __awaiter(void 0, void 0, void 0, function* () {
+            const s3Key = `email-attachments/${Date.now()}_${attachment.filename}`;
+            yield (0, s3Utils_1.uploadToS3)(attachment.content, s3Key, attachment.contentType);
+            return {
+                filename: attachment.filename,
+                s3Key,
+                contentType: attachment.contentType
+            };
+        }));
+        const emailAttachments = yield Promise.all(attachmentPromises);
+        // Invoke Lambda for production
+        yield (0, lambdaUtils_1.invokeLambda)(process.env.EMAIL_LAMBDA_FUNCTION_NAME, {
+            to,
             subject,
-            html: htmlContent,
-        };
-        const info = yield transporter.sendMail(mailOptions);
-        console.log("Email sent: ", info.messageId);
+            htmlContent,
+            attachments: emailAttachments
+        });
     }
     catch (error) {
-        console.error("Error sending email: ", error);
+        console.error('Error in sendEmail:', error);
+        throw error;
     }
 });
 exports.sendEmail = sendEmail;
