@@ -7,12 +7,30 @@ const express_1 = __importDefault(require("express"));
 const guestController_1 = require("../controllers/guestController");
 const auth_1 = __importDefault(require("../library/middlewares/auth"));
 const combinedAuth_1 = require("../library/middlewares/combinedAuth");
-const uploadImage_1 = require("../library/helpers/uploadImage");
+const multer_1 = __importDefault(require("multer"));
 const router = express_1.default.Router();
+// Set up multer for memory storage (CSV/Excel upload)
+// const uploadCSVExcel = multer({
+//   storage: multer.memoryStorage(),
+//   fileFilter: (req, file, cb) => {
+//     const allowedMimes = [
+//       "text/csv",
+//       "application/vnd.ms-excel",
+//       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+//     ];
+//     if (allowedMimes.includes(file.mimetype)) {
+//       cb(null, true);
+//     } else {
+//       cb(new Error("Only CSV or Excel files are allowed"));
+//     }
+//   },
+//   limits: { fileSize: 5 * 1024 * 1024 }, // 5MB max
+// });
+const uploadCSVExcel = (0, multer_1.default)({ storage: multer_1.default.memoryStorage() });
 // Guest routes
 router.post("/add-guest", auth_1.default, guestController_1.addGuest);
 router.put("/update-guest/:id", auth_1.default, guestController_1.updateGuest);
-router.post("/import-guest-csv", uploadImage_1.uploadCSVExcel.single("file"), auth_1.default, guestController_1.importGuests);
+router.post("/import-guest-csv", uploadCSVExcel.single("file"), auth_1.default, guestController_1.importGuests);
 router.get("/download-qrcode/:id", auth_1.default, guestController_1.downloadQRCode);
 router.get("/download-all-qrcode/:eventId", auth_1.default, guestController_1.downloadAllQRCodes);
 router.get("/batch-qrcode-download/:eventId/timestamp", auth_1.default, guestController_1.downloadBatchQRCodes);
