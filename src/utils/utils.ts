@@ -56,7 +56,7 @@ export const option = {
   },
 };
 
-export const creatEventSchema = Joi.object({
+export const createEventSchema = Joi.object({
   name: Joi.string().required(),
   date: Joi.string().required(),
   location: Joi.string().required(),
