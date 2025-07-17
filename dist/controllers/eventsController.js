@@ -14,29 +14,73 @@ const eventmodel_1 = require("../models/eventmodel");
 const utils_1 = require("../utils/utils");
 const emailService_1 = require("../library/helpers/emailService");
 const s3Utils_1 = require("../utils/s3Utils");
+// export const createEvent = async (req: Request, res: Response): Promise<void> => {
+//   try {
+//     const { name, date, location, description } = req.body;
+//     const validateEvent = creatEventSchema.validate(
+//       { name, date, location, description },
+//       option
+//     );
+//     if (validateEvent.error) {
+//       res.status(400).json({ Error: validateEvent.error.details[0].message });
+//       return;
+//     }
+//     if (!req.file) {
+//       res.status(400).json({ Error: "PNG invitation image (iv) is required." });
+//       return;
+//     }
+//     // Upload image to S3
+//     const safeName = name.replace(/[^a-zA-Z0-9-_]/g, "_");
+// const ivImageUrl = await uploadToS3(
+//   req.file.buffer,
+//   `events/${safeName}_iv_${Date.now()}.png`,
+//   req.file.mimetype
+// );
+//     const newEvent = await Event.create({
+//       name,
+//       date,
+//       location,
+//       description,
+//       iv: ivImageUrl,
+//     });
+//     // Email admin
+// const adminEmail = "softinvites@gmail.com";
+// const emailContent = `
+//   <h2>🎉 New Event Created</h2>
+//   <p>Dear Admin,</p>
+//   <p>A new event has been created on your platform:</p>
+//   <ul>
+//     <li><strong>Name:</strong> ${name}</li>
+//     <li><strong>Date:</strong> ${date}</li>
+//     <li><strong>Location:</strong> ${location}</li>
+//   </ul>
+//   <p>Log in to view more details.</p>
+// `;
+// await sendEmail(adminEmail, `New Event Created: ${name}`, emailContent);
+//     res.status(201).json({ message: "Event created successfully", event: newEvent });
+//   } catch (error) {
+//     res.status(500).json({ message: "Error creating event", error });
+//   }
+// };
 const createEvent = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const { name, date, location, description } = req.body;
-        const validateEvent = utils_1.creatEventSchema.validate({ name, date, location, description }, utils_1.option);
-        if (validateEvent.error) {
-            res.status(400).json({ Error: validateEvent.error.details[0].message });
-            return;
+        const { name, date, location, description, ivBase64, // base64 image string
+         } = req.body;
+        // ✅ Validate
+        const { error } = utils_1.createEventSchema.validate(req.body);
+        if (error) {
+            return res.status(400).json({ message: "Validation error", error });
         }
-        if (!req.file) {
-            res.status(400).json({ Error: "PNG invitation image (iv) is required." });
-            return;
-        }
-        // Upload image to S3
-        const safeName = name.replace(/[^a-zA-Z0-9-_]/g, "_");
-        const ivImageUrl = yield (0, s3Utils_1.uploadToS3)(req.file.buffer, `events/${safeName}_iv_${Date.now()}.png`, req.file.mimetype);
-        const newEvent = yield eventmodel_1.Event.create({
+        // ✅ Create Event
+        const event = new eventmodel_1.Event({
             name,
             date,
             location,
             description,
-            iv: ivImageUrl,
+            iv: ivBase64, // store the base64 string
         });
-        // Email admin
+        yield event.save();
+        // ✅ Send email with image (optional step)
         const adminEmail = "softinvites@gmail.com";
         const emailContent = `
       <h2>🎉 New Event Created</h2>
@@ -50,10 +94,11 @@ const createEvent = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
       <p>Log in to view more details.</p>
     `;
         yield (0, emailService_1.sendEmail)(adminEmail, `New Event Created: ${name}`, emailContent);
-        res.status(201).json({ message: "Event created successfully", event: newEvent });
+        res.status(201).json({ message: "Event created successfully", event });
     }
     catch (error) {
-        res.status(500).json({ message: "Error creating event", error });
+        console.error("Create Event Error:", error);
+        res.status(500).json({ message: "Server error", error });
     }
 });
 exports.createEvent = createEvent;
