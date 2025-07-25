@@ -4,7 +4,7 @@ import { rgbToHex } from "./colorUtils.js";
 const s3 = new S3Client({ region: process.env.AWS_REGION });
 export const handler = async (event) => {
     try {
-        const { guestId, fullname, qrCodeBgColor, qrCodeCenterColor, qrCodeEdgeColor, eventId, } = event;
+        const { guestId, fullname, qrCodeBgColor, qrCodeCenterColor, qrCodeEdgeColor, eventId, TableNo, others } = event;
         if (!guestId || !fullname || !eventId) {
             return {
                 statusCode: 400,
@@ -17,7 +17,7 @@ export const handler = async (event) => {
         const edgeColorHex = rgbToHex(qrCodeEdgeColor);
         const svg = generateQrSvg(guestId, bgColorHex, centerColorHex, edgeColorHex);
         const safeName = fullname.replace(/[^a-zA-Z0-9-_]/g, "_");
-        const key = `qr_codes/${eventId}/${safeName}_${guestId}.svg`;
+        const key = `qr_codes/${eventId}/${safeName}/${TableNo}/${others}_${guestId}.svg`;
         await s3.send(new PutObjectCommand({
             Bucket: process.env.S3_BUCKET,
             Key: key,

@@ -16,7 +16,7 @@ const colorUtils_js_1 = require("./colorUtils.js");
 const s3 = new client_s3_1.S3Client({ region: process.env.AWS_REGION });
 const handler = (event) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const { guestId, fullname, qrCodeBgColor, qrCodeCenterColor, qrCodeEdgeColor, eventId, } = event;
+        const { guestId, fullname, qrCodeBgColor, qrCodeCenterColor, qrCodeEdgeColor, eventId, TableNo, others } = event;
         if (!guestId || !fullname || !eventId) {
             return {
                 statusCode: 400,
@@ -29,7 +29,7 @@ const handler = (event) => __awaiter(void 0, void 0, void 0, function* () {
         const edgeColorHex = (0, colorUtils_js_1.rgbToHex)(qrCodeEdgeColor);
         const svg = (0, generateQrSvg_js_1.generateQrSvg)(guestId, bgColorHex, centerColorHex, edgeColorHex);
         const safeName = fullname.replace(/[^a-zA-Z0-9-_]/g, "_");
-        const key = `qr_codes/${eventId}/${safeName}_${guestId}.svg`;
+        const key = `qr_codes/${eventId}/${safeName}/${TableNo}/${others}_${guestId}.svg`;
         yield s3.send(new client_s3_1.PutObjectCommand({
             Bucket: process.env.S3_BUCKET,
             Key: key,
