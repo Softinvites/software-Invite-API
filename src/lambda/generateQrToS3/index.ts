@@ -1,4 +1,3 @@
-
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { generateQrSvg } from "./generateQrSvg.js";
 import { rgbToHex } from "./colorUtils.js";
@@ -10,6 +9,8 @@ interface LambdaEvent {
   qrCodeCenterColor: string;
   qrCodeEdgeColor: string;
   eventId: string;
+  TableNo: string;
+  others: string;
 }
 
 const s3 = new S3Client({ region: process.env.AWS_REGION });
@@ -23,6 +24,8 @@ export const handler = async (event: LambdaEvent) => {
       qrCodeCenterColor,
       qrCodeEdgeColor,
       eventId,
+      TableNo,
+      others,
     } = event;
 
     if (!guestId || !fullname || !eventId) {
@@ -37,10 +40,17 @@ export const handler = async (event: LambdaEvent) => {
     const centerColorHex = rgbToHex(qrCodeCenterColor);
     const edgeColorHex = rgbToHex(qrCodeEdgeColor);
 
-    const svg = generateQrSvg(guestId, bgColorHex, centerColorHex, edgeColorHex);
+    const svg = generateQrSvg(
+      guestId,
+      bgColorHex,
+      centerColorHex,
+      edgeColorHex
+    );
 
     const safeName = fullname.replace(/[^a-zA-Z0-9-_]/g, "_");
-    const key = `qr_codes/${eventId}/${safeName}_${guestId}.svg`;
+
+    // const key = `qr_codes/${eventId}/${safeName}_${guestId}.svg`;
+    const key = `qr_codes/${eventId}/${safeName}_${TableNo}_${others}_${guestId}.svg`;
 
     await s3.send(
       new PutObjectCommand({

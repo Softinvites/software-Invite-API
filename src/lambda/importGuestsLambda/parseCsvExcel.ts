@@ -1,38 +1,3 @@
-// import fetch from 'node-fetch';
-// import xlsx from 'xlsx';
-// import csv from 'fast-csv';
-// import { Readable } from 'stream';
-
-// export async function parseCsvExcel(fileUrl: string): Promise<any[]> {
-//   try {
-//     const res = await fetch(fileUrl);
-//     if (!res.ok) throw new Error(`Failed to fetch file: ${res.statusText}`);
-//     const buffer = await res.buffer();
-//     const type = fileUrl.endsWith(".csv") ? "csv" : "excel";
-
-//     if (type === "csv") {
-//       return await new Promise((resolve, reject) => {
-//         const guests: any[] = [];
-//         Readable.from(buffer.toString())
-//           .pipe(csv.parse({ headers: true }))
-//           .on("data", (row) => guests.push(row))
-//           .on("end", () => resolve(guests))
-//           .on("error", reject);
-//       });
-//     } else {
-//       const workbook = xlsx.read(buffer);
-//       const sheet = workbook.Sheets[workbook.SheetNames[0]];
-//       const data = xlsx.utils.sheet_to_json(sheet);
-//       return Array.isArray(data) ? data : [];
-//     }
-//   } catch (error) {
-//     console.error("Error in parseCsvExcel:", error);
-//     return [];
-//   }
-// }
-
-
-
 import fetch from 'node-fetch';
 import xlsx from 'xlsx';
 import csv from 'fast-csv';

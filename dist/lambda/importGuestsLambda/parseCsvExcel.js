@@ -1,8 +1,4 @@
 "use strict";
-// import fetch from 'node-fetch';
-// import xlsx from 'xlsx';
-// import csv from 'fast-csv';
-// import { Readable } from 'stream';
 var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
     return new (P || (P = Promise))(function (resolve, reject) {
@@ -17,32 +13,6 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.parseCsvExcel = parseCsvExcel;
-// export async function parseCsvExcel(fileUrl: string): Promise<any[]> {
-//   try {
-//     const res = await fetch(fileUrl);
-//     if (!res.ok) throw new Error(`Failed to fetch file: ${res.statusText}`);
-//     const buffer = await res.buffer();
-//     const type = fileUrl.endsWith(".csv") ? "csv" : "excel";
-//     if (type === "csv") {
-//       return await new Promise((resolve, reject) => {
-//         const guests: any[] = [];
-//         Readable.from(buffer.toString())
-//           .pipe(csv.parse({ headers: true }))
-//           .on("data", (row) => guests.push(row))
-//           .on("end", () => resolve(guests))
-//           .on("error", reject);
-//       });
-//     } else {
-//       const workbook = xlsx.read(buffer);
-//       const sheet = workbook.Sheets[workbook.SheetNames[0]];
-//       const data = xlsx.utils.sheet_to_json(sheet);
-//       return Array.isArray(data) ? data : [];
-//     }
-//   } catch (error) {
-//     console.error("Error in parseCsvExcel:", error);
-//     return [];
-//   }
-// }
 const node_fetch_1 = __importDefault(require("node-fetch"));
 const xlsx_1 = __importDefault(require("xlsx"));
 const fast_csv_1 = __importDefault(require("fast-csv"));

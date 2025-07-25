@@ -27,7 +27,9 @@ export const handler = async (event) => {
             g.fullname.trim() !== "" &&
             g.qrCodeBgColor &&
             g.qrCodeCenterColor &&
-            g.qrCodeEdgeColor);
+            g.qrCodeEdgeColor &&
+            g.TableNo &&
+            g.others);
         if (validGuests.length === 0) {
             return {
                 statusCode: 400,
@@ -47,7 +49,9 @@ export const handler = async (event) => {
                     if (!guest.fullname ||
                         !guest.qrCodeBgColor ||
                         !guest.qrCodeCenterColor ||
-                        !guest.qrCodeEdgeColor) {
+                        !guest.qrCodeEdgeColor ||
+                        !guest.TableNo ||
+                        !guest.others) {
                         throw new Error("Missing required guest fields");
                     }
                     const guestId = uuidv4();
@@ -61,6 +65,8 @@ export const handler = async (event) => {
                         qrCodeCenterColor: centerColorHex,
                         qrCodeEdgeColor: edgeColorHex,
                         eventId,
+                        TableNo: guest.TableNo,
+                        others: guest.others,
                     });
                     const qrData = JSON.parse(qrResponse.body);
                     return {
