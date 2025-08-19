@@ -9,23 +9,6 @@ const auth_1 = __importDefault(require("../library/middlewares/auth"));
 const combinedAuth_1 = require("../library/middlewares/combinedAuth");
 const multer_1 = __importDefault(require("multer"));
 const router = express_1.default.Router();
-// Set up multer for memory storage (CSV/Excel upload)
-// const uploadCSVExcel = multer({
-//   storage: multer.memoryStorage(),
-//   fileFilter: (req, file, cb) => {
-//     const allowedMimes = [
-//       "text/csv",
-//       "application/vnd.ms-excel",
-//       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-//     ];
-//     if (allowedMimes.includes(file.mimetype)) {
-//       cb(null, true);
-//     } else {
-//       cb(new Error("Only CSV or Excel files are allowed"));
-//     }
-//   },
-//   limits: { fileSize: 5 * 1024 * 1024 }, // 5MB max
-// });
 const uploadCSVExcel = (0, multer_1.default)({ storage: multer_1.default.memoryStorage() });
 // Guest routes
 router.post("/add-guest", auth_1.default, guestController_1.addGuest);

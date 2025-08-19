@@ -3,6 +3,8 @@ import { Event } from "../models/eventmodel";
 import { createEventSchema, updateEventSchema, option } from "../utils/utils";
 import { sendEmail } from "../library/helpers/emailService";
 import { deleteFromS3, uploadToS3 } from '../utils/s3Utils';
+import { Lambda } from '@aws-sdk/client-lambda';
+const lambda = new Lambda({ region: process.env.AWS_REGION });
 
 export const createEvent = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -52,6 +54,13 @@ const ivImageUrl = await uploadToS3(
       <p>Log in to view more details.</p>
     `;
     await sendEmail(adminEmail, `New Event Created: ${name}`, emailContent);
+
+
+// After successful create/update/delete operations:
+await lambda.invoke({
+  FunctionName: process.env.BACKUP_LAMBDA!,
+  InvocationType: 'Event' // Asynchronous
+});
 
     res.status(201).json({ message: "Event created successfully", event: newEvent });
   } catch (error) {
@@ -186,6 +195,12 @@ export const getAllEvents = async (req: Request, res: Response) => {
      res.status(404).json({ message: "No events found" });
      return;
     }
+    // After successful create/update/delete operations:
+await lambda.invoke({
+  FunctionName: process.env.BACKUP_LAMBDA!,
+  InvocationType: 'Event' // Asynchronous
+});
+
     res
       .status(200)
       .json({ message: "All events successfully fetched", events });

@@ -12,6 +12,8 @@ import sharp from "sharp";
 import jwt from "jsonwebtoken";
 import mongoose from "mongoose";
 import sanitizeHtml from "sanitize-html";
+import { Lambda } from '@aws-sdk/client-lambda';
+const lambda = new Lambda({ region: process.env.AWS_REGION });
 
 
 export const addGuest = async (req: Request, res: Response): Promise<void> => {
@@ -163,6 +165,12 @@ if (email) {
   }
 }
 
+// After successful create/update/delete operations:
+await lambda.invoke({
+  FunctionName: process.env.BACKUP_LAMBDA!,
+  InvocationType: 'Event' // Asynchronous
+});
+
     res.status(201).json({
       message: "Guest created successfully",
       guest: savedGuest,
@@ -289,6 +297,12 @@ export const importGuests = async (req: Request, res: Response): Promise<void> =
       successfulGuests.push(savedGuest);
     }
 
+    // After successful create/update/delete operations:
+await lambda.invoke({
+  FunctionName: process.env.BACKUP_LAMBDA!,
+  InvocationType: 'Event' // Asynchronous
+});
+
     res.status(201).json({
       message: `Imported ${result.totalProcessed} guests, saved ${successfulGuests.length} to DB`,
       guests: successfulGuests,
@@ -387,6 +401,12 @@ export const updateGuest = async (req: Request, res: Response): Promise<void> =>
         `;
         await sendEmail(guest.email, `Your Updated QR Code`, emailContent);
       }
+
+      // After successful create/update/delete operations:
+await lambda.invoke({
+  FunctionName: process.env.BACKUP_LAMBDA!,
+  InvocationType: 'Event' // Asynchronous
+});
 
       res.status(200).json({
         message: "Guest updated successfully and QR code regenerated",
@@ -507,6 +527,7 @@ export const downloadAllQRCodes = async (req: Request, res: Response): Promise<v
       eventId,
     });
 
+
     const statusCode = lambdaResponse?.statusCode || 500;
 
     let parsedBody: any = {};
@@ -564,18 +585,20 @@ export const downloadBatchQRCodes = async (
       return;
     }
 
-    const qrPaths = guests
-      .map((guest) => {
-        try {
-          if (!guest.qrCode || typeof guest.qrCode !== "string") return null;
-          const url = new URL(guest.qrCode);
-          const path = url.pathname.startsWith("/") ? url.pathname.slice(1) : url.pathname;
-          return path.endsWith(".svg") ? path : null;
-        } catch {
-          return null;
-        }
-      })
-      .filter(Boolean) as string[];
+  const qrPaths = guests
+  .map((guest) => {
+    try {
+      if (!guest.qrCode || typeof guest.qrCode !== "string") return null;
+      const url = new URL(guest.qrCode);
+      const path = url.pathname.startsWith("/") ? url.pathname.slice(1) : url.pathname;
+      // 👇 Decode URI component so %20 stays as %20
+      return decodeURI(path.endsWith(".svg") ? path : "");
+    } catch {
+      return null;
+    }
+  })
+  .filter(Boolean) as string[];
+
 
     if (!qrPaths.length) {
       res.status(400).json({ message: "No valid QR code paths found in the given range" });
@@ -719,6 +742,12 @@ export const deleteGuestsByEvent = async (
     await Promise.allSettled(deletionPromises);
     await Guest.deleteMany({ eventId });
 
+    // After successful create/update/delete operations:
+await lambda.invoke({
+  FunctionName: process.env.BACKUP_LAMBDA!,
+  InvocationType: 'Event' // Asynchronous
+});
+
     res.status(200).json({ 
       message: "All guests and their QR codes deleted successfully",
       deletedCount: guests.length
@@ -779,6 +808,11 @@ export const deleteGuestsByEventAndTimestamp = async (
       createdAt: { $gte: startDate, $lte: endDate }
     });
 
+// After successful create/update/delete operations:
+await lambda.invoke({
+  FunctionName: process.env.BACKUP_LAMBDA!,
+  InvocationType: 'Event' // Asynchronous
+});
     res.status(200).json({
       message: `Deleted ${deleteResult.deletedCount} guests for event ${eventId}`
     });
@@ -834,7 +868,7 @@ export const scanQRCode = async (
     // Mark the guest as checked in and update their status
     guest.checkedIn = true;
     guest.status = "checked-in";
-    const updatedGuest = await guest.save();
+    await guest.save();
 
     // Send a response with the updated guest information and event details
     res.status(200).json({

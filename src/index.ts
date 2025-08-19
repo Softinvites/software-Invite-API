@@ -1,3 +1,5 @@
+
+import serverless from 'serverless-http';
 import createError, { HttpError } from "http-errors";
 import express, { Request, Response, NextFunction } from "express";
 import cookieParser from "cookie-parser";
@@ -13,25 +15,35 @@ dotenv.config();
 const app = express();
 
 // CORS options
-const corsOptions = {
-  origin: [
-    "http://localhost:3039",
-    "http://192.168.0.197:3039",
-    "http://100.64.100.6:3039",
-    "https://www.softinvite.com",
-    "https://softinvite.com",
-    "http://localhost:3000",
-    "https://softinvite-scan.vercel.app"
-  ],
-  credentials: true,
-};
+const corsOptions = [
+  "http://localhost:3039",
+  "http://192.168.0.197:3039",
+  "http://100.64.100.6:3039",
+  'https://www.softinvite.com',
+  'https://softinvite.com',
+  "http://localhost:3000",
+  'https://softinvite-scan.vercel.app'
+];
+
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || corsOptions.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true
+}));
 
 // Middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true })); // No need for body-parser
 app.use(cookieParser());
 app.use(logger("dev"));
-app.use(cors(corsOptions)); // Apply CORS middleware
+
+// app.options("*", cors(corsOptions)); // 👈 Allow preflight
+// app.use(cors(corsOptions)); // Apply CORS middleware
 
 // Routes
 app.use("/admin", AdminRouter);
@@ -57,8 +69,14 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 // Connect to database
 connectDB();
 
+// Convert app to Lambda handler
+export const handler = serverless(app);
+
 // Start server
-const PORT = process.env.PORT || 4000;
-app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
-});
+// Local development server (optional)
+if (process.env.NODE_ENV === 'development') {
+  const PORT = process.env.PORT || 4000;
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+  });
+}

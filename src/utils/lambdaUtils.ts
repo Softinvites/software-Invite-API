@@ -7,6 +7,10 @@ export const invokeLambda = async (functionName: string, payload: any) => {
     Payload: JSON.stringify(payload),
   };
 
-  const response = await lambda.invoke(params).promise();
+
+  console.log('Invoking Lambda with payload:', payload);
+const response = await lambda.invoke(params).promise();
+console.log('Lambda response:', response);
+  // const response = await lambda.invoke(params).promise();
   return JSON.parse(response.Payload as string);
 };

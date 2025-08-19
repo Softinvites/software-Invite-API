@@ -3,6 +3,8 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.handler = void 0;
+const serverless_http_1 = __importDefault(require("serverless-http"));
 const http_errors_1 = __importDefault(require("http-errors"));
 const express_1 = __importDefault(require("express"));
 const cookie_parser_1 = __importDefault(require("cookie-parser"));
@@ -16,24 +18,33 @@ const guestRoutes_1 = __importDefault(require("./routes/guestRoutes"));
 dotenv_1.default.config();
 const app = (0, express_1.default)();
 // CORS options
-const corsOptions = {
-    origin: [
-        "http://localhost:3039",
-        "http://192.168.0.197:3039",
-        "http://100.64.100.6:3039",
-        "https://www.softinvite.com",
-        "https://softinvite.com",
-        "http://localhost:3000",
-        "https://softinvite-scan.vercel.app"
-    ],
-    credentials: true,
-};
+const corsOptions = [
+    "http://localhost:3039",
+    "http://192.168.0.197:3039",
+    "http://100.64.100.6:3039",
+    'https://www.softinvite.com',
+    'https://softinvite.com',
+    "http://localhost:3000",
+    'https://softinvite-scan.vercel.app'
+];
+app.use((0, cors_1.default)({
+    origin: (origin, callback) => {
+        if (!origin || corsOptions.includes(origin)) {
+            callback(null, true);
+        }
+        else {
+            callback(new Error('Not allowed by CORS'));
+        }
+    },
+    credentials: true
+}));
 // Middleware
 app.use(express_1.default.json());
 app.use(express_1.default.urlencoded({ extended: true })); // No need for body-parser
 app.use((0, cookie_parser_1.default)());
 app.use((0, morgan_1.default)("dev"));
-app.use((0, cors_1.default)(corsOptions)); // Apply CORS middleware
+// app.options("*", cors(corsOptions)); // 👈 Allow preflight
+// app.use(cors(corsOptions)); // Apply CORS middleware
 // Routes
 app.use("/admin", adminRoutes_1.default);
 app.use("/events", eventsRoutes_1.default);
@@ -51,8 +62,13 @@ app.use((req, res, next) => {
 });
 // Connect to database
 (0, db_1.connectDB)();
+// Convert app to Lambda handler
+exports.handler = (0, serverless_http_1.default)(app);
 // Start server
-const PORT = process.env.PORT || 4000;
-app.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
-});
+// Local development server (optional)
+if (process.env.NODE_ENV === 'development') {
+    const PORT = process.env.PORT || 4000;
+    app.listen(PORT, () => {
+        console.log(`Server running on port ${PORT}`);
+    });
+}

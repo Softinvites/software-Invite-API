@@ -17,7 +17,10 @@ const invokeLambda = (functionName, payload) => __awaiter(void 0, void 0, void 0
         InvocationType: 'RequestResponse',
         Payload: JSON.stringify(payload),
     };
+    console.log('Invoking Lambda with payload:', payload);
     const response = yield awsConfig_1.lambda.invoke(params).promise();
+    console.log('Lambda response:', response);
+    // const response = await lambda.invoke(params).promise();
     return JSON.parse(response.Payload);
 });
 exports.invokeLambda = invokeLambda;

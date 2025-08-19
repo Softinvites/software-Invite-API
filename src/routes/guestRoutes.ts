@@ -22,25 +22,9 @@ import multer from "multer";
 
 const router = express.Router();
 
-// Set up multer for memory storage (CSV/Excel upload)
-// const uploadCSVExcel = multer({
-//   storage: multer.memoryStorage(),
-//   fileFilter: (req, file, cb) => {
-//     const allowedMimes = [
-//       "text/csv",
-//       "application/vnd.ms-excel",
-//       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-//     ];
-//     if (allowedMimes.includes(file.mimetype)) {
-//       cb(null, true);
-//     } else {
-//       cb(new Error("Only CSV or Excel files are allowed"));
-//     }
-//   },
-//   limits: { fileSize: 5 * 1024 * 1024 }, // 5MB max
-// });
-
 const uploadCSVExcel = multer({ storage: multer.memoryStorage() });
+
+
 
 // Guest routes
 router.post("/add-guest", auth, addGuest);

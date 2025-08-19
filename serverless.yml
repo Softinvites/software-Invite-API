@@ -1,0 +1,71 @@
+service: softinvites-backend
+
+frameworkVersion: '3'
+
+provider:
+  name: aws
+  runtime: nodejs18.x
+  region: ${env:AWS_REGION, 'us-east-2'}
+  stage: ${env:STAGE, 'dev'}
+  architecture: arm64
+  httpApi:
+    cors:
+      allowedOrigins:
+        - ${env:FRONTEND_URL}
+        - https://softinvite-scan.vercel.app
+      allowedHeaders:
+        - Content-Type
+        - Authorization
+        - X-Amz-Date
+        - X-Api-Key
+      allowedMethods:
+        - OPTIONS
+        - GET
+        - POST
+        - PUT
+        - DELETE
+      maxAge: 86400
+  environment:
+    MONGODB_URI: ${env:MONGODB_URI}
+    JWT_SECRET: ${env:JWT_SECRET}
+    S3_BUCKET: ${env:S3_BUCKET}
+    AWS_REGION: ${env:AWS_REGION}
+    CDN_URL: ${env:CDN_URL}
+    QR_LAMBDA_FUNCTION_NAME: ${env:QR_LAMBDA_FUNCTION_NAME}
+    IMPORT_LAMBDA_FUNCTION_NAME: ${env:IMPORT_LAMBDA_FUNCTION_NAME}
+    ZIP_LAMBDA_FUNCTION_NAME: ${env:ZIP_LAMBDA_FUNCTION_NAME}
+    FRONTEND_URL: ${env:FRONTEND_URL}
+    BACKUP_BUCKET: ${env:BACKUP_BUCKET}
+    BACKUP_LAMBDA: ${self:service}-${self:provider.stage}-backup
+  iamRoleStatements:
+    - Effect: Allow
+      Action:
+        - s3:*
+        - lambda:InvokeFunction
+      Resource: "*"
+
+functions:
+  app:
+    handler: index.handler
+    events:
+      - httpApi: '*'
+    memorySize: 1024
+    timeout: 30
+
+  backup:
+    handler: backup.handler
+    description: "Event-driven MongoDB backup to S3"
+    memorySize: 512
+    timeout: 120
+    environment:
+      MONGODB_URI: ${env:MONGODB_URI}
+      BACKUP_BUCKET: ${env:BACKUP_BUCKET}
+
+plugins:
+  - serverless-plugin-dotenv
+  - serverless-offline
+
+custom:
+  serverless-offline:
+    httpPort: 4000
+    noPrependStageInUrl: true

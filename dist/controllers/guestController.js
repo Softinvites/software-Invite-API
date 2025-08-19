@@ -26,6 +26,8 @@ const sharp_1 = __importDefault(require("sharp"));
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const mongoose_1 = __importDefault(require("mongoose"));
 const sanitize_html_1 = __importDefault(require("sanitize-html"));
+const client_lambda_1 = require("@aws-sdk/client-lambda");
+const lambda = new client_lambda_1.Lambda({ region: process.env.AWS_REGION });
 const addGuest = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { fullname, TableNo, email, phone, message, others, eventId, qrCodeBgColor, qrCodeCenterColor, qrCodeEdgeColor, } = req.body;
@@ -138,6 +140,11 @@ const addGuest = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
                 console.error("Failed to send email:", emailError);
             }
         }
+        // After successful create/update/delete operations:
+        yield lambda.invoke({
+            FunctionName: process.env.BACKUP_LAMBDA,
+            InvocationType: 'Event' // Asynchronous
+        });
         res.status(201).json({
             message: "Guest created successfully",
             guest: savedGuest,
@@ -242,6 +249,11 @@ const importGuests = (req, res) => __awaiter(void 0, void 0, void 0, function* (
             yield savedGuest.save();
             successfulGuests.push(savedGuest);
         }
+        // After successful create/update/delete operations:
+        yield lambda.invoke({
+            FunctionName: process.env.BACKUP_LAMBDA,
+            InvocationType: 'Event' // Asynchronous
+        });
         res.status(201).json({
             message: `Imported ${result.totalProcessed} guests, saved ${successfulGuests.length} to DB`,
             guests: successfulGuests,
@@ -319,6 +331,11 @@ const updateGuest = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
         `;
                 yield (0, emailService_1.sendEmail)(guest.email, `Your Updated QR Code`, emailContent);
             }
+            // After successful create/update/delete operations:
+            yield lambda.invoke({
+                FunctionName: process.env.BACKUP_LAMBDA,
+                InvocationType: 'Event' // Asynchronous
+            });
             res.status(200).json({
                 message: "Guest updated successfully and QR code regenerated",
                 guest,
@@ -473,7 +490,8 @@ const downloadBatchQRCodes = (req, res) => __awaiter(void 0, void 0, void 0, fun
                     return null;
                 const url = new URL(guest.qrCode);
                 const path = url.pathname.startsWith("/") ? url.pathname.slice(1) : url.pathname;
-                return path.endsWith(".svg") ? path : null;
+                // 👇 Decode URI component so %20 stays as %20
+                return decodeURI(path.endsWith(".svg") ? path : "");
             }
             catch (_a) {
                 return null;
@@ -601,6 +619,11 @@ const deleteGuestsByEvent = (req, res) => __awaiter(void 0, void 0, void 0, func
         }));
         yield Promise.allSettled(deletionPromises);
         yield guestmodel_1.Guest.deleteMany({ eventId });
+        // After successful create/update/delete operations:
+        yield lambda.invoke({
+            FunctionName: process.env.BACKUP_LAMBDA,
+            InvocationType: 'Event' // Asynchronous
+        });
         res.status(200).json({
             message: "All guests and their QR codes deleted successfully",
             deletedCount: guests.length
@@ -650,6 +673,11 @@ const deleteGuestsByEventAndTimestamp = (req, res) => __awaiter(void 0, void 0, 
             eventId,
             createdAt: { $gte: startDate, $lte: endDate }
         });
+        // After successful create/update/delete operations:
+        yield lambda.invoke({
+            FunctionName: process.env.BACKUP_LAMBDA,
+            InvocationType: 'Event' // Asynchronous
+        });
         res.status(200).json({
             message: `Deleted ${deleteResult.deletedCount} guests for event ${eventId}`
         });
@@ -693,7 +721,7 @@ const scanQRCode = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
         // Mark the guest as checked in and update their status
         guest.checkedIn = true;
         guest.status = "checked-in";
-        const updatedGuest = yield guest.save();
+        yield guest.save();
         // Send a response with the updated guest information and event details
         res.status(200).json({
             message: "Guest successfully checked in",
