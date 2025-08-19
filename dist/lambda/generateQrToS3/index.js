@@ -14,6 +14,12 @@ const client_s3_1 = require("@aws-sdk/client-s3");
 const generateQrSvg_js_1 = require("./generateQrSvg.js");
 const colorUtils_js_1 = require("./colorUtils.js");
 const s3 = new client_s3_1.S3Client({ region: process.env.AWS_REGION });
+// CORS headers for Lambda responses
+const corsHeaders = {
+    "Access-Control-Allow-Origin": "*", // Replace * with your frontend domain for better security
+    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+};
 const handler = (event) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { guestId, fullname, qrCodeBgColor, qrCodeCenterColor, qrCodeEdgeColor, eventId, TableNo, others, } = event;

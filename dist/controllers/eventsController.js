@@ -14,6 +14,8 @@ const eventmodel_1 = require("../models/eventmodel");
 const utils_1 = require("../utils/utils");
 const emailService_1 = require("../library/helpers/emailService");
 const s3Utils_1 = require("../utils/s3Utils");
+const client_lambda_1 = require("@aws-sdk/client-lambda");
+const lambda = new client_lambda_1.Lambda({ region: process.env.AWS_REGION });
 const createEvent = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { name, date, location, description } = req.body;
@@ -50,6 +52,11 @@ const createEvent = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
       <p>Log in to view more details.</p>
     `;
         yield (0, emailService_1.sendEmail)(adminEmail, `New Event Created: ${name}`, emailContent);
+        // After successful create/update/delete operations:
+        yield lambda.invoke({
+            FunctionName: process.env.BACKUP_LAMBDA,
+            InvocationType: 'Event' // Asynchronous
+        });
         res.status(201).json({ message: "Event created successfully", event: newEvent });
     }
     catch (error) {
@@ -162,6 +169,11 @@ const getAllEvents = (req, res) => __awaiter(void 0, void 0, void 0, function* (
             res.status(404).json({ message: "No events found" });
             return;
         }
+        // After successful create/update/delete operations:
+        yield lambda.invoke({
+            FunctionName: process.env.BACKUP_LAMBDA,
+            InvocationType: 'Event' // Asynchronous
+        });
         res
             .status(200)
             .json({ message: "All events successfully fetched", events });
