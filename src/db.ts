@@ -1,6 +1,7 @@
 // import mongoose from "mongoose";
 // import dotenv from "dotenv";
 
+
 // dotenv.config();
 
 // const url: string =
@@ -24,6 +25,8 @@
 
 
 
+
+
 import mongoose from "mongoose";
 import dotenv from "dotenv";
 
@@ -38,6 +41,7 @@ export async function connectDB() {
 
   try {
     const connection = await mongoose.connect(process.env.MONGODB_URI!, {
+      family: 4,
       serverSelectionTimeoutMS: 5000,
       socketTimeoutMS: 45000,
       maxPoolSize: 10,
