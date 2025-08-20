@@ -44,6 +44,7 @@ function connectDB() {
         }
         try {
             const connection = yield mongoose_1.default.connect(process.env.MONGODB_URI, {
+                family: 4,
                 serverSelectionTimeoutMS: 5000,
                 socketTimeoutMS: 45000,
                 maxPoolSize: 10,
