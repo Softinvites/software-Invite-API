@@ -1,12 +1,10 @@
 import { S3Client } from "@aws-sdk/client-s3";
 import { LambdaClient } from "@aws-sdk/client-lambda";
+import { defaultProvider } from "@aws-sdk/credential-provider-node";
 
 const config = {
-  region: process.env.AWS_REGION,
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
-  },
+  region: process.env.AWS_REGION || "us-east-2",
+  credentials: defaultProvider(),
 };
 
 export const s3 = new S3Client(config);
