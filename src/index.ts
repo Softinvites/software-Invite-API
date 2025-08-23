@@ -1,4 +1,3 @@
-
 import serverless from 'serverless-http';
 import createError, { HttpError } from "http-errors";
 import express, { Request, Response, NextFunction } from "express";

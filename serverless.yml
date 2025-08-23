@@ -4,14 +4,15 @@ frameworkVersion: '3'
 
 provider:
   name: aws
-  runtime: nodejs18.x
+  runtime: nodejs20.x
   region: ${env:AWS_REGION, 'us-east-2'}
   stage: ${env:STAGE, 'dev'}
   architecture: arm64
+
   httpApi:
     cors:
       allowedOrigins:
-        - ${env:FRONTEND_URL}
+        - ${env:FRONTEND_URL, 'https://www.softinvite.com'}
         - https://softinvite-scan.vercel.app
       allowedHeaders:
         - Content-Type
@@ -25,47 +26,72 @@ provider:
         - PUT
         - DELETE
       maxAge: 86400
+
   environment:
-    MONGODB_URI: ${env:MONGODB_URI}
-    JWT_SECRET: ${env:JWT_SECRET}
-    S3_BUCKET: ${env:S3_BUCKET}
-    AWS_REGION: ${env:AWS_REGION}
-    CDN_URL: ${env:CDN_URL}
-    QR_LAMBDA_FUNCTION_NAME: ${env:QR_LAMBDA_FUNCTION_NAME}
-    IMPORT_LAMBDA_FUNCTION_NAME: ${env:IMPORT_LAMBDA_FUNCTION_NAME}
-    ZIP_LAMBDA_FUNCTION_NAME: ${env:ZIP_LAMBDA_FUNCTION_NAME}
-    FRONTEND_URL: ${env:FRONTEND_URL}
-    BACKUP_BUCKET: ${env:BACKUP_BUCKET}
-    BACKUP_LAMBDA: ${self:service}-${self:provider.stage}-backup
-  iamRoleStatements:
-    - Effect: Allow
-      Action:
-        - s3:*
-        - lambda:InvokeFunction
-      Resource: "*"
+    MONGODB_URI: ${env:MONGODB_URI, 'mongodb+srv://softinvites:Pi1pZr1yjuIcJ5pL@cluster1.f69gx.mongodb.net/softinvites'}
+    JWT_SECRET: ${env:JWT_SECRET, 'soft_invites363effbch7ee'}
+    S3_BUCKET: ${env:S3_BUCKET, 'softinvites-assets'}
+    REGION: ${env:AWS_REGION, 'us-east-2'}
+    CDN_URL: ${env:CDN_URL, 'https://softinvites-assets.s3.amazonaws.com'}
+    QR_LAMBDA_FUNCTION_NAME: ${env:QR_LAMBDA_FUNCTION_NAME, 'generateQrToS3'}
+    IMPORT_LAMBDA_FUNCTION_NAME: ${env:IMPORT_LAMBDA_FUNCTION_NAME, 'importGuestsLambda'}
+    ZIP_LAMBDA_FUNCTION_NAME: ${env:ZIP_LAMBDA_FUNCTION_NAME, 'downloadZipLambdaFunction'}
+    FRONTEND_URL: ${env:FRONTEND_URL, 'https://www.softinvite.com'}
+    BACKUP_BUCKET: ${env:BACKUP_BUCKET, 'softinvites-backups'}
+    BACKUP_LAMBDA: ${env:BACKUP_LAMBDA, 'backups'}
+
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - s3:*
+            - lambda:InvokeFunction
+          Resource: "*"
 
 functions:
   app:
-    handler: index.handler
+    handler: dist/index.handler
     events:
-      - httpApi: '*'
+      - httpApi:
+          method: ANY
+          path: /{proxy+}   
     memorySize: 1024
     timeout: 30
 
   backup:
-    handler: backup.handler
+    handler: dist/backup.handler
     description: "Event-driven MongoDB backup to S3"
     memorySize: 512
     timeout: 120
     environment:
-      MONGODB_URI: ${env:MONGODB_URI}
-      BACKUP_BUCKET: ${env:BACKUP_BUCKET}
+      MONGODB_URI: ${env:MONGODB_URI, 'mongodb+srv://softinvites:Pi1pZr1yjuIcJ5pL@cluster1.f69gx.mongodb.net/softinvites'}
+      BACKUP_BUCKET: ${env:BACKUP_BUCKET, 'softinvites-backups'}
 
 plugins:
-  - serverless-plugin-dotenv
+  # - serverless-plugin-dotenv
   - serverless-offline
+  - serverless-esbuild
+
+package:
+  patterns:
+    - '!node_modules/.cache/**'
+    - '!node_modules/**/*.md'
+    - '!node_modules/lodash/fp/**'
+    - '!.git/**'
+    - '!.gitignore'
+  individually: true
 
 custom:
+  dotenv:
+    path: .env
   serverless-offline:
     httpPort: 4000
     noPrependStageInUrl: true
+  esbuild:
+    bundle: true
+    minify: true
+    sourcemap: false
+    target: node20
+    platform: node
+    concurrency: 10

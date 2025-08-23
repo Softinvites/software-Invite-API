@@ -27,7 +27,7 @@ const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const mongoose_1 = __importDefault(require("mongoose"));
 const sanitize_html_1 = __importDefault(require("sanitize-html"));
 const client_lambda_1 = require("@aws-sdk/client-lambda");
-const lambda = new client_lambda_1.Lambda({ region: process.env.AWS_REGION });
+const lambdaClient = new client_lambda_1.LambdaClient({ region: process.env.AWS_REGION });
 const addGuest = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { fullname, TableNo, email, phone, message, others, eventId, qrCodeBgColor, qrCodeCenterColor, qrCodeEdgeColor, } = req.body;
@@ -141,10 +141,11 @@ const addGuest = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
             }
         }
         // After successful create/update/delete operations:
-        yield lambda.invoke({
+        yield lambdaClient.send(new client_lambda_1.InvokeCommand({
             FunctionName: process.env.BACKUP_LAMBDA,
-            InvocationType: 'Event' // Asynchronous
-        });
+            InvocationType: 'Event', // async
+            Payload: Buffer.from(JSON.stringify({})) // can pass data if needed
+        }));
         res.status(201).json({
             message: "Guest created successfully",
             guest: savedGuest,
@@ -250,10 +251,11 @@ const importGuests = (req, res) => __awaiter(void 0, void 0, void 0, function* (
             successfulGuests.push(savedGuest);
         }
         // After successful create/update/delete operations:
-        yield lambda.invoke({
+        yield lambdaClient.send(new client_lambda_1.InvokeCommand({
             FunctionName: process.env.BACKUP_LAMBDA,
-            InvocationType: 'Event' // Asynchronous
-        });
+            InvocationType: 'Event', // async
+            Payload: Buffer.from(JSON.stringify({})) // can pass data if needed
+        }));
         res.status(201).json({
             message: `Imported ${result.totalProcessed} guests, saved ${successfulGuests.length} to DB`,
             guests: successfulGuests,
@@ -332,10 +334,11 @@ const updateGuest = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
                 yield (0, emailService_1.sendEmail)(guest.email, `Your Updated QR Code`, emailContent);
             }
             // After successful create/update/delete operations:
-            yield lambda.invoke({
+            yield lambdaClient.send(new client_lambda_1.InvokeCommand({
                 FunctionName: process.env.BACKUP_LAMBDA,
-                InvocationType: 'Event' // Asynchronous
-            });
+                InvocationType: 'Event', // async
+                Payload: Buffer.from(JSON.stringify({})) // can pass data if needed
+            }));
             res.status(200).json({
                 message: "Guest updated successfully and QR code regenerated",
                 guest,
@@ -620,10 +623,11 @@ const deleteGuestsByEvent = (req, res) => __awaiter(void 0, void 0, void 0, func
         yield Promise.allSettled(deletionPromises);
         yield guestmodel_1.Guest.deleteMany({ eventId });
         // After successful create/update/delete operations:
-        yield lambda.invoke({
+        yield lambdaClient.send(new client_lambda_1.InvokeCommand({
             FunctionName: process.env.BACKUP_LAMBDA,
-            InvocationType: 'Event' // Asynchronous
-        });
+            InvocationType: 'Event', // async
+            Payload: Buffer.from(JSON.stringify({})) // can pass data if needed
+        }));
         res.status(200).json({
             message: "All guests and their QR codes deleted successfully",
             deletedCount: guests.length
@@ -674,10 +678,11 @@ const deleteGuestsByEventAndTimestamp = (req, res) => __awaiter(void 0, void 0, 
             createdAt: { $gte: startDate, $lte: endDate }
         });
         // After successful create/update/delete operations:
-        yield lambda.invoke({
+        yield lambdaClient.send(new client_lambda_1.InvokeCommand({
             FunctionName: process.env.BACKUP_LAMBDA,
-            InvocationType: 'Event' // Asynchronous
-        });
+            InvocationType: 'Event', // async
+            Payload: Buffer.from(JSON.stringify({})) // can pass data if needed
+        }));
         res.status(200).json({
             message: `Deleted ${deleteResult.deletedCount} guests for event ${eventId}`
         });
