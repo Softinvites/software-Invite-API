@@ -19,7 +19,6 @@ const qrcode_svg_1 = __importDefault(require("qrcode-svg"));
 const lambdaUtils_1 = require("../utils/lambdaUtils");
 const s3Utils_1 = require("../utils/s3Utils");
 const utils_1 = require("../utils/utils");
-const node_fetch_1 = __importDefault(require("node-fetch"));
 const emailService_1 = require("../library/helpers/emailService");
 const colorUtils_1 = require("../utils/colorUtils");
 const sharp_1 = __importDefault(require("sharp"));
@@ -160,6 +159,122 @@ const addGuest = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     }
 });
 exports.addGuest = addGuest;
+// export const importGuests = async (req: Request, res: Response): Promise<void> => {
+//   try {
+//     if (!req.file) {
+//        res.status(400).json({ message: "No file uploaded" });
+//        return;
+//     }
+//     const eventId = req.body.eventId;
+//     if (!eventId) {
+//        res.status(400).json({ message: "Missing event ID" });
+//        return;
+//     }
+//     // Upload file to S3
+//     const fileKey = `uploads/${Date.now()}_${req.file.originalname}`;
+//     const fileUrl = await uploadToS3(req.file.buffer, fileKey, req.file.mimetype);
+//     console.log("Uploaded file to S3:", fileUrl);
+//     // Test fetch access
+//     const testFetch = await fetch(fileUrl);
+//     console.log("Fetch test status:", testFetch.status);
+//     if (!testFetch.ok) {
+//       throw new Error("Lambda won't be able to access this file.");
+//     }
+//     // Call Lambda to parse file and get initial guest data
+//     const lambdaResponse = await invokeLambda(
+//       process.env.IMPORT_LAMBDA_FUNCTION_NAME!,
+//       { fileUrl, eventId }
+//     );
+//     await deleteFromS3(fileKey); // Optional cleanup
+//     const result = JSON.parse(lambdaResponse.body || "{}");
+//     const statusCode = typeof lambdaResponse.statusCode === "number" ? lambdaResponse.statusCode : 500;
+//     if (statusCode !== 200) {
+//        res.status(statusCode).json({
+//         message: "Error importing guests",
+//         guests: [],
+//         successful: 0,
+//         error: result?.error || result?.message || "Unknown error from Lambda",
+//       });
+//       return;
+//     }
+//     const successfulGuests: any[] = [];
+//     for (const g of result.guests || []) {
+//       if (g.status !== "fulfilled") continue;
+//       const guest = g.value;
+//       // Save to DB to get Mongo ID
+//       const newGuest = new Guest({
+//         fullname: guest.fullname,
+//         TableNo: guest.TableNo,
+//         email: guest.email,
+//         phone: guest.phone,
+//         message: guest.message,
+//         others: guest.others,
+//         qrCodeBgColor: guest.qrCodeBgColor,
+//         qrCodeCenterColor: guest.qrCodeCenterColor,
+//         qrCodeEdgeColor: guest.qrCodeEdgeColor,
+//         eventId,
+//         status: "pending",
+//         imported: true,
+//         checkedIn: false,
+//       });
+//       const savedGuest = await newGuest.save();
+//       // Generate QR using real Mongo ID
+//       const lambdaPayload = {
+//         guestId: savedGuest._id.toString(),
+//         fullname: guest.fullname,
+//         qrCodeBgColor: guest.qrCodeBgColor,
+//         qrCodeCenterColor: guest.qrCodeCenterColor,
+//         qrCodeEdgeColor: guest.qrCodeEdgeColor,
+//         eventId,
+//         TableNo: guest.TableNo,
+//         others: guest.others,
+//       };
+//       const qrResponse = await invokeLambda(
+//         process.env.QR_LAMBDA_FUNCTION_NAME!,
+//         lambdaPayload
+//       );
+//       if (qrResponse.statusCode !== 200) {
+//         console.error("QR Lambda failed for guest:", guest.fullname);
+//         continue;
+//       }
+//       let qrCodeUrl = "";
+//       try {
+//         const qrBody = JSON.parse(qrResponse.body);
+//         qrCodeUrl = qrBody.qrCodeUrl;
+//       } catch (err) {
+//         console.error("Failed to parse QR Lambda response:", err);
+//       }
+//       if (!qrCodeUrl || typeof qrCodeUrl !== "string") {
+//         console.error("Invalid or missing QR Code URL for guest:", guest.fullname);
+//         continue;
+//       }
+//       savedGuest.qrCode = qrCodeUrl;
+//       savedGuest.qrCodeData = savedGuest._id.toString();
+//       await savedGuest.save();
+//       successfulGuests.push(savedGuest);
+//     }
+//     // After successful create/update/delete operations:
+// await lambdaClient.send(new InvokeCommand({
+//   FunctionName: process.env.BACKUP_LAMBDA!,
+//   InvocationType: 'Event', // async
+//   Payload: Buffer.from(JSON.stringify({})) // can pass data if needed
+// }));
+//     res.status(201).json({
+//       message: `Imported ${result.totalProcessed} guests, saved ${successfulGuests.length} to DB`,
+//       guests: successfulGuests,
+//       successCount: result.successful,
+//       failedCount: result.failed,
+//     });
+//   } catch (error) {
+//     console.error("Error importing guests (controller):", error);
+//     res.status(500).json({
+//       message: "Error importing guests",
+//       guests: [],
+//       successful: 0,
+//       error: error instanceof Error ? error.message : "Unknown error",
+//     });
+//   }
+// };
 const importGuests = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         if (!req.file) {
@@ -174,101 +289,20 @@ const importGuests = (req, res) => __awaiter(void 0, void 0, void 0, function* (
         // Upload file to S3
         const fileKey = `uploads/${Date.now()}_${req.file.originalname}`;
         const fileUrl = yield (0, s3Utils_1.uploadToS3)(req.file.buffer, fileKey, req.file.mimetype);
-        console.log("Uploaded file to S3:", fileUrl);
-        // Test fetch access
-        const testFetch = yield (0, node_fetch_1.default)(fileUrl);
-        console.log("Fetch test status:", testFetch.status);
-        if (!testFetch.ok) {
-            throw new Error("Lambda won't be able to access this file.");
-        }
-        // Call Lambda to parse file and get initial guest data
-        const lambdaResponse = yield (0, lambdaUtils_1.invokeLambda)(process.env.IMPORT_LAMBDA_FUNCTION_NAME, { fileUrl, eventId });
+        // Trigger import Lambda asynchronously
+        yield (0, lambdaUtils_1.invokeLambda)(process.env.IMPORT_LAMBDA_FUNCTION_NAME, { fileUrl, eventId, userEmail: req.body.userEmail }, // pass user email
+        true // async invocation
+        );
         yield (0, s3Utils_1.deleteFromS3)(fileKey); // Optional cleanup
-        const result = JSON.parse(lambdaResponse.body || "{}");
-        const statusCode = typeof lambdaResponse.statusCode === "number" ? lambdaResponse.statusCode : 500;
-        if (statusCode !== 200) {
-            res.status(statusCode).json({
-                message: "Error importing guests",
-                guests: [],
-                successful: 0,
-                error: (result === null || result === void 0 ? void 0 : result.error) || (result === null || result === void 0 ? void 0 : result.message) || "Unknown error from Lambda",
-            });
-            return;
-        }
-        const successfulGuests = [];
-        for (const g of result.guests || []) {
-            if (g.status !== "fulfilled")
-                continue;
-            const guest = g.value;
-            // Save to DB to get Mongo ID
-            const newGuest = new guestmodel_1.Guest({
-                fullname: guest.fullname,
-                TableNo: guest.TableNo,
-                email: guest.email,
-                phone: guest.phone,
-                message: guest.message,
-                others: guest.others,
-                qrCodeBgColor: guest.qrCodeBgColor,
-                qrCodeCenterColor: guest.qrCodeCenterColor,
-                qrCodeEdgeColor: guest.qrCodeEdgeColor,
-                eventId,
-                status: "pending",
-                imported: true,
-                checkedIn: false,
-            });
-            const savedGuest = yield newGuest.save();
-            // Generate QR using real Mongo ID
-            const lambdaPayload = {
-                guestId: savedGuest._id.toString(),
-                fullname: guest.fullname,
-                qrCodeBgColor: guest.qrCodeBgColor,
-                qrCodeCenterColor: guest.qrCodeCenterColor,
-                qrCodeEdgeColor: guest.qrCodeEdgeColor,
-                eventId,
-                TableNo: guest.TableNo,
-                others: guest.others,
-            };
-            const qrResponse = yield (0, lambdaUtils_1.invokeLambda)(process.env.QR_LAMBDA_FUNCTION_NAME, lambdaPayload);
-            if (qrResponse.statusCode !== 200) {
-                console.error("QR Lambda failed for guest:", guest.fullname);
-                continue;
-            }
-            let qrCodeUrl = "";
-            try {
-                const qrBody = JSON.parse(qrResponse.body);
-                qrCodeUrl = qrBody.qrCodeUrl;
-            }
-            catch (err) {
-                console.error("Failed to parse QR Lambda response:", err);
-            }
-            if (!qrCodeUrl || typeof qrCodeUrl !== "string") {
-                console.error("Invalid or missing QR Code URL for guest:", guest.fullname);
-                continue;
-            }
-            savedGuest.qrCode = qrCodeUrl;
-            savedGuest.qrCodeData = savedGuest._id.toString();
-            yield savedGuest.save();
-            successfulGuests.push(savedGuest);
-        }
-        // After successful create/update/delete operations:
-        yield lambdaClient.send(new client_lambda_1.InvokeCommand({
-            FunctionName: process.env.BACKUP_LAMBDA,
-            InvocationType: 'Event', // async
-            Payload: Buffer.from(JSON.stringify({})) // can pass data if needed
-        }));
-        res.status(201).json({
-            message: `Imported ${result.totalProcessed} guests, saved ${successfulGuests.length} to DB`,
-            guests: successfulGuests,
-            successCount: result.successful,
-            failedCount: result.failed,
+        // Respond immediately
+        res.status(202).json({
+            message: "Import job is running. You will receive an email when processing completes.",
         });
     }
     catch (error) {
-        console.error("Error importing guests (controller):", error);
+        console.error("Error starting import job:", error);
         res.status(500).json({
-            message: "Error importing guests",
-            guests: [],
-            successful: 0,
+            message: "Error starting import job",
             error: error instanceof Error ? error.message : "Unknown error",
         });
     }

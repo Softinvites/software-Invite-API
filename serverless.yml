@@ -60,7 +60,7 @@ functions:
           method: ANY
           path: /{proxy+}   
     memorySize: 1024
-    timeout: 60
+    timeout: 100
 
   backup:
     handler: dist/backup.handler
