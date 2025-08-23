@@ -325,6 +325,46 @@ await lambdaClient.send(new InvokeCommand({
 // };
 
 
+// export const importGuests = async (req: Request, res: Response): Promise<void> => {
+//   try {
+//     if (!req.file) {
+//       res.status(400).json({ message: "No file uploaded" });
+//       return;
+//     }
+
+//     const eventId = req.body.eventId;
+//     if (!eventId) {
+//       res.status(400).json({ message: "Missing event ID" });
+//       return;
+//     }
+
+//     // Upload file to S3
+//     const fileKey = `uploads/${Date.now()}_${req.file.originalname}`;
+//     const fileUrl = await uploadToS3(req.file.buffer, fileKey, req.file.mimetype);
+
+//     // Trigger import Lambda asynchronously
+//     await invokeLambda(
+//       process.env.IMPORT_LAMBDA_FUNCTION_NAME!,
+//       { fileUrl, eventId, userEmail: req.body.userEmail }, // pass user email
+//       true // async invocation
+//     );
+    
+//     await deleteFromS3(fileKey); // Optional cleanup
+
+//     // Respond immediately
+//     res.status(202).json({
+//       message: "Import job is running. You will receive an email when processing completes.",
+//     });
+
+//   } catch (error) {
+//     console.error("Error starting import job:", error);
+//     res.status(500).json({
+//       message: "Error starting import job",
+//       error: error instanceof Error ? error.message : "Unknown error",
+//     });
+//   }
+// };
+
 export const importGuests = async (req: Request, res: Response): Promise<void> => {
   try {
     if (!req.file) {
@@ -342,14 +382,17 @@ export const importGuests = async (req: Request, res: Response): Promise<void> =
     const fileKey = `uploads/${Date.now()}_${req.file.originalname}`;
     const fileUrl = await uploadToS3(req.file.buffer, fileKey, req.file.mimetype);
 
+    console.log("Uploaded file to S3:", fileKey);
+
     // Trigger import Lambda asynchronously
     await invokeLambda(
       process.env.IMPORT_LAMBDA_FUNCTION_NAME!,
-      { fileUrl, eventId, userEmail: req.body.userEmail }, // pass user email
+      { fileUrl, eventId, userEmail: req.body.userEmail }, // pass userEmail
       true // async invocation
     );
-    
-    await deleteFromS3(fileKey); // Optional cleanup
+
+    // 🚫 Don’t delete file here — Lambda needs it
+    // await deleteFromS3(fileKey);
 
     // Respond immediately
     res.status(202).json({
