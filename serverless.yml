@@ -91,7 +91,7 @@ custom:
     path: .env
   serverless-offline:
     httpPort: 4000
-    lambdaPort: 3002
+    # lambdaPort: 3002
     noPrependStageInUrl: true
   esbuild:
     bundle: true
