@@ -10,17 +10,20 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.invokeLambda = void 0;
+const client_lambda_1 = require("@aws-sdk/client-lambda");
 const awsConfig_1 = require("./awsConfig");
 const invokeLambda = (functionName, payload) => __awaiter(void 0, void 0, void 0, function* () {
     const params = {
         FunctionName: functionName,
-        InvocationType: 'RequestResponse',
-        Payload: JSON.stringify(payload),
+        InvocationType: "RequestResponse", // 👈 fix
+        Payload: Buffer.from(JSON.stringify(payload)),
     };
-    console.log('Invoking Lambda with payload:', payload);
-    const response = yield awsConfig_1.lambda.invoke(params).promise();
-    console.log('Lambda response:', response);
-    // const response = await lambda.invoke(params).promise();
-    return JSON.parse(response.Payload);
+    const command = new client_lambda_1.InvokeCommand(params);
+    const response = yield awsConfig_1.lambda.send(command);
+    // response.Payload is Uint8Array | undefined, so convert to string
+    const responsePayload = response.Payload
+        ? Buffer.from(response.Payload).toString()
+        : "{}";
+    return JSON.parse(responsePayload);
 });
 exports.invokeLambda = invokeLambda;
