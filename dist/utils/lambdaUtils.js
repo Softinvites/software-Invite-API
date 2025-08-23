@@ -12,18 +12,20 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.invokeLambda = void 0;
 const client_lambda_1 = require("@aws-sdk/client-lambda");
 const awsConfig_1 = require("./awsConfig");
-const invokeLambda = (functionName, payload) => __awaiter(void 0, void 0, void 0, function* () {
+const invokeLambda = (functionName_1, payload_1, ...args_1) => __awaiter(void 0, [functionName_1, payload_1, ...args_1], void 0, function* (functionName, payload, asyncInvoke = false) {
     const params = {
         FunctionName: functionName,
-        InvocationType: "RequestResponse", // 👈 fix
+        InvocationType: asyncInvoke ? "Event" : "RequestResponse",
         Payload: Buffer.from(JSON.stringify(payload)),
     };
     const command = new client_lambda_1.InvokeCommand(params);
     const response = yield awsConfig_1.lambda.send(command);
-    // response.Payload is Uint8Array | undefined, so convert to string
-    const responsePayload = response.Payload
-        ? Buffer.from(response.Payload).toString()
-        : "{}";
+    // If async, Lambda does not return a payload
+    if (asyncInvoke) {
+        return { statusCode: 202, body: "{}" };
+    }
+    // Otherwise parse normally
+    const responsePayload = response.Payload ? Buffer.from(response.Payload).toString() : "{}";
     return JSON.parse(responsePayload);
 });
 exports.invokeLambda = invokeLambda;
