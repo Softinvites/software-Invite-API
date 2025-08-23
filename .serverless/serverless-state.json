@@ -33,7 +33,7 @@
         }
       },
       "environment": {
-        "MONGODB_URI": "mongodb+srv://softinvites:Pi1pZr1yjuIcJ5pL@cluster1.f69gx.mongodb.net/softinvites",
+        "MONGODB_URI": "mongodb+srv://softinvites:Pi1pZr1yjuIcJ5pL@cluster1.f69gx.mongodb.net/softinvites?retryWrites=true&w=majority",
         "JWT_SECRET": "soft_invites363effbch7ee",
         "S3_BUCKET": "softinvites-assets",
         "REGION": "us-east-2",
@@ -233,7 +233,7 @@
                 "S3Bucket": {
                   "Ref": "ServerlessDeploymentBucket"
                 },
-                "S3Key": "serverless/softinvites-backend/dev/1755939439083-2025-08-23T08:57:19.083Z/app.zip"
+                "S3Key": "serverless/softinvites-backend/dev/1755948886380-2025-08-23T11:34:46.380Z/app.zip"
               },
               "Handler": "dist/index.handler",
               "Runtime": "nodejs20.x",
@@ -245,7 +245,7 @@
               ],
               "Environment": {
                 "Variables": {
-                  "MONGODB_URI": "mongodb+srv://softinvites:Pi1pZr1yjuIcJ5pL@cluster1.f69gx.mongodb.net/softinvites",
+                  "MONGODB_URI": "mongodb+srv://softinvites:Pi1pZr1yjuIcJ5pL@cluster1.f69gx.mongodb.net/softinvites?retryWrites=true&w=majority",
                   "JWT_SECRET": "soft_invites363effbch7ee",
                   "S3_BUCKET": "softinvites-assets",
                   "REGION": "us-east-2",
@@ -263,7 +263,10 @@
                   "IamRoleLambdaExecution",
                   "Arn"
                 ]
-              }
+              },
+              "Layers": [
+                "arn:aws:lambda:us-east-2:402961397587:layer:sharp-layer:5"
+              ]
             },
             "DependsOn": [
               "AppLogGroup"
@@ -276,7 +279,7 @@
                 "S3Bucket": {
                   "Ref": "ServerlessDeploymentBucket"
                 },
-                "S3Key": "serverless/softinvites-backend/dev/1755939439083-2025-08-23T08:57:19.083Z/backup.zip"
+                "S3Key": "serverless/softinvites-backend/dev/1755948886380-2025-08-23T11:34:46.380Z/backup.zip"
               },
               "Handler": "dist/backup.handler",
               "Runtime": "nodejs20.x",
@@ -313,25 +316,25 @@
               "BackupLogGroup"
             ]
           },
-          "BackupLambdaVersion5Sytisu3eWQQeJUMy89p94MhtPAl1ddq7soAn88eLg": {
-            "Type": "AWS::Lambda::Version",
-            "DeletionPolicy": "Retain",
-            "Properties": {
-              "FunctionName": {
-                "Ref": "BackupLambdaFunction"
-              },
-              "CodeSha256": "6MKeQmPluROctBAMM04wbqXmCtq61l+jdi8h6a2iaVA=",
-              "Description": "Event-driven MongoDB backup to S3"
-            }
-          },
-          "AppLambdaVersion3NhVOfRBgfkoDNijMmtm9duCm3EhgTxG4ZynpCZDo": {
+          "AppLambdaVersionKHVnhxJFOdvUEkvz3THs3iW7KG3JkjiV9YOT1FKYpWc": {
             "Type": "AWS::Lambda::Version",
             "DeletionPolicy": "Retain",
             "Properties": {
               "FunctionName": {
                 "Ref": "AppLambdaFunction"
               },
-              "CodeSha256": "FD5OzKTz366vMmtNomVMleiXjSPu41zjmFDYUDHM7Hw="
+              "CodeSha256": "iOXnd57z8//ppxmpBZtj3XcKh9uD79VTzw05ro4bX/w="
+            }
+          },
+          "BackupLambdaVersionGBXQCYEy7yLmzKQW5eJNM38rFVl1aZGdKHxWLdeQ": {
+            "Type": "AWS::Lambda::Version",
+            "DeletionPolicy": "Retain",
+            "Properties": {
+              "FunctionName": {
+                "Ref": "BackupLambdaFunction"
+              },
+              "CodeSha256": "ix28LZRphKB0bm+/84zDqn4tqju1d79lUYblFz3mPsQ=",
+              "Description": "Event-driven MongoDB backup to S3"
             }
           },
           "HttpApi": {
@@ -456,22 +459,22 @@
               "Name": "sls-softinvites-backend-dev-ServerlessDeploymentBucketName"
             }
           },
-          "BackupLambdaFunctionQualifiedArn": {
-            "Description": "Current Lambda function version",
-            "Value": {
-              "Ref": "BackupLambdaVersion5Sytisu3eWQQeJUMy89p94MhtPAl1ddq7soAn88eLg"
-            },
-            "Export": {
-              "Name": "sls-softinvites-backend-dev-BackupLambdaFunctionQualifiedArn"
-            }
-          },
           "AppLambdaFunctionQualifiedArn": {
             "Description": "Current Lambda function version",
             "Value": {
-              "Ref": "AppLambdaVersion3NhVOfRBgfkoDNijMmtm9duCm3EhgTxG4ZynpCZDo"
+              "Ref": "AppLambdaVersionKHVnhxJFOdvUEkvz3THs3iW7KG3JkjiV9YOT1FKYpWc"
             },
             "Export": {
               "Name": "sls-softinvites-backend-dev-AppLambdaFunctionQualifiedArn"
+            }
+          },
+          "BackupLambdaFunctionQualifiedArn": {
+            "Description": "Current Lambda function version",
+            "Value": {
+              "Ref": "BackupLambdaVersionGBXQCYEy7yLmzKQW5eJNM38rFVl1aZGdKHxWLdeQ"
+            },
+            "Export": {
+              "Name": "sls-softinvites-backend-dev-BackupLambdaFunctionQualifiedArn"
             }
           },
           "HttpApiId": {
@@ -608,7 +611,10 @@
         "sourcemap": false,
         "target": "node20",
         "platform": "node",
-        "concurrency": 10
+        "concurrency": 10,
+        "external": [
+          "sharp"
+        ]
       }
     },
     "plugins": [
@@ -619,6 +625,9 @@
     "functions": {
       "app": {
         "handler": "dist/index.handler",
+        "layers": {
+          "$ref": "$[\"service\"][\"provider\"][\"compiledCloudFormationTemplate\"][\"Resources\"][\"AppLambdaFunction\"][\"Properties\"][\"Layers\"]"
+        },
         "events": [
           {
             "httpApi": {
@@ -638,7 +647,7 @@
         "memory": 1024,
         "runtime": "nodejs20.x",
         "vpc": {},
-        "versionLogicalId": "AppLambdaVersion3NhVOfRBgfkoDNijMmtm9duCm3EhgTxG4ZynpCZDo"
+        "versionLogicalId": "AppLambdaVersionKHVnhxJFOdvUEkvz3THs3iW7KG3JkjiV9YOT1FKYpWc"
       },
       "backup": {
         "handler": "dist/backup.handler",
@@ -657,7 +666,7 @@
         "memory": 512,
         "runtime": "nodejs20.x",
         "vpc": {},
-        "versionLogicalId": "BackupLambdaVersion5Sytisu3eWQQeJUMy89p94MhtPAl1ddq7soAn88eLg"
+        "versionLogicalId": "BackupLambdaVersionGBXQCYEy7yLmzKQW5eJNM38rFVl1aZGdKHxWLdeQ"
       }
     },
     "configValidationMode": "warn",
@@ -680,7 +689,8 @@
           "!node_modules/**/*.md",
           "!node_modules/lodash/fp/**",
           "!.git/**",
-          "!.gitignore"
+          "!.gitignore",
+          "!node_modules/sharp/**"
         ],
         "individually": true,
         "artifactsS3KeyDirname": "serverless/softinvites-backend/dev/code-artifacts"
@@ -694,7 +704,7 @@
   },
   "package": {
     "individually": true,
-    "artifactDirectoryName": "serverless/softinvites-backend/dev/1755939439083-2025-08-23T08:57:19.083Z",
+    "artifactDirectoryName": "serverless/softinvites-backend/dev/1755948886380-2025-08-23T11:34:46.380Z",
     "artifact": ""
   }
 }

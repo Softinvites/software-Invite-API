@@ -1,16 +1,21 @@
-import { lambda } from './awsConfig';
+import { InvokeCommand, InvocationType } from "@aws-sdk/client-lambda";
+import { lambda } from "./awsConfig";
 
-export const invokeLambda = async (functionName: string, payload: any) => {
+export const invokeLambda = async (functionName: string, payload: any, asyncInvoke: boolean = false ) => {
   const params = {
     FunctionName: functionName,
-    InvocationType: 'RequestResponse',
-    Payload: JSON.stringify(payload),
+//  InvocationType: "RequestResponse" as InvocationType, // 👈 fix
+     InvocationType: asyncInvoke ? InvocationType.Event : InvocationType.RequestResponse,
+    Payload: Buffer.from(JSON.stringify(payload)), 
   };
 
+  const command = new InvokeCommand(params);
+  const response = await lambda.send(command);
 
-  console.log('Invoking Lambda with payload:', payload);
-const response = await lambda.invoke(params).promise();
-console.log('Lambda response:', response);
-  // const response = await lambda.invoke(params).promise();
-  return JSON.parse(response.Payload as string);
+  // response.Payload is Uint8Array | undefined, so convert to string
+  const responsePayload = response.Payload
+    ? Buffer.from(response.Payload).toString()
+    : "{}";
+
+  return JSON.parse(responsePayload);
 };

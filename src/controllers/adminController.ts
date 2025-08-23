@@ -11,6 +11,8 @@ import {
   UpdatePasswordSchema,
   option,
 } from "../utils/utils";
+import { connectDB } from "../db";
+
 
 dotenv.config();
 const jwtsecret = process.env.JWT_SECRET as string;

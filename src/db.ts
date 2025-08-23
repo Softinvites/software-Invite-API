@@ -27,12 +27,52 @@
 
 
 
+// import mongoose from "mongoose";
+// import dotenv from "dotenv";
+
+// dotenv.config();
+
+// let cachedConnection: typeof mongoose | null = null;
+
+// export async function connectDB() {
+//   if (cachedConnection) {
+//     return cachedConnection;
+//   }
+
+//   try {
+//     const connection = await mongoose.connect(process.env.MONGODB_URI!, {
+//       family: 4,
+//       serverSelectionTimeoutMS: 30000,
+//       socketTimeoutMS: 45000,
+//       maxPoolSize: 10,
+//     });
+
+//     cachedConnection = connection;
+//     console.log("✅ Database connected");
+//     return connection;
+//   } catch (error) {
+//     console.error("❌ Database connection error:", error);
+//     throw error;
+//   }
+// }
+
+// // For Lambda cold starts
+// export async function ensureConnection() {
+//   if (!cachedConnection) {
+//     await connectDB();
+//   }
+//   return cachedConnection!;
+// }
+
+
 import mongoose from "mongoose";
 import dotenv from "dotenv";
 
 dotenv.config();
 
 let cachedConnection: typeof mongoose | null = null;
+
+mongoose.set("bufferCommands", false); // 👈 important for Lambda
 
 export async function connectDB() {
   if (cachedConnection) {
@@ -42,7 +82,7 @@ export async function connectDB() {
   try {
     const connection = await mongoose.connect(process.env.MONGODB_URI!, {
       family: 4,
-      serverSelectionTimeoutMS: 5000,
+      serverSelectionTimeoutMS: 30000, // wait up to 30s for MongoDB
       socketTimeoutMS: 45000,
       maxPoolSize: 10,
     });
@@ -54,12 +94,4 @@ export async function connectDB() {
     console.error("❌ Database connection error:", error);
     throw error;
   }
-}
-
-// For Lambda cold starts
-export async function ensureConnection() {
-  if (!cachedConnection) {
-    await connectDB();
-  }
-  return cachedConnection!;
 }

@@ -4,7 +4,8 @@ frameworkVersion: '3'
 
 provider:
   name: aws
-  runtime: nodejs20.x
+  # runtime: nodejs20.x
+  runtime: nodejs18.x
   region: ${env:AWS_REGION, 'us-east-2'}
   stage: ${env:STAGE, 'dev'}
   architecture: arm64
@@ -28,7 +29,7 @@ provider:
       maxAge: 86400
 
   environment:
-    MONGODB_URI: ${env:MONGODB_URI, 'mongodb+srv://softinvites:Pi1pZr1yjuIcJ5pL@cluster1.f69gx.mongodb.net/softinvites'}
+    MONGODB_URI: ${env:MONGODB_URI, 'mongodb+srv://softinvites:Pi1pZr1yjuIcJ5pL@cluster1.f69gx.mongodb.net/softinvites?retryWrites=true&w=majority'}
     JWT_SECRET: ${env:JWT_SECRET, 'soft_invites363effbch7ee'}
     S3_BUCKET: ${env:S3_BUCKET, 'softinvites-assets'}
     REGION: ${env:AWS_REGION, 'us-east-2'}
@@ -38,7 +39,7 @@ provider:
     ZIP_LAMBDA_FUNCTION_NAME: ${env:ZIP_LAMBDA_FUNCTION_NAME, 'downloadZipLambdaFunction'}
     FRONTEND_URL: ${env:FRONTEND_URL, 'https://www.softinvite.com'}
     BACKUP_BUCKET: ${env:BACKUP_BUCKET, 'softinvites-backups'}
-    BACKUP_LAMBDA: ${env:BACKUP_LAMBDA, 'backups'}
+    BACKUP_LAMBDA: ${env:BACKUP_LAMBDA, 'softinvites-backend-dev-backup'}
 
   iam:
     role:
@@ -52,12 +53,14 @@ provider:
 functions:
   app:
     handler: dist/index.handler
+    layers:
+      - arn:aws:lambda:us-east-2:402961397587:layer:sharp-layer:5
     events:
       - httpApi:
           method: ANY
           path: /{proxy+}   
     memorySize: 1024
-    timeout: 30
+    timeout: 60
 
   backup:
     handler: dist/backup.handler
@@ -80,6 +83,7 @@ package:
     - '!node_modules/lodash/fp/**'
     - '!.git/**'
     - '!.gitignore'
+    - '!node_modules/sharp/**'
   individually: true
 
 custom:
@@ -87,6 +91,7 @@ custom:
     path: .env
   serverless-offline:
     httpPort: 4000
+    lambdaPort: 3002
     noPrependStageInUrl: true
   esbuild:
     bundle: true
@@ -95,3 +100,5 @@ custom:
     target: node20
     platform: node
     concurrency: 10
+    external:
+      - sharp
