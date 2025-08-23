@@ -12,8 +12,9 @@ import sharp from "sharp";
 import jwt from "jsonwebtoken";
 import mongoose from "mongoose";
 import sanitizeHtml from "sanitize-html";
-import { Lambda } from '@aws-sdk/client-lambda';
-const lambda = new Lambda({ region: process.env.AWS_REGION });
+
+import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
+const lambdaClient = new LambdaClient({ region: process.env.AWS_REGION });
 
 
 export const addGuest = async (req: Request, res: Response): Promise<void> => {
@@ -166,10 +167,11 @@ if (email) {
 }
 
 // After successful create/update/delete operations:
-await lambda.invoke({
+await lambdaClient.send(new InvokeCommand({
   FunctionName: process.env.BACKUP_LAMBDA!,
-  InvocationType: 'Event' // Asynchronous
-});
+  InvocationType: 'Event', // async
+  Payload: Buffer.from(JSON.stringify({})) // can pass data if needed
+}));
 
     res.status(201).json({
       message: "Guest created successfully",
@@ -298,10 +300,11 @@ export const importGuests = async (req: Request, res: Response): Promise<void> =
     }
 
     // After successful create/update/delete operations:
-await lambda.invoke({
+await lambdaClient.send(new InvokeCommand({
   FunctionName: process.env.BACKUP_LAMBDA!,
-  InvocationType: 'Event' // Asynchronous
-});
+  InvocationType: 'Event', // async
+  Payload: Buffer.from(JSON.stringify({})) // can pass data if needed
+}));
 
     res.status(201).json({
       message: `Imported ${result.totalProcessed} guests, saved ${successfulGuests.length} to DB`,
@@ -403,10 +406,11 @@ export const updateGuest = async (req: Request, res: Response): Promise<void> =>
       }
 
       // After successful create/update/delete operations:
-await lambda.invoke({
+await lambdaClient.send(new InvokeCommand({
   FunctionName: process.env.BACKUP_LAMBDA!,
-  InvocationType: 'Event' // Asynchronous
-});
+  InvocationType: 'Event', // async
+  Payload: Buffer.from(JSON.stringify({})) // can pass data if needed
+}));
 
       res.status(200).json({
         message: "Guest updated successfully and QR code regenerated",
@@ -743,10 +747,11 @@ export const deleteGuestsByEvent = async (
     await Guest.deleteMany({ eventId });
 
     // After successful create/update/delete operations:
-await lambda.invoke({
+await lambdaClient.send(new InvokeCommand({
   FunctionName: process.env.BACKUP_LAMBDA!,
-  InvocationType: 'Event' // Asynchronous
-});
+  InvocationType: 'Event', // async
+  Payload: Buffer.from(JSON.stringify({})) // can pass data if needed
+}));
 
     res.status(200).json({ 
       message: "All guests and their QR codes deleted successfully",
@@ -809,10 +814,11 @@ export const deleteGuestsByEventAndTimestamp = async (
     });
 
 // After successful create/update/delete operations:
-await lambda.invoke({
+await lambdaClient.send(new InvokeCommand({
   FunctionName: process.env.BACKUP_LAMBDA!,
-  InvocationType: 'Event' // Asynchronous
-});
+  InvocationType: 'Event', // async
+  Payload: Buffer.from(JSON.stringify({})) // can pass data if needed
+}));
     res.status(200).json({
       message: `Deleted ${deleteResult.deletedCount} guests for event ${eventId}`
     });
