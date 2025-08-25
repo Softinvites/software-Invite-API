@@ -25,6 +25,7 @@ const sharp_1 = __importDefault(require("sharp"));
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const mongoose_1 = __importDefault(require("mongoose"));
 const sanitize_html_1 = __importDefault(require("sanitize-html"));
+const archiver_1 = __importDefault(require("archiver"));
 const client_lambda_1 = require("@aws-sdk/client-lambda");
 const lambdaClient = new client_lambda_1.LambdaClient({ region: process.env.AWS_REGION });
 const addGuest = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
@@ -159,155 +160,6 @@ const addGuest = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     }
 });
 exports.addGuest = addGuest;
-// export const importGuests = async (req: Request, res: Response): Promise<void> => {
-//   try {
-//     if (!req.file) {
-//        res.status(400).json({ message: "No file uploaded" });
-//        return;
-//     }
-//     const eventId = req.body.eventId;
-//     if (!eventId) {
-//        res.status(400).json({ message: "Missing event ID" });
-//        return;
-//     }
-//     // Upload file to S3
-//     const fileKey = `uploads/${Date.now()}_${req.file.originalname}`;
-//     const fileUrl = await uploadToS3(req.file.buffer, fileKey, req.file.mimetype);
-//     console.log("Uploaded file to S3:", fileUrl);
-//     // Test fetch access
-//     const testFetch = await fetch(fileUrl);
-//     console.log("Fetch test status:", testFetch.status);
-//     if (!testFetch.ok) {
-//       throw new Error("Lambda won't be able to access this file.");
-//     }
-//     // Call Lambda to parse file and get initial guest data
-//     const lambdaResponse = await invokeLambda(
-//       process.env.IMPORT_LAMBDA_FUNCTION_NAME!,
-//       { fileUrl, eventId }
-//     );
-//     await deleteFromS3(fileKey); // Optional cleanup
-//     const result = JSON.parse(lambdaResponse.body || "{}");
-//     const statusCode = typeof lambdaResponse.statusCode === "number" ? lambdaResponse.statusCode : 500;
-//     if (statusCode !== 200) {
-//        res.status(statusCode).json({
-//         message: "Error importing guests",
-//         guests: [],
-//         successful: 0,
-//         error: result?.error || result?.message || "Unknown error from Lambda",
-//       });
-//       return;
-//     }
-//     const successfulGuests: any[] = [];
-//     for (const g of result.guests || []) {
-//       if (g.status !== "fulfilled") continue;
-//       const guest = g.value;
-//       // Save to DB to get Mongo ID
-//       const newGuest = new Guest({
-//         fullname: guest.fullname,
-//         TableNo: guest.TableNo,
-//         email: guest.email,
-//         phone: guest.phone,
-//         message: guest.message,
-//         others: guest.others,
-//         qrCodeBgColor: guest.qrCodeBgColor,
-//         qrCodeCenterColor: guest.qrCodeCenterColor,
-//         qrCodeEdgeColor: guest.qrCodeEdgeColor,
-//         eventId,
-//         status: "pending",
-//         imported: true,
-//         checkedIn: false,
-//       });
-//       const savedGuest = await newGuest.save();
-//       // Generate QR using real Mongo ID
-//       const lambdaPayload = {
-//         guestId: savedGuest._id.toString(),
-//         fullname: guest.fullname,
-//         qrCodeBgColor: guest.qrCodeBgColor,
-//         qrCodeCenterColor: guest.qrCodeCenterColor,
-//         qrCodeEdgeColor: guest.qrCodeEdgeColor,
-//         eventId,
-//         TableNo: guest.TableNo,
-//         others: guest.others,
-//       };
-//       const qrResponse = await invokeLambda(
-//         process.env.QR_LAMBDA_FUNCTION_NAME!,
-//         lambdaPayload
-//       );
-//       if (qrResponse.statusCode !== 200) {
-//         console.error("QR Lambda failed for guest:", guest.fullname);
-//         continue;
-//       }
-//       let qrCodeUrl = "";
-//       try {
-//         const qrBody = JSON.parse(qrResponse.body);
-//         qrCodeUrl = qrBody.qrCodeUrl;
-//       } catch (err) {
-//         console.error("Failed to parse QR Lambda response:", err);
-//       }
-//       if (!qrCodeUrl || typeof qrCodeUrl !== "string") {
-//         console.error("Invalid or missing QR Code URL for guest:", guest.fullname);
-//         continue;
-//       }
-//       savedGuest.qrCode = qrCodeUrl;
-//       savedGuest.qrCodeData = savedGuest._id.toString();
-//       await savedGuest.save();
-//       successfulGuests.push(savedGuest);
-//     }
-//     // After successful create/update/delete operations:
-// await lambdaClient.send(new InvokeCommand({
-//   FunctionName: process.env.BACKUP_LAMBDA!,
-//   InvocationType: 'Event', // async
-//   Payload: Buffer.from(JSON.stringify({})) // can pass data if needed
-// }));
-//     res.status(201).json({
-//       message: `Imported ${result.totalProcessed} guests, saved ${successfulGuests.length} to DB`,
-//       guests: successfulGuests,
-//       successCount: result.successful,
-//       failedCount: result.failed,
-//     });
-//   } catch (error) {
-//     console.error("Error importing guests (controller):", error);
-//     res.status(500).json({
-//       message: "Error importing guests",
-//       guests: [],
-//       successful: 0,
-//       error: error instanceof Error ? error.message : "Unknown error",
-//     });
-//   }
-// };
-// export const importGuests = async (req: Request, res: Response): Promise<void> => {
-//   try {
-//     if (!req.file) {
-//       res.status(400).json({ message: "No file uploaded" });
-//       return;
-//     }
-//     const eventId = req.body.eventId;
-//     if (!eventId) {
-//       res.status(400).json({ message: "Missing event ID" });
-//       return;
-//     }
-//     // Upload file to S3
-//     const fileKey = `uploads/${Date.now()}_${req.file.originalname}`;
-//     const fileUrl = await uploadToS3(req.file.buffer, fileKey, req.file.mimetype);
-//     // Trigger import Lambda asynchronously
-//     await invokeLambda(
-//       process.env.IMPORT_LAMBDA_FUNCTION_NAME!,
-//       { fileUrl, eventId, userEmail: req.body.userEmail }, // pass user email
-//       true // async invocation
-//     );
-//     await deleteFromS3(fileKey); // Optional cleanup
-//     // Respond immediately
-//     res.status(202).json({
-//       message: "Import job is running. You will receive an email when processing completes.",
-//     });
-//   } catch (error) {
-//     console.error("Error starting import job:", error);
-//     res.status(500).json({
-//       message: "Error starting import job",
-//       error: error instanceof Error ? error.message : "Unknown error",
-//     });
-//   }
-// };
 const importGuests = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         if (!req.file) {
@@ -324,11 +176,7 @@ const importGuests = (req, res) => __awaiter(void 0, void 0, void 0, function* (
         const fileUrl = yield (0, s3Utils_1.uploadToS3)(req.file.buffer, fileKey, req.file.mimetype);
         console.log("Uploaded file to S3:", fileKey);
         // Trigger import Lambda asynchronously
-        yield (0, lambdaUtils_1.invokeLambda)(process.env.IMPORT_LAMBDA_FUNCTION_NAME, { fileUrl, eventId, userEmail: req.body.userEmail }, // pass userEmail
-        true // async invocation
-        );
-        // 🚫 Don’t delete file here — Lambda needs it
-        // await deleteFromS3(fileKey);
+        yield (0, lambdaUtils_1.invokeLambda)(process.env.IMPORT_LAMBDA_FUNCTION_NAME, { fileUrl, eventId, userEmail: req.body.userEmail }, true);
         // Respond immediately
         res.status(202).json({
             message: "Import job is running. You will receive an email when processing completes.",
@@ -478,7 +326,66 @@ const downloadQRCode = (req, res) => __awaiter(void 0, void 0, void 0, function*
     }
 });
 exports.downloadQRCode = downloadQRCode;
+// export const downloadAllQRCodes = async (req: Request, res: Response): Promise<void> => {
+//   try {
+//     const { eventId } = req.params;
+//     const guests = await Guest.find({ eventId });
+//     if (!guests.length) {
+//       res.status(404).json({ message: "No guests found" });
+//       return;
+//     }
+//     const qrPaths = guests
+//       .map((guest) => {
+//         try {
+//           if (!guest.qrCode || typeof guest.qrCode !== "string") return null;
+//           const url = new URL(guest.qrCode);
+//           const path = url.pathname.startsWith("/") ? url.pathname.slice(1) : url.pathname;
+//           return path.endsWith(".svg") ? path : null;
+//         } catch {
+//           return null;
+//         }
+//       })
+//       .filter(Boolean) as string[];
+//     if (!qrPaths.length) {
+//       res.status(400).json({ message: "No valid QR code paths found" });
+//       return;
+//     }
+//     const lambdaResponse = await invokeLambda(process.env.ZIP_LAMBDA_FUNCTION_NAME!, {
+//       qrPaths,
+//       eventId,
+//     });
+//     const statusCode = lambdaResponse?.statusCode || 500;
+//     let parsedBody: any = {};
+//     try {
+//       parsedBody = lambdaResponse?.body ? JSON.parse(lambdaResponse.body) : {};
+//     } catch {
+//       parsedBody = { error: "Failed to parse Lambda response" };
+//     }
+//     if (statusCode !== 200 || !parsedBody.zipUrl) {
+//       res.status(statusCode).json({
+//         message: "Lambda failed to create ZIP archive",
+//         error: parsedBody?.error || "Unknown Lambda error",
+//         missingFiles: parsedBody?.missingFiles || [],
+//       });
+//       return;
+//     }
+//     res.status(200).json({
+//       zipDownloadLink: parsedBody.zipUrl,
+//       generatedAt: parsedBody.generatedAt,
+//       eventId: parsedBody.eventId,
+//       numberOfFiles: parsedBody.numberOfFiles,
+//       missingFiles: parsedBody.missingFiles || [],
+//     });
+//   } catch (error) {
+//     console.error("Error in downloadAllQRCodes:", error);
+//     res.status(500).json({
+//       message: "Internal server error",
+//       error: error instanceof Error ? error.message : error,
+//     });
+//   }
+// };
 const downloadAllQRCodes = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a, _b, _c;
     try {
         const { eventId } = req.params;
         const guests = yield guestmodel_1.Guest.find({ eventId });
@@ -486,51 +393,60 @@ const downloadAllQRCodes = (req, res) => __awaiter(void 0, void 0, void 0, funct
             res.status(404).json({ message: "No guests found" });
             return;
         }
-        const qrPaths = guests
-            .map((guest) => {
+        // Prepare response as zip
+        res.setHeader("Content-Disposition", `attachment; filename="qrcodes-${eventId}.zip"`);
+        res.setHeader("Content-Type", "application/zip");
+        const archive = (0, archiver_1.default)("zip", { zlib: { level: 9 } });
+        archive.pipe(res);
+        for (const guest of guests) {
             try {
-                if (!guest.qrCode || typeof guest.qrCode !== "string")
-                    return null;
-                const url = new URL(guest.qrCode);
-                const path = url.pathname.startsWith("/") ? url.pathname.slice(1) : url.pathname;
-                return path.endsWith(".svg") ? path : null;
+                const bgColorHex = (0, colorUtils_1.rgbToHex)(guest.qrCodeBgColor);
+                const centerColorHex = (0, colorUtils_1.rgbToHex)(guest.qrCodeCenterColor);
+                const edgeColorHex = (0, colorUtils_1.rgbToHex)(guest.qrCodeEdgeColor);
+                const qr = new qrcode_svg_1.default({
+                    content: guest._id.toString(),
+                    padding: 5,
+                    width: 512,
+                    height: 512,
+                    color: edgeColorHex,
+                    background: bgColorHex,
+                    xmlDeclaration: false,
+                });
+                let svg = qr.svg();
+                // Inject gradient + background overrides
+                svg = svg.replace(/<svg([^>]*)>/, `<svg$1>
+            <defs>
+              <radialGradient id="grad1" cx="50%" cy="50%" r="50%" fx="50%" fy="50%">
+                <stop offset="0%" stop-color="${centerColorHex}" stop-opacity="1"/>
+                <stop offset="100%" stop-color="${edgeColorHex}" stop-opacity="1"/>
+              </radialGradient>
+            </defs>`);
+                svg = svg.replace(/<rect([^>]*?)style="fill:#[0-9a-fA-F]{3,6};([^"]*)"/g, (match, group1, group2) => {
+                    const isBoundingRect = /x="0".*y="0"/.test(group1);
+                    return isBoundingRect
+                        ? `<rect${group1}style="fill:${bgColorHex};${group2}"/>`
+                        : `<rect${group1}style="fill:url(#grad1);${group2}"/>`;
+                });
+                // Convert SVG → PNG
+                const pngBuffer = yield (0, sharp_1.default)(Buffer.from(svg))
+                    .resize(512, 512, { fit: "contain" })
+                    .png({ compressionLevel: 9, adaptiveFiltering: true })
+                    .toBuffer();
+                // Safe filename
+                const safeName = ((_a = guest.fullname) === null || _a === void 0 ? void 0 : _a.replace(/[^a-zA-Z0-9-_]/g, "_")) || "guest";
+                const safeTableNo = ((_b = guest.TableNo) === null || _b === void 0 ? void 0 : _b.toString().replace(/[^a-zA-Z0-9-_]/g, "_")) || "noTable";
+                const safeOthers = ((_c = guest.others) === null || _c === void 0 ? void 0 : _c.toString().replace(/[^a-zA-Z0-9-_]/g, "_")) || "noOthers";
+                const guestId = guest._id.toString();
+                const filename = `qr-${safeName}_${safeTableNo}_${safeOthers}_${guestId}.png`;
+                // Append to zip
+                archive.append(pngBuffer, { name: filename });
             }
-            catch (_a) {
-                return null;
+            catch (err) {
+                console.error(`❌ Failed to generate QR for guest ${guest._id}`, err);
             }
-        })
-            .filter(Boolean);
-        if (!qrPaths.length) {
-            res.status(400).json({ message: "No valid QR code paths found" });
-            return;
         }
-        const lambdaResponse = yield (0, lambdaUtils_1.invokeLambda)(process.env.ZIP_LAMBDA_FUNCTION_NAME, {
-            qrPaths,
-            eventId,
-        });
-        const statusCode = (lambdaResponse === null || lambdaResponse === void 0 ? void 0 : lambdaResponse.statusCode) || 500;
-        let parsedBody = {};
-        try {
-            parsedBody = (lambdaResponse === null || lambdaResponse === void 0 ? void 0 : lambdaResponse.body) ? JSON.parse(lambdaResponse.body) : {};
-        }
-        catch (_a) {
-            parsedBody = { error: "Failed to parse Lambda response" };
-        }
-        if (statusCode !== 200 || !parsedBody.zipUrl) {
-            res.status(statusCode).json({
-                message: "Lambda failed to create ZIP archive",
-                error: (parsedBody === null || parsedBody === void 0 ? void 0 : parsedBody.error) || "Unknown Lambda error",
-                missingFiles: (parsedBody === null || parsedBody === void 0 ? void 0 : parsedBody.missingFiles) || [],
-            });
-            return;
-        }
-        res.status(200).json({
-            zipDownloadLink: parsedBody.zipUrl,
-            generatedAt: parsedBody.generatedAt,
-            eventId: parsedBody.eventId,
-            numberOfFiles: parsedBody.numberOfFiles,
-            missingFiles: parsedBody.missingFiles || [],
-        });
+        // Finalize zip
+        yield archive.finalize();
     }
     catch (error) {
         console.error("Error in downloadAllQRCodes:", error);

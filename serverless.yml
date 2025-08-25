@@ -4,8 +4,8 @@ frameworkVersion: '3'
 
 provider:
   name: aws
-  runtime: nodejs20.x
-  # runtime: nodejs18.x
+  # runtime: nodejs20.x
+  runtime: nodejs18.x
   region: ${env:AWS_REGION, 'us-east-2'}
   stage: ${env:STAGE, 'dev'}
   architecture: arm64
