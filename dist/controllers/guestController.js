@@ -25,7 +25,6 @@ const sharp_1 = __importDefault(require("sharp"));
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const mongoose_1 = __importDefault(require("mongoose"));
 const sanitize_html_1 = __importDefault(require("sanitize-html"));
-const archiver_1 = __importDefault(require("archiver"));
 const client_lambda_1 = require("@aws-sdk/client-lambda");
 const lambdaClient = new client_lambda_1.LambdaClient({ region: process.env.AWS_REGION });
 const addGuest = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
@@ -385,7 +384,6 @@ exports.downloadQRCode = downloadQRCode;
 //   }
 // };
 const downloadAllQRCodes = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    var _a, _b, _c;
     try {
         const { eventId } = req.params;
         const guests = yield guestmodel_1.Guest.find({ eventId });
@@ -393,60 +391,53 @@ const downloadAllQRCodes = (req, res) => __awaiter(void 0, void 0, void 0, funct
             res.status(404).json({ message: "No guests found" });
             return;
         }
-        // Prepare response as zip
-        res.setHeader("Content-Disposition", `attachment; filename="qrcodes-${eventId}.zip"`);
-        res.setHeader("Content-Type", "application/zip");
-        const archive = (0, archiver_1.default)("zip", { zlib: { level: 9 } });
-        archive.pipe(res);
-        for (const guest of guests) {
+        // collect valid QR code paths (keep them as .svg for S3 lookup)
+        const qrPaths = guests
+            .map((guest) => {
             try {
-                const bgColorHex = (0, colorUtils_1.rgbToHex)(guest.qrCodeBgColor);
-                const centerColorHex = (0, colorUtils_1.rgbToHex)(guest.qrCodeCenterColor);
-                const edgeColorHex = (0, colorUtils_1.rgbToHex)(guest.qrCodeEdgeColor);
-                const qr = new qrcode_svg_1.default({
-                    content: guest._id.toString(),
-                    padding: 5,
-                    width: 512,
-                    height: 512,
-                    color: edgeColorHex,
-                    background: bgColorHex,
-                    xmlDeclaration: false,
-                });
-                let svg = qr.svg();
-                // Inject gradient + background overrides
-                svg = svg.replace(/<svg([^>]*)>/, `<svg$1>
-            <defs>
-              <radialGradient id="grad1" cx="50%" cy="50%" r="50%" fx="50%" fy="50%">
-                <stop offset="0%" stop-color="${centerColorHex}" stop-opacity="1"/>
-                <stop offset="100%" stop-color="${edgeColorHex}" stop-opacity="1"/>
-              </radialGradient>
-            </defs>`);
-                svg = svg.replace(/<rect([^>]*?)style="fill:#[0-9a-fA-F]{3,6};([^"]*)"/g, (match, group1, group2) => {
-                    const isBoundingRect = /x="0".*y="0"/.test(group1);
-                    return isBoundingRect
-                        ? `<rect${group1}style="fill:${bgColorHex};${group2}"/>`
-                        : `<rect${group1}style="fill:url(#grad1);${group2}"/>`;
-                });
-                // Convert SVG → PNG
-                const pngBuffer = yield (0, sharp_1.default)(Buffer.from(svg))
-                    .resize(512, 512, { fit: "contain" })
-                    .png({ compressionLevel: 9, adaptiveFiltering: true })
-                    .toBuffer();
-                // Safe filename
-                const safeName = ((_a = guest.fullname) === null || _a === void 0 ? void 0 : _a.replace(/[^a-zA-Z0-9-_]/g, "_")) || "guest";
-                const safeTableNo = ((_b = guest.TableNo) === null || _b === void 0 ? void 0 : _b.toString().replace(/[^a-zA-Z0-9-_]/g, "_")) || "noTable";
-                const safeOthers = ((_c = guest.others) === null || _c === void 0 ? void 0 : _c.toString().replace(/[^a-zA-Z0-9-_]/g, "_")) || "noOthers";
-                const guestId = guest._id.toString();
-                const filename = `qr-${safeName}_${safeTableNo}_${safeOthers}_${guestId}.png`;
-                // Append to zip
-                archive.append(pngBuffer, { name: filename });
+                if (!guest.qrCode || typeof guest.qrCode !== "string")
+                    return null;
+                const url = new URL(guest.qrCode);
+                const path = url.pathname.startsWith("/")
+                    ? url.pathname.slice(1)
+                    : url.pathname;
+                return path.endsWith(".svg") ? path : null;
             }
-            catch (err) {
-                console.error(`❌ Failed to generate QR for guest ${guest._id}`, err);
+            catch (_a) {
+                return null;
             }
+        })
+            .filter(Boolean);
+        if (!qrPaths.length) {
+            res.status(400).json({ message: "No valid QR code paths found" });
+            return;
         }
-        // Finalize zip
-        yield archive.finalize();
+        // Call Lambda: it will fetch the original SVGs, convert to PNG, and zip
+        const lambdaResponse = yield (0, lambdaUtils_1.invokeLambda)(process.env.ZIP_LAMBDA_FUNCTION_NAME, { qrPaths, eventId });
+        const statusCode = (lambdaResponse === null || lambdaResponse === void 0 ? void 0 : lambdaResponse.statusCode) || 500;
+        let parsedBody = {};
+        try {
+            parsedBody = (lambdaResponse === null || lambdaResponse === void 0 ? void 0 : lambdaResponse.body) ? JSON.parse(lambdaResponse.body) : {};
+        }
+        catch (_a) {
+            parsedBody = { error: "Failed to parse Lambda response" };
+        }
+        if (statusCode !== 200 || !parsedBody.zipUrl) {
+            res.status(statusCode).json({
+                message: "Lambda failed to create PNG ZIP archive",
+                error: (parsedBody === null || parsedBody === void 0 ? void 0 : parsedBody.error) || "Unknown Lambda error",
+                missingFiles: (parsedBody === null || parsedBody === void 0 ? void 0 : parsedBody.missingFiles) || [],
+            });
+            return;
+        }
+        res.status(200).json({
+            zipDownloadLink: parsedBody.zipUrl,
+            generatedAt: parsedBody.generatedAt,
+            eventId: parsedBody.eventId,
+            numberOfFiles: parsedBody.numberOfFiles,
+            missingFiles: parsedBody.missingFiles || [],
+            format: "png",
+        });
     }
     catch (error) {
         console.error("Error in downloadAllQRCodes:", error);
