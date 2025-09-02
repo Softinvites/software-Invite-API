@@ -8,11 +8,14 @@ import { createGuestSchema, updateGuestSchema, option } from "../utils/utils";
 import fetch from "node-fetch";
 import { sendEmail } from "../library/helpers/emailService";
 import { rgbToHex } from "../utils/colorUtils";
+// import sharp from "sharp";
 import sharp from "sharp";
 import jwt from "jsonwebtoken";
 import mongoose from "mongoose";
 import sanitizeHtml from "sanitize-html";
+import Jimp from 'jimp';
 import archiver from "archiver";
+import { Resvg } from "@resvg/resvg-js";
 
 import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
 const lambdaClient = new LambdaClient({ region: process.env.AWS_REGION });
@@ -329,77 +332,77 @@ await lambdaClient.send(new InvokeCommand({
   }
 };
 
-export const downloadQRCode = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
-  try {
-    const { id } = req.params;
-    const guest = await Guest.findById(id);
+// export const downloadQRCode = async (
+//   req: Request,
+//   res: Response
+// ): Promise<void> => {
+//   try {
+//     const { id } = req.params;
+//     const guest = await Guest.findById(id);
 
-    if (!guest) {
-      res.status(404).json({ message: "Guest not found" });
-      return;
-    }
+//     if (!guest) {
+//       res.status(404).json({ message: "Guest not found" });
+//       return;
+//     }
 
-    const bgColorHex = rgbToHex(guest.qrCodeBgColor);
-    const centerColorHex = rgbToHex(guest.qrCodeCenterColor);
-    const edgeColorHex = rgbToHex(guest.qrCodeEdgeColor);
+//     const bgColorHex = rgbToHex(guest.qrCodeBgColor);
+//     const centerColorHex = rgbToHex(guest.qrCodeCenterColor);
+//     const edgeColorHex = rgbToHex(guest.qrCodeEdgeColor);
 
-    const qr = new QRCode({
-      content: guest._id.toString(),
-      padding: 5,
-      width: 512,
-      height: 512,
-      color: edgeColorHex,
-      background: bgColorHex,
-      xmlDeclaration: false,
-    });
+//     const qr = new QRCode({
+//       content: guest._id.toString(),
+//       padding: 5,
+//       width: 512,
+//       height: 512,
+//       color: edgeColorHex,
+//       background: bgColorHex,
+//       xmlDeclaration: false,
+//     });
 
-    let svg = qr.svg();
+//     let svg = qr.svg();
 
-    svg = svg.replace(
-      /<svg([^>]*)>/,
-      `<svg$1>
-        <defs>
-          <radialGradient id="grad1" cx="50%" cy="50%" r="50%" fx="50%" fy="50%">
-            <stop offset="0%" stop-color="${centerColorHex}" stop-opacity="1"/>
-            <stop offset="100%" stop-color="${edgeColorHex}" stop-opacity="1"/>
-          </radialGradient>
-        </defs>`
-    );
+//     svg = svg.replace(
+//       /<svg([^>]*)>/,
+//       `<svg$1>
+//         <defs>
+//           <radialGradient id="grad1" cx="50%" cy="50%" r="50%" fx="50%" fy="50%">
+//             <stop offset="0%" stop-color="${centerColorHex}" stop-opacity="1"/>
+//             <stop offset="100%" stop-color="${edgeColorHex}" stop-opacity="1"/>
+//           </radialGradient>
+//         </defs>`
+//     );
 
-    svg = svg.replace(
-      /<rect([^>]*?)style="fill:#[0-9a-fA-F]{3,6};([^"]*)"/g,
-      (match, group1, group2) => {
-        const isBoundingRect = /x="0".*y="0"/.test(group1);
-        return isBoundingRect
-          ? `<rect${group1}style="fill:${bgColorHex};${group2}"/>`
-          : `<rect${group1}style="fill:url(#grad1);${group2}"/>`;
-      }
-    );
+//     svg = svg.replace(
+//       /<rect([^>]*?)style="fill:#[0-9a-fA-F]{3,6};([^"]*)"/g,
+//       (match, group1, group2) => {
+//         const isBoundingRect = /x="0".*y="0"/.test(group1);
+//         return isBoundingRect
+//           ? `<rect${group1}style="fill:${bgColorHex};${group2}"/>`
+//           : `<rect${group1}style="fill:url(#grad1);${group2}"/>`;
+//       }
+//     );
 
-    const pngBuffer = await sharp(Buffer.from(svg))
-      .resize(512, 512, { fit: "contain" })
-      .png({ compressionLevel: 9, adaptiveFiltering: true })
-      .toBuffer();
+//     const pngBuffer = await sharp(Buffer.from(svg))
+//       .resize(512, 512, { fit: "contain" })
+//       .png({ compressionLevel: 9, adaptiveFiltering: true })
+//       .toBuffer();
 
-  // 👇 Safe filename logic here
-  const safeName = guest.fullname?.replace(/[^a-zA-Z0-9-_]/g, "_") || "guest";
-  const safeTableNo = guest.TableNo?.toString().replace(/[^a-zA-Z0-9-_]/g, "_") || "noTable";
-  const safeOthers = guest.others?.toString().replace(/[^a-zA-Z0-9-_]/g, "_") || "noOthers";
-  const guestId = guest._id.toString();
+//   // 👇 Safe filename logic here
+//   const safeName = guest.fullname?.replace(/[^a-zA-Z0-9-_]/g, "_") || "guest";
+//   const safeTableNo = guest.TableNo?.toString().replace(/[^a-zA-Z0-9-_]/g, "_") || "noTable";
+//   const safeOthers = guest.others?.toString().replace(/[^a-zA-Z0-9-_]/g, "_") || "noOthers";
+//   const guestId = guest._id.toString();
 
-  const filename = `qr-${safeName}_${safeTableNo}_${safeOthers}_${guestId}.png`;
+//   const filename = `qr-${safeName}_${safeTableNo}_${safeOthers}_${guestId}.png`;
 
-  res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
-  res.setHeader("Content-Type", "image/png");
-  res.send(pngBuffer);
-  } catch (error) {
-    console.error("Error:", error);
-    res.status(500).json({ message: "Error downloading QR code" });
-  }
-};
+//   res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+//   res.setHeader("Content-Type", "image/png");
+//   res.send(pngBuffer);
+//   } catch (error) {
+//     console.error("Error:", error);
+//     res.status(500).json({ message: "Error downloading QR code" });
+//   }
+// };
 
 // export const downloadAllQRCodes = async (req: Request, res: Response): Promise<void> => {
 //   try {
@@ -470,6 +473,320 @@ export const downloadQRCode = async (
 //     });
 //   }
 // };
+
+
+
+
+// export const downloadQRCode = async (req: Request, res: Response): Promise<void> => {
+//   try {
+//     const { id } = req.params;
+//     const guest = await Guest.findById(id);
+
+//     if (!guest) {
+//       res.status(404).json({ message: "Guest not found" });
+//       return;
+//     }
+
+//     const bgColorHex = rgbToHex(guest.qrCodeBgColor)
+//     const centerColorHex = rgbToHex(guest.qrCodeCenterColor);
+//     const edgeColorHex = rgbToHex(guest.qrCodeEdgeColor);
+
+//     // 1️⃣ Generate QR code SVG
+//     const qrSvg = new QRCode({
+//       content: guest._id.toString(),
+//       padding: 5,
+//       width: 512,
+//       height: 512,
+//       color: edgeColorHex, // base color (will override with gradient)
+//       background: bgColorHex,
+//       xmlDeclaration: false,
+//     }).svg();
+
+//     // 2️⃣ Inject radial gradient into SVG
+//     const svgWithGradient = qrSvg.replace(
+//       /<svg([^>]*)>/,
+//       `<svg$1>
+//         <defs>
+//           <radialGradient id="grad1" cx="50%" cy="50%" r="50%" fx="50%" fy="50%">
+//             <stop offset="0%" stop-color="${centerColorHex}" stop-opacity="1"/>
+//             <stop offset="100%" stop-color="${edgeColorHex}" stop-opacity="1"/>
+//           </radialGradient>
+//         </defs>`
+//     ).replace(
+//       /<rect([^>]*?)style="fill:#[0-9a-fA-F]{3,6};([^"]*)"/g,
+//       (match, group1, group2) => {
+//         const isBoundingRect = /x="0".*y="0"/.test(group1);
+//         return isBoundingRect
+//           ? `<rect${group1}style="fill:${bgColorHex};${group2}"/>`
+//           : `<rect${group1}style="fill:url(#grad1);${group2}"/>`;
+//       }
+//     );
+
+//     // 3️⃣ Convert SVG → PNG using sharp (fast & Lambda-friendly)
+//     const pngBuffer = await sharp(Buffer.from(svgWithGradient))
+//       .resize(512, 512, { fit: "contain" })
+//       .png({ compressionLevel: 9, adaptiveFiltering: true })
+//       .toBuffer();
+
+//     // 4️⃣ Safe filename
+//     const safeName = guest.fullname?.replace(/[^a-zA-Z0-9-_]/g, "_") || "guest";
+//     const safeTableNo = guest.TableNo?.toString().replace(/[^a-zA-Z0-9-_]/g, "_") || "noTable";
+//     const safeOthers = guest.others?.toString().replace(/[^a-zA-Z0-9-_]/g, "_") || "noOthers";
+//     const guestId = guest._id.toString();
+//     const filename = `qr-${safeName}_${safeTableNo}_${safeOthers}_${guestId}.png`;
+
+//     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+//     res.setHeader("Content-Type", "image/png");
+//     res.send(pngBuffer);
+
+//   } catch (error) {
+//     console.error("Error generating QR code:", error);
+//     res.status(500).json({ message: "Error downloading QR code" });
+//   }
+// };
+
+
+// export const downloadQRCode = async (req: Request, res: Response): Promise<void> => {
+//   try {
+//     const { id } = req.params;
+//     const guest = await Guest.findById(id);
+
+//     if (!guest) {
+//       res.status(404).json({ message: "Guest not found" });
+//       return;
+//     }
+
+//     const bgColorHex = rgbToHex(guest.qrCodeBgColor);
+//     const centerColorHex = rgbToHex(guest.qrCodeCenterColor);
+//     const edgeColorHex = rgbToHex(guest.qrCodeEdgeColor);
+
+//     // 1️⃣ Generate base QR SVG
+//     const qrSvg = new QRCode({
+//       content: guest._id.toString(),
+//       padding: 5,
+//       width: 512,
+//       height: 512,
+//       color: edgeColorHex, // base (we’ll replace with gradient)
+//       background: bgColorHex,
+//       xmlDeclaration: false,
+//     }).svg();
+
+//     // 2️⃣ Inject radial gradient into SVG
+//     const svgWithGradient = qrSvg
+//       .replace(
+//         /<svg([^>]*)>/,
+//         `<svg$1>
+//           <defs>
+//             <radialGradient id="grad1" cx="50%" cy="50%" r="50%" fx="50%" fy="50%">
+//               <stop offset="0%" stop-color="${centerColorHex}" stop-opacity="1"/>
+//               <stop offset="100%" stop-color="${edgeColorHex}" stop-opacity="1"/>
+//             </radialGradient>
+//           </defs>`
+//       )
+//       .replace(
+//         /<rect([^>]*?)style="fill:#[0-9a-fA-F]{3,6};([^"]*)"/g,
+//         (match, group1, group2) => {
+//           const isBoundingRect = /x="0".*y="0"/.test(group1);
+//           return isBoundingRect
+//             ? `<rect${group1}style="fill:${bgColorHex};${group2}"/>`
+//             : `<rect${group1}style="fill:url(#grad1);${group2}"/>`;
+//         }
+//       );
+
+//     // 3️⃣ Convert SVG → PNG with resvg-js (no Sharp!)
+//     const resvg = new Resvg(svgWithGradient, {
+//       fitTo: {
+//         mode: "width",
+//         value: 512,
+//       },
+//     });
+
+//     const pngData = resvg.render();
+//     const pngBuffer = pngData.asPng();
+
+//     // 4️⃣ Safe filename
+//     const safeName = guest.fullname?.replace(/[^a-zA-Z0-9-_]/g, "_") || "guest";
+//     const safeTableNo = guest.TableNo?.toString().replace(/[^a-zA-Z0-9-_]/g, "_") || "noTable";
+//     const safeOthers = guest.others?.toString().replace(/[^a-zA-Z0-9-_]/g, "_") || "noOthers";
+//     const guestId = guest._id.toString();
+//     const filename = `qr-${safeName}_${safeTableNo}_${safeOthers}_${guestId}.png`;
+
+//     // 5️⃣ Send response
+//     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+//     res.setHeader("Content-Type", "image/png");
+//     res.send(pngBuffer);
+
+//   } catch (error) {
+//     console.error("Error generating QR code:", error);
+//     res.status(500).json({ message: "Error downloading QR code" });
+//   }
+// };
+
+export const downloadQRCode = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const guest = await Guest.findById(id);
+
+    if (!guest) {
+      res.status(404).json({ message: "Guest not found" });
+      return;
+    }
+
+    const bgColorHex = rgbToHex(guest.qrCodeBgColor);
+    const centerColorHex = rgbToHex(guest.qrCodeCenterColor);
+    const edgeColorHex = rgbToHex(guest.qrCodeEdgeColor);
+
+    const qr = new QRCode({
+      content: guest._id.toString(),
+      padding: 5,
+      width: 512,
+      height: 512,
+      color: edgeColorHex,
+      background: bgColorHex,
+      xmlDeclaration: false,
+    });
+
+    let svg = qr.svg();
+
+    svg = svg.replace(
+      /<svg([^>]*)>/,
+      `<svg$1>
+        <defs>
+          <radialGradient id="grad1" cx="50%" cy="50%" r="50%" fx="50%" fy="50%">
+            <stop offset="0%" stop-color="${centerColorHex}" stop-opacity="1"/>
+            <stop offset="100%" stop-color="${edgeColorHex}" stop-opacity="1"/>
+          </radialGradient>
+        </defs>`
+    );
+
+    svg = svg.replace(
+      /<rect([^>]*?)style="fill:#[0-9a-fA-F]{3,6};([^"]*)"/g,
+      (match, group1, group2) => {
+        const isBoundingRect = /x="0".*y="0"/.test(group1);
+        return isBoundingRect
+          ? `<rect${group1}style="fill:${bgColorHex};${group2}"/>`
+          : `<rect${group1}style="fill:url(#grad1);${group2}"/>`;
+      }
+    );
+
+    const pngBuffer = await sharp(Buffer.from(svg))
+      .resize(512, 512, { fit: "contain" })
+      .png({ compressionLevel: 9, adaptiveFiltering: true })
+      .toBuffer();
+
+    // 👇 Safe filename logic
+    const safeName = guest.fullname?.replace(/[^a-zA-Z0-9-_]/g, "_") || "guest";
+    const safeTableNo =
+      guest.TableNo?.toString().replace(/[^a-zA-Z0-9-_]/g, "_") || "noTable";
+    const safeOthers =
+      guest.others?.toString().replace(/[^a-zA-Z0-9-_]/g, "_") || "noOthers";
+    const guestId = guest._id.toString();
+
+    const filename = `qr-${safeName}_${safeTableNo}_${safeOthers}_${guestId}.png`;
+
+    // ✅ Encode PNG buffer to Base64
+    const base64Data = pngBuffer.toString("base64");
+
+    // ✅ Send response in API Gateway–compatible format
+    res.send({
+      isBase64Encoded: true,
+      statusCode: 200,
+      headers: {
+        "Content-Type": "image/png",
+        "Content-Disposition": `attachment; filename="${filename}"`,
+      },
+      body: base64Data,
+    });
+  } catch (error) {
+    console.error("Error:", error);
+    res.status(500).json({ message: "Error downloading QR code" });
+  }
+};
+
+// export const downloadQRCode = async (
+
+//   req: Request,
+//   res: Response
+// ): Promise<void> => {
+//   try {
+//     const { id } = req.params;
+//     const guest = await Guest.findById(id);
+
+//     if (!guest) {
+//       res.status(404).json({ message: "Guest not found" });
+//       return;
+//     }
+
+//     const bgColorHex = rgbToHex(guest.qrCodeBgColor);
+//     const centerColorHex = rgbToHex(guest.qrCodeCenterColor);
+//     const edgeColorHex = rgbToHex(guest.qrCodeEdgeColor);
+
+//     const qr = new QRCode({
+//       content: guest._id.toString(),
+//       padding: 5,
+//       width: 512,
+//       height: 512,
+//       color: edgeColorHex,
+//       background: bgColorHex,
+//       xmlDeclaration: false,
+//     });
+
+//     let svg = qr.svg();
+
+//     svg = svg.replace(
+//       /<svg([^>]*)>/,
+//       `<svg$1>
+//         <defs>
+//           <radialGradient id="grad1" cx="50%" cy="50%" r="50%" fx="50%" fy="50%">
+//             <stop offset="0%" stop-color="${centerColorHex}" stop-opacity="1"/>
+//             <stop offset="100%" stop-color="${edgeColorHex}" stop-opacity="1"/>
+//           </radialGradient>
+//         </defs>`
+//     );
+
+//     svg = svg.replace(
+//       /<rect([^>]*?)style="fill:#[0-9a-fA-F]{3,6};([^"]*)"/g,
+//       (match, group1, group2) => {
+//         const isBoundingRect = /x="0".*y="0"/.test(group1);
+//         return isBoundingRect
+//           ? `<rect${group1}style="fill:${bgColorHex};${group2}"/>`
+//           : `<rect${group1}style="fill:url(#grad1);${group2}"/>`;
+//       }
+//     );
+
+//     const pngBuffer = await sharp(Buffer.from(svg))
+//       .resize(512, 512, { fit: "contain" })
+//       .png({ compressionLevel: 9, adaptiveFiltering: true })
+//       .toBuffer();
+
+//     // 👇 Safe filename logic
+//     const safeName = guest.fullname?.replace(/[^a-zA-Z0-9-_]/g, "_") || "guest";
+//     const safeTableNo =
+//       guest.TableNo?.toString().replace(/[^a-zA-Z0-9-_]/g, "_") || "noTable";
+//     const safeOthers =
+//       guest.others?.toString().replace(/[^a-zA-Z0-9-_]/g, "_") || "noOthers";
+//     const guestId = guest._id.toString();
+
+//     const filename = `qr-${safeName}_${safeTableNo}_${safeOthers}_${guestId}.png`;
+
+//     // ✅ Send API Gateway–compatible binary response
+//     res.setHeader("Content-Type", "image/png");
+//     res.setHeader(
+//       "Content-Disposition",
+//       `attachment; filename="${filename}"`
+//     );
+
+//     // Express + serverless-http automatically handles base64 if we send Buffer
+//     res.end(pngBuffer, "binary");
+//   } catch (error) {
+//     console.error("Error:", error);
+//     res.status(500).json({ message: "Error downloading QR code" });
+//   }
+// };
+
 
 
 export const downloadAllQRCodes = async (req: Request, res: Response): Promise<void> => {

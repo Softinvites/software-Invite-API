@@ -1,13 +1,4 @@
 "use strict";
-var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
-    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
-    return new (P || (P = Promise))(function (resolve, reject) {
-        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
-        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
-        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
-        step((generator = generator.apply(thisArg, _arguments || [])).next());
-    });
-};
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -21,7 +12,7 @@ const mongoose_1 = __importDefault(require("mongoose"));
 const utils_1 = require("../utils/utils");
 dotenv_1.default.config();
 const jwtsecret = process.env.JWT_SECRET;
-const registerAdmin = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+const registerAdmin = async (req, res) => {
     try {
         const { username, email, password, confirm_password, name } = req.body;
         const validateAdnin = utils_1.RegisterAdminSchema.validate(req.body, utils_1.option);
@@ -29,19 +20,19 @@ const registerAdmin = (req, res) => __awaiter(void 0, void 0, void 0, function* 
             res.status(400).json({ Error: validateAdnin.error.details[0].message });
             return;
         }
-        const existingAdmin = yield adminmodel_1.Admin.findOne({ email });
+        const existingAdmin = await adminmodel_1.Admin.findOne({ email });
         if (existingAdmin) {
             res.status(400).json({ message: "Admin already exists" });
             return;
         }
-        const hashedPassword = yield bcryptjs_1.default.hash(password, yield bcryptjs_1.default.genSalt(12));
+        const hashedPassword = await bcryptjs_1.default.hash(password, await bcryptjs_1.default.genSalt(12));
         const newAdmin = new adminmodel_1.Admin({
             username,
             email,
             password: hashedPassword,
             name,
         });
-        yield newAdmin.save();
+        await newAdmin.save();
         res
             .status(201)
             .json({ message: "Admin registered successfully", data: newAdmin });
@@ -52,9 +43,9 @@ const registerAdmin = (req, res) => __awaiter(void 0, void 0, void 0, function* 
         return;
         console.log(error);
     }
-});
+};
 exports.registerAdmin = registerAdmin;
-const loginAdmin = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+const loginAdmin = async (req, res) => {
     try {
         const { email, password } = req.body;
         const validateAmin = utils_1.LoginAdminSchema.validate(req.body, utils_1.option);
@@ -62,14 +53,14 @@ const loginAdmin = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
             res.status(400).json({ Error: validateAmin.error.details[0].message });
             return;
         }
-        const admin = yield adminmodel_1.Admin.findOne({ email });
+        const admin = await adminmodel_1.Admin.findOne({ email });
         if (!admin) {
             res
                 .status(400)
                 .json({ message: "Invalid email or password, or user not found" });
             return;
         }
-        const isPasswordValid = yield bcryptjs_1.default.compare(password, admin.password);
+        const isPasswordValid = await bcryptjs_1.default.compare(password, admin.password);
         if (!isPasswordValid) {
             res.status(400).json({ message: "Invalid email or password" });
             return;
@@ -85,12 +76,12 @@ const loginAdmin = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
         res.status(500).json({ message: "Error logging in admin" });
         return;
     }
-});
+};
 exports.loginAdmin = loginAdmin;
-const getAdminProfile = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+const getAdminProfile = async (req, res) => {
     try {
         const { id } = req.params;
-        const admin = yield adminmodel_1.Admin.findById(id);
+        const admin = await adminmodel_1.Admin.findById(id);
         if (!admin) {
             res.status(404).json({ message: "Admin not found" });
         }
@@ -99,19 +90,19 @@ const getAdminProfile = (req, res) => __awaiter(void 0, void 0, void 0, function
     catch (error) {
         res.status(500).json({ message: "Error fetching admin profile" });
     }
-});
+};
 exports.getAdminProfile = getAdminProfile;
-const getAllAdminProfile = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+const getAllAdminProfile = async (req, res) => {
     try {
-        const admins = yield adminmodel_1.Admin.find({});
+        const admins = await adminmodel_1.Admin.find({});
         res.status(200).json({ msg: "All Admins successfully fetched", admins });
     }
     catch (error) {
         res.status(500).json({ message: "Error fetching admins", error: error });
     }
-});
+};
 exports.getAllAdminProfile = getAllAdminProfile;
-const updateAdminProfile = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+const updateAdminProfile = async (req, res) => {
     try {
         const { id } = req.params;
         const { name, username } = req.body;
@@ -119,7 +110,7 @@ const updateAdminProfile = (req, res) => __awaiter(void 0, void 0, void 0, funct
         if (validateAmin.error) {
             res.status(400).json({ Error: validateAmin.error.details[0].message });
         }
-        const admin = yield adminmodel_1.Admin.findById(id);
+        const admin = await adminmodel_1.Admin.findById(id);
         console.log("Admin fetched:", admin);
         if (!admin) {
             res.status(400).json({
@@ -127,7 +118,7 @@ const updateAdminProfile = (req, res) => __awaiter(void 0, void 0, void 0, funct
             });
             return;
         }
-        const updatedAdmin = yield adminmodel_1.Admin.findByIdAndUpdate(id, { name, username }, {
+        const updatedAdmin = await adminmodel_1.Admin.findByIdAndUpdate(id, { name, username }, {
             new: true,
             runValidators: true,
             context: "query",
@@ -140,9 +131,9 @@ const updateAdminProfile = (req, res) => __awaiter(void 0, void 0, void 0, funct
         console.error("Error updating Admin Profile", error);
         res.status(500).json({ message: "Error updating profile" });
     }
-});
+};
 exports.updateAdminProfile = updateAdminProfile;
-const updateAdminPassword = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+const updateAdminPassword = async (req, res) => {
     try {
         const { id } = req.params;
         const { old_password, new_password, confirm_password } = req.body;
@@ -157,38 +148,38 @@ const updateAdminPassword = (req, res) => __awaiter(void 0, void 0, void 0, func
             return; // Stop execution
         }
         // Fetch admin
-        const admin = yield adminmodel_1.Admin.findById(id);
+        const admin = await adminmodel_1.Admin.findById(id);
         if (!admin) {
             res.status(404).json({ error: "Admin not found" });
             return;
         }
         // Compare old password
-        const isMatch = yield bcryptjs_1.default.compare(old_password, admin.password);
+        const isMatch = await bcryptjs_1.default.compare(old_password, admin.password);
         if (!isMatch) {
             res.status(400).json({ error: "Old password is incorrect" });
             return;
         }
         // Hash new password
-        const hashedPassword = yield bcryptjs_1.default.hash(new_password, 12);
+        const hashedPassword = await bcryptjs_1.default.hash(new_password, 12);
         // Update password
         admin.password = hashedPassword;
-        yield admin.save();
+        await admin.save();
         res.status(200).json({ message: "Admin password updated successfully" });
     }
     catch (error) {
         console.error("Password update error:", error);
         res.status(500).json({ message: "Error updating password" });
     }
-});
+};
 exports.updateAdminPassword = updateAdminPassword;
-const deleteAdmin = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+const deleteAdmin = async (req, res) => {
     try {
         const { id } = req.params;
-        yield adminmodel_1.Admin.findByIdAndDelete(id);
+        await adminmodel_1.Admin.findByIdAndDelete(id);
         res.status(200).json({ message: "Admin deleted successfully" });
     }
     catch (error) {
         res.status(500).json({ message: "Error deleting admin" });
     }
-});
+};
 exports.deleteAdmin = deleteAdmin;

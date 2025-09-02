@@ -85,7 +85,7 @@ import createError, { HttpError } from "http-errors";
 import express, { Request, Response, NextFunction } from "express";
 import cookieParser from "cookie-parser";
 import logger from "morgan";
-import cors from "cors";
+import cors, { CorsOptions }  from "cors";
 import dotenv from "dotenv";
 import AdminRouter from "./routes/adminRoutes";
 import EventRouter from "./routes/eventsRoutes";
@@ -96,7 +96,30 @@ dotenv.config();
 const app = express();
 
 // --- CORS setup ---
-const corsOptions = [
+// const corsOptions = [
+//   "http://localhost:3039",
+//   "http://192.168.0.197:3039",
+//   "http://100.64.100.6:3039",
+//   "https://www.softinvite.com",
+//   "https://softinvite.com",
+//   "http://localhost:3000",
+//   "https://softinvite-scan.vercel.app",
+// ];
+
+// app.use(
+//   cors({
+//     origin: (origin, callback) => {
+//       if (!origin || corsOptions.includes(origin)) {
+//         callback(null, true);
+//       } else {
+//         callback(new Error("Not allowed by CORS"));
+//       }
+//     },
+//     credentials: true,
+//   })
+// );
+
+const allowedOrigins: string[] = [
   "http://localhost:3039",
   "http://192.168.0.197:3039",
   "http://100.64.100.6:3039",
@@ -106,18 +129,18 @@ const corsOptions = [
   "https://softinvite-scan.vercel.app",
 ];
 
-app.use(
-  cors({
-    origin: (origin, callback) => {
-      if (!origin || corsOptions.includes(origin)) {
-        callback(null, true);
-      } else {
-        callback(new Error("Not allowed by CORS"));
-      }
-    },
-    credentials: true,
-  })
-);
+const corsOptions: CorsOptions = {
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error("Not allowed by CORS"));
+    }
+  },
+  credentials: true,
+};
+
+app.use(cors(corsOptions))
 
 // --- Middleware ---
 app.use(logger("dev"));

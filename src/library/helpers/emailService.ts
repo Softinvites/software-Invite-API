@@ -33,12 +33,20 @@ export const sendEmail = async (
     const emailAttachments = await Promise.all(attachmentPromises);
 
     // Invoke Lambda for production
+    console.log("🚀 About to invoke Lambda:", {
+  functionName: process.env.EMAIL_LAMBDA_FUNCTION_NAME,
+  region: process.env.AWS_REGION,
+  to,
+  from: process.env.EMAIL_FROM,
+});
     await invokeLambda(process.env.EMAIL_LAMBDA_FUNCTION_NAME!, {
+      from: process.env.EMAIL_FROM,
       to,
       subject,
       htmlContent,
       attachments: emailAttachments
     });
+    console.log("✅ Email Lambda invoked for", to);
   } catch (error) {
     console.error('Error in sendEmail:', error);
     throw error;

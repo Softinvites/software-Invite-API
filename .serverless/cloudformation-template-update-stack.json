@@ -176,13 +176,13 @@
           "S3Bucket": {
             "Ref": "ServerlessDeploymentBucket"
           },
-          "S3Key": "serverless/softinvites-backend/dev/1755989738519-2025-08-23T22:55:38.519Z/app.zip"
+          "S3Key": "serverless/softinvites-backend/dev/1756785008815-2025-09-02T03:50:08.815Z/app.zip"
         },
         "Handler": "dist/index.handler",
         "Runtime": "nodejs20.x",
         "FunctionName": "softinvites-backend-dev-app",
         "MemorySize": 1024,
-        "Timeout": 100,
+        "Timeout": 30,
         "Architectures": [
           "arm64"
         ],
@@ -198,7 +198,9 @@
             "ZIP_LAMBDA_FUNCTION_NAME": "downloadZipLambdaFunction",
             "FRONTEND_URL": "https://www.softinvite.com",
             "BACKUP_BUCKET": "softinvites-backups",
-            "BACKUP_LAMBDA": "softinvites-backend-dev-backup"
+            "BACKUP_LAMBDA": "softinvites-backend-dev-backup",
+            "EMAIL_FROM": "info@softinvite.com",
+            "SERVERLESS_LICENSE_KEY": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJvcmdJZCI6IjdmYjQ0ZmY4LTQ5YmUtNGY0My1iMmM2LTliMzIyYmU5ZmQ3OSIsImlhdCI6MTc1NjM3MjU3NCwiZXhwIjoxNzg3OTA4NTc0LCJpc3MiOiJhcHAuc2VydmVybGVzcy5jb20ifQ.wxYOYIhN7zKm1zUY3l0RaHDnGOWKBqjdt9aPzjaiWZrMqhOxRWr8AD7Oy_-KQ-JnBu4ow1rKFqgFWc62EYwMY5XZvtCM91U-3lixSNMtqCyMhokEusEVM3IApNdQcl2fBS65RHGg1DVdWIVMGBBURMTDyy1DP0fhcINigjr08zP6iNeyjypdNp_az1TfDPZHVpAItKsIhk0sp0I9TBC_GPObgQ8gH9BK2guDNsEP92XJLoQaDCRXwlVemX3QjT3H6lEJBJjrzzAkOiDaGBd0TEHcpwbORdWKpZB9IRjmD0B6RVXU4W2azSGx8HEG3wHimraoUYXSG9Y9VOKEcpHq2w"
           }
         },
         "Role": {
@@ -208,7 +210,7 @@
           ]
         },
         "Layers": [
-          "arn:aws:lambda:us-east-2:402961397587:layer:sharp-layer:5"
+          "arn:aws:lambda:us-east-2:402961397587:layer:Sharp:1"
         ]
       },
       "DependsOn": [
@@ -222,7 +224,7 @@
           "S3Bucket": {
             "Ref": "ServerlessDeploymentBucket"
           },
-          "S3Key": "serverless/softinvites-backend/dev/1755989738519-2025-08-23T22:55:38.519Z/backup.zip"
+          "S3Key": "serverless/softinvites-backend/dev/1756785008815-2025-09-02T03:50:08.815Z/backup.zip"
         },
         "Handler": "dist/backup.handler",
         "Runtime": "nodejs20.x",
@@ -245,7 +247,9 @@
             "ZIP_LAMBDA_FUNCTION_NAME": "downloadZipLambdaFunction",
             "FRONTEND_URL": "https://www.softinvite.com",
             "BACKUP_BUCKET": "softinvites-backups",
-            "BACKUP_LAMBDA": "softinvites-backend-dev-backup"
+            "BACKUP_LAMBDA": "softinvites-backend-dev-backup",
+            "EMAIL_FROM": "info@softinvite.com",
+            "SERVERLESS_LICENSE_KEY": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJvcmdJZCI6IjdmYjQ0ZmY4LTQ5YmUtNGY0My1iMmM2LTliMzIyYmU5ZmQ3OSIsImlhdCI6MTc1NjM3MjU3NCwiZXhwIjoxNzg3OTA4NTc0LCJpc3MiOiJhcHAuc2VydmVybGVzcy5jb20ifQ.wxYOYIhN7zKm1zUY3l0RaHDnGOWKBqjdt9aPzjaiWZrMqhOxRWr8AD7Oy_-KQ-JnBu4ow1rKFqgFWc62EYwMY5XZvtCM91U-3lixSNMtqCyMhokEusEVM3IApNdQcl2fBS65RHGg1DVdWIVMGBBURMTDyy1DP0fhcINigjr08zP6iNeyjypdNp_az1TfDPZHVpAItKsIhk0sp0I9TBC_GPObgQ8gH9BK2guDNsEP92XJLoQaDCRXwlVemX3QjT3H6lEJBJjrzzAkOiDaGBd0TEHcpwbORdWKpZB9IRjmD0B6RVXU4W2azSGx8HEG3wHimraoUYXSG9Y9VOKEcpHq2w"
           }
         },
         "Role": {
@@ -259,25 +263,25 @@
         "BackupLogGroup"
       ]
     },
-    "BackupLambdaVersion5nLHkt9NPyXDux8kf0qsJPbys0twxzCPzdvGGgi0JU": {
+    "BackupLambdaVersion4q9m16KGQauFyNWjhjlXutthHeMnaTirb3oJCZjU": {
       "Type": "AWS::Lambda::Version",
       "DeletionPolicy": "Retain",
       "Properties": {
         "FunctionName": {
           "Ref": "BackupLambdaFunction"
         },
-        "CodeSha256": "ix28LZRphKB0bm+/84zDqn4tqju1d79lUYblFz3mPsQ=",
+        "CodeSha256": "KKLedlUfVhm8rIGvvudKSerLWqZjDvLeQ+wej4IWRS4=",
         "Description": "Event-driven MongoDB backup to S3"
       }
     },
-    "AppLambdaVersiontwArHUItAvrLc2Dh2O7cimaYXgEP4YS4vM73MvklU": {
+    "AppLambdaVersionrOijBQaktBphyDnTNsGbjDO16Yt1HPsGImVBJDBDw58": {
       "Type": "AWS::Lambda::Version",
       "DeletionPolicy": "Retain",
       "Properties": {
         "FunctionName": {
           "Ref": "AppLambdaFunction"
         },
-        "CodeSha256": "Ka2X1zMW7XzB1JRWnThCBvYbhRbo1e2yxIyfO3AMItI="
+        "CodeSha256": "O7Q3frBYJNHyBuzAEbYQ3OljWk+wPtOA4N5hJ1468So="
       }
     },
     "HttpApi": {
@@ -301,7 +305,9 @@
           ],
           "AllowOrigins": [
             "https://www.softinvite.com",
-            "https://softinvite-scan.vercel.app"
+            "https://softinvite.com",
+            "https://softinvite-scan.vercel.app",
+            "http://localhost:3039"
           ],
           "MaxAge": 86400
         }
@@ -408,7 +414,7 @@
     "BackupLambdaFunctionQualifiedArn": {
       "Description": "Current Lambda function version",
       "Value": {
-        "Ref": "BackupLambdaVersion5nLHkt9NPyXDux8kf0qsJPbys0twxzCPzdvGGgi0JU"
+        "Ref": "BackupLambdaVersion4q9m16KGQauFyNWjhjlXutthHeMnaTirb3oJCZjU"
       },
       "Export": {
         "Name": "sls-softinvites-backend-dev-BackupLambdaFunctionQualifiedArn"
@@ -417,7 +423,7 @@
     "AppLambdaFunctionQualifiedArn": {
       "Description": "Current Lambda function version",
       "Value": {
-        "Ref": "AppLambdaVersiontwArHUItAvrLc2Dh2O7cimaYXgEP4YS4vM73MvklU"
+        "Ref": "AppLambdaVersionrOijBQaktBphyDnTNsGbjDO16Yt1HPsGImVBJDBDw58"
       },
       "Export": {
         "Name": "sls-softinvites-backend-dev-AppLambdaFunctionQualifiedArn"
