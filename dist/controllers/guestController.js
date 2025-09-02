@@ -1,13 +1,4 @@
 "use strict";
-var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
-    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
-    return new (P || (P = Promise))(function (resolve, reject) {
-        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
-        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
-        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
-        step((generator = generator.apply(thisArg, _arguments || [])).next());
-    });
-};
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -21,13 +12,14 @@ const s3Utils_1 = require("../utils/s3Utils");
 const utils_1 = require("../utils/utils");
 const emailService_1 = require("../library/helpers/emailService");
 const colorUtils_1 = require("../utils/colorUtils");
+// import sharp from "sharp";
 const sharp_1 = __importDefault(require("sharp"));
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const mongoose_1 = __importDefault(require("mongoose"));
 const sanitize_html_1 = __importDefault(require("sanitize-html"));
 const client_lambda_1 = require("@aws-sdk/client-lambda");
 const lambdaClient = new client_lambda_1.LambdaClient({ region: process.env.AWS_REGION });
-const addGuest = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+const addGuest = async (req, res) => {
     try {
         const { fullname, TableNo, email, phone, message, others, eventId, qrCodeBgColor, qrCodeCenterColor, qrCodeEdgeColor, } = req.body;
         // Validate input
@@ -37,7 +29,7 @@ const addGuest = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
             return;
         }
         // Check event existence
-        const event = yield eventmodel_1.Event.findById(eventId);
+        const event = await eventmodel_1.Event.findById(eventId);
         if (!event) {
             res.status(404).json({ message: "Event not found" });
             return;
@@ -45,13 +37,19 @@ const addGuest = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
         const eventName = event.name;
         const iv = event.iv;
         // Create guest without QR fields first
-        const newGuest = new guestmodel_1.Guest(Object.assign(Object.assign(Object.assign(Object.assign({ fullname,
+        const newGuest = new guestmodel_1.Guest({
+            fullname,
             message,
             qrCodeBgColor,
             qrCodeCenterColor,
             qrCodeEdgeColor,
-            eventId }, (email && { email })), (phone && { phone })), (TableNo && { TableNo })), (others && { others })));
-        const savedGuest = yield newGuest.save();
+            eventId,
+            ...(email && { email }),
+            ...(phone && { phone }),
+            ...(TableNo && { TableNo }),
+            ...(others && { others }),
+        });
+        const savedGuest = await newGuest.save();
         // Call Lambda to generate QR code SVG URL
         const lambdaPayload = {
             guestId: savedGuest._id.toString(),
@@ -63,14 +61,14 @@ const addGuest = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
             TableNo,
             others
         };
-        const lambdaRawResponse = yield (0, lambdaUtils_1.invokeLambda)(process.env.QR_LAMBDA_FUNCTION_NAME, lambdaPayload);
+        const lambdaRawResponse = await (0, lambdaUtils_1.invokeLambda)(process.env.QR_LAMBDA_FUNCTION_NAME, lambdaPayload);
         // Validate Lambda response
         if (lambdaRawResponse.statusCode !== 200) {
             let errorBody;
             try {
                 errorBody = JSON.parse(lambdaRawResponse.body);
             }
-            catch (_a) {
+            catch {
                 errorBody = { message: "Invalid response from QR Lambda" };
             }
             throw new Error(`QR Lambda failed: ${errorBody.error || errorBody.message || "Unknown error"}`);
@@ -79,7 +77,7 @@ const addGuest = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
         try {
             lambdaBody = JSON.parse(lambdaRawResponse.body);
         }
-        catch (_b) {
+        catch {
             throw new Error("Failed to parse QR Lambda response");
         }
         let qrCodeUrl = lambdaBody.qrCodeUrl;
@@ -95,7 +93,7 @@ const addGuest = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
         // Update guest with QR code URL and qrCodeData
         savedGuest.qrCode = qrCodeUrl;
         savedGuest.qrCodeData = savedGuest._id.toString();
-        yield savedGuest.save();
+        await savedGuest.save();
         if (email) {
             try {
                 const sanitizedMessage = (0, sanitize_html_1.default)(message, {
@@ -132,7 +130,7 @@ const addGuest = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
       </div>
     `;
                 // Send the email
-                yield (0, emailService_1.sendEmail)(email, `${eventName}`, emailContent);
+                await (0, emailService_1.sendEmail)(email, `${eventName}`, emailContent);
                 console.log(`Invitation email sent to ${email}`);
             }
             catch (emailError) {
@@ -140,7 +138,7 @@ const addGuest = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
             }
         }
         // After successful create/update/delete operations:
-        yield lambdaClient.send(new client_lambda_1.InvokeCommand({
+        await lambdaClient.send(new client_lambda_1.InvokeCommand({
             FunctionName: process.env.BACKUP_LAMBDA,
             InvocationType: 'Event', // async
             Payload: Buffer.from(JSON.stringify({})) // can pass data if needed
@@ -157,9 +155,9 @@ const addGuest = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
             error: error instanceof Error ? error.message : error,
         });
     }
-});
+};
 exports.addGuest = addGuest;
-const importGuests = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+const importGuests = async (req, res) => {
     try {
         if (!req.file) {
             res.status(400).json({ message: "No file uploaded" });
@@ -172,10 +170,10 @@ const importGuests = (req, res) => __awaiter(void 0, void 0, void 0, function* (
         }
         // Upload file to S3
         const fileKey = `uploads/${Date.now()}_${req.file.originalname}`;
-        const fileUrl = yield (0, s3Utils_1.uploadToS3)(req.file.buffer, fileKey, req.file.mimetype);
+        const fileUrl = await (0, s3Utils_1.uploadToS3)(req.file.buffer, fileKey, req.file.mimetype);
         console.log("Uploaded file to S3:", fileKey);
         // Trigger import Lambda asynchronously
-        yield (0, lambdaUtils_1.invokeLambda)(process.env.IMPORT_LAMBDA_FUNCTION_NAME, { fileUrl, eventId, userEmail: req.body.userEmail }, true);
+        await (0, lambdaUtils_1.invokeLambda)(process.env.IMPORT_LAMBDA_FUNCTION_NAME, { fileUrl, eventId, userEmail: req.body.userEmail }, true);
         // Respond immediately
         res.status(202).json({
             message: "Import job is running. You will receive an email when processing completes.",
@@ -188,9 +186,9 @@ const importGuests = (req, res) => __awaiter(void 0, void 0, void 0, function* (
             error: error instanceof Error ? error.message : "Unknown error",
         });
     }
-});
+};
 exports.importGuests = importGuests;
-const updateGuest = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+const updateGuest = async (req, res) => {
     try {
         const { id } = req.params;
         const { email, phone, fullname, TableNo, message, others, qrCodeBgColor, qrCodeCenterColor, qrCodeEdgeColor, } = req.body;
@@ -199,7 +197,7 @@ const updateGuest = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
             res.status(400).json({ Error: validateGuest.error.details[0].message });
             return;
         }
-        const guest = yield guestmodel_1.Guest.findById(id);
+        const guest = await guestmodel_1.Guest.findById(id);
         if (!guest) {
             res.status(404).json({ message: "Guest not found" });
             return;
@@ -218,7 +216,7 @@ const updateGuest = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
             guest.qrCodeCenterColor = qrCodeCenterColor || guest.qrCodeCenterColor;
             guest.qrCodeEdgeColor = qrCodeEdgeColor || guest.qrCodeEdgeColor;
             // Generate new QR via Lambda
-            const lambdaResponse = yield (0, lambdaUtils_1.invokeLambda)(process.env.QR_LAMBDA_FUNCTION_NAME, {
+            const lambdaResponse = await (0, lambdaUtils_1.invokeLambda)(process.env.QR_LAMBDA_FUNCTION_NAME, {
                 guestId: guest._id.toString(),
                 fullname: fullname || guest.fullname,
                 bgColorHex: (0, colorUtils_1.rgbToHex)(qrCodeBgColor || guest.qrCodeBgColor),
@@ -232,14 +230,14 @@ const updateGuest = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
                 try {
                     const url = new URL(guest.qrCode);
                     const key = url.pathname.substring(1);
-                    yield (0, s3Utils_1.deleteFromS3)(key);
+                    await (0, s3Utils_1.deleteFromS3)(key);
                 }
                 catch (error) {
                     console.error("Error deleting old QR:", error);
                 }
             }
             guest.qrCode = qrCodeUrl;
-            yield guest.save();
+            await guest.save();
             if (guest.email) {
                 const emailContent = `
           <h2>Your Event QR Code Has Been Updated</h2>
@@ -247,10 +245,10 @@ const updateGuest = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
           <p>Your QR code for the event has been updated.</p>
           <p><img src="${qrCodeUrl}" alt="QR Code" width="300"/></p>
         `;
-                yield (0, emailService_1.sendEmail)(guest.email, `Your Updated QR Code`, emailContent);
+                await (0, emailService_1.sendEmail)(guest.email, `Your Updated QR Code`, emailContent);
             }
             // After successful create/update/delete operations:
-            yield lambdaClient.send(new client_lambda_1.InvokeCommand({
+            await lambdaClient.send(new client_lambda_1.InvokeCommand({
                 FunctionName: process.env.BACKUP_LAMBDA,
                 InvocationType: 'Event', // async
                 Payload: Buffer.from(JSON.stringify({})) // can pass data if needed
@@ -261,70 +259,76 @@ const updateGuest = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
             });
         }
         else {
-            yield guest.save();
+            await guest.save();
             res.status(200).json({ message: "Guest updated successfully", guest });
         }
     }
     catch (error) {
         res.status(500).json({ message: "Error updating guest", error });
     }
-});
+};
 exports.updateGuest = updateGuest;
-const downloadQRCode = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    var _a, _b, _c;
-    try {
-        const { id } = req.params;
-        const guest = yield guestmodel_1.Guest.findById(id);
-        if (!guest) {
-            res.status(404).json({ message: "Guest not found" });
-            return;
-        }
-        const bgColorHex = (0, colorUtils_1.rgbToHex)(guest.qrCodeBgColor);
-        const centerColorHex = (0, colorUtils_1.rgbToHex)(guest.qrCodeCenterColor);
-        const edgeColorHex = (0, colorUtils_1.rgbToHex)(guest.qrCodeEdgeColor);
-        const qr = new qrcode_svg_1.default({
-            content: guest._id.toString(),
-            padding: 5,
-            width: 512,
-            height: 512,
-            color: edgeColorHex,
-            background: bgColorHex,
-            xmlDeclaration: false,
-        });
-        let svg = qr.svg();
-        svg = svg.replace(/<svg([^>]*)>/, `<svg$1>
-        <defs>
-          <radialGradient id="grad1" cx="50%" cy="50%" r="50%" fx="50%" fy="50%">
-            <stop offset="0%" stop-color="${centerColorHex}" stop-opacity="1"/>
-            <stop offset="100%" stop-color="${edgeColorHex}" stop-opacity="1"/>
-          </radialGradient>
-        </defs>`);
-        svg = svg.replace(/<rect([^>]*?)style="fill:#[0-9a-fA-F]{3,6};([^"]*)"/g, (match, group1, group2) => {
-            const isBoundingRect = /x="0".*y="0"/.test(group1);
-            return isBoundingRect
-                ? `<rect${group1}style="fill:${bgColorHex};${group2}"/>`
-                : `<rect${group1}style="fill:url(#grad1);${group2}"/>`;
-        });
-        const pngBuffer = yield (0, sharp_1.default)(Buffer.from(svg))
-            .resize(512, 512, { fit: "contain" })
-            .png({ compressionLevel: 9, adaptiveFiltering: true })
-            .toBuffer();
-        // 👇 Safe filename logic here
-        const safeName = ((_a = guest.fullname) === null || _a === void 0 ? void 0 : _a.replace(/[^a-zA-Z0-9-_]/g, "_")) || "guest";
-        const safeTableNo = ((_b = guest.TableNo) === null || _b === void 0 ? void 0 : _b.toString().replace(/[^a-zA-Z0-9-_]/g, "_")) || "noTable";
-        const safeOthers = ((_c = guest.others) === null || _c === void 0 ? void 0 : _c.toString().replace(/[^a-zA-Z0-9-_]/g, "_")) || "noOthers";
-        const guestId = guest._id.toString();
-        const filename = `qr-${safeName}_${safeTableNo}_${safeOthers}_${guestId}.png`;
-        res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
-        res.setHeader("Content-Type", "image/png");
-        res.send(pngBuffer);
-    }
-    catch (error) {
-        console.error("Error:", error);
-        res.status(500).json({ message: "Error downloading QR code" });
-    }
-});
-exports.downloadQRCode = downloadQRCode;
+// export const downloadQRCode = async (
+//   req: Request,
+//   res: Response
+// ): Promise<void> => {
+//   try {
+//     const { id } = req.params;
+//     const guest = await Guest.findById(id);
+//     if (!guest) {
+//       res.status(404).json({ message: "Guest not found" });
+//       return;
+//     }
+//     const bgColorHex = rgbToHex(guest.qrCodeBgColor);
+//     const centerColorHex = rgbToHex(guest.qrCodeCenterColor);
+//     const edgeColorHex = rgbToHex(guest.qrCodeEdgeColor);
+//     const qr = new QRCode({
+//       content: guest._id.toString(),
+//       padding: 5,
+//       width: 512,
+//       height: 512,
+//       color: edgeColorHex,
+//       background: bgColorHex,
+//       xmlDeclaration: false,
+//     });
+//     let svg = qr.svg();
+//     svg = svg.replace(
+//       /<svg([^>]*)>/,
+//       `<svg$1>
+//         <defs>
+//           <radialGradient id="grad1" cx="50%" cy="50%" r="50%" fx="50%" fy="50%">
+//             <stop offset="0%" stop-color="${centerColorHex}" stop-opacity="1"/>
+//             <stop offset="100%" stop-color="${edgeColorHex}" stop-opacity="1"/>
+//           </radialGradient>
+//         </defs>`
+//     );
+//     svg = svg.replace(
+//       /<rect([^>]*?)style="fill:#[0-9a-fA-F]{3,6};([^"]*)"/g,
+//       (match, group1, group2) => {
+//         const isBoundingRect = /x="0".*y="0"/.test(group1);
+//         return isBoundingRect
+//           ? `<rect${group1}style="fill:${bgColorHex};${group2}"/>`
+//           : `<rect${group1}style="fill:url(#grad1);${group2}"/>`;
+//       }
+//     );
+//     const pngBuffer = await sharp(Buffer.from(svg))
+//       .resize(512, 512, { fit: "contain" })
+//       .png({ compressionLevel: 9, adaptiveFiltering: true })
+//       .toBuffer();
+//   // 👇 Safe filename logic here
+//   const safeName = guest.fullname?.replace(/[^a-zA-Z0-9-_]/g, "_") || "guest";
+//   const safeTableNo = guest.TableNo?.toString().replace(/[^a-zA-Z0-9-_]/g, "_") || "noTable";
+//   const safeOthers = guest.others?.toString().replace(/[^a-zA-Z0-9-_]/g, "_") || "noOthers";
+//   const guestId = guest._id.toString();
+//   const filename = `qr-${safeName}_${safeTableNo}_${safeOthers}_${guestId}.png`;
+//   res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+//   res.setHeader("Content-Type", "image/png");
+//   res.send(pngBuffer);
+//   } catch (error) {
+//     console.error("Error:", error);
+//     res.status(500).json({ message: "Error downloading QR code" });
+//   }
+// };
 // export const downloadAllQRCodes = async (req: Request, res: Response): Promise<void> => {
 //   try {
 //     const { eventId } = req.params;
@@ -383,10 +387,266 @@ exports.downloadQRCode = downloadQRCode;
 //     });
 //   }
 // };
-const downloadAllQRCodes = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+// export const downloadQRCode = async (req: Request, res: Response): Promise<void> => {
+//   try {
+//     const { id } = req.params;
+//     const guest = await Guest.findById(id);
+//     if (!guest) {
+//       res.status(404).json({ message: "Guest not found" });
+//       return;
+//     }
+//     const bgColorHex = rgbToHex(guest.qrCodeBgColor)
+//     const centerColorHex = rgbToHex(guest.qrCodeCenterColor);
+//     const edgeColorHex = rgbToHex(guest.qrCodeEdgeColor);
+//     // 1️⃣ Generate QR code SVG
+//     const qrSvg = new QRCode({
+//       content: guest._id.toString(),
+//       padding: 5,
+//       width: 512,
+//       height: 512,
+//       color: edgeColorHex, // base color (will override with gradient)
+//       background: bgColorHex,
+//       xmlDeclaration: false,
+//     }).svg();
+//     // 2️⃣ Inject radial gradient into SVG
+//     const svgWithGradient = qrSvg.replace(
+//       /<svg([^>]*)>/,
+//       `<svg$1>
+//         <defs>
+//           <radialGradient id="grad1" cx="50%" cy="50%" r="50%" fx="50%" fy="50%">
+//             <stop offset="0%" stop-color="${centerColorHex}" stop-opacity="1"/>
+//             <stop offset="100%" stop-color="${edgeColorHex}" stop-opacity="1"/>
+//           </radialGradient>
+//         </defs>`
+//     ).replace(
+//       /<rect([^>]*?)style="fill:#[0-9a-fA-F]{3,6};([^"]*)"/g,
+//       (match, group1, group2) => {
+//         const isBoundingRect = /x="0".*y="0"/.test(group1);
+//         return isBoundingRect
+//           ? `<rect${group1}style="fill:${bgColorHex};${group2}"/>`
+//           : `<rect${group1}style="fill:url(#grad1);${group2}"/>`;
+//       }
+//     );
+//     // 3️⃣ Convert SVG → PNG using sharp (fast & Lambda-friendly)
+//     const pngBuffer = await sharp(Buffer.from(svgWithGradient))
+//       .resize(512, 512, { fit: "contain" })
+//       .png({ compressionLevel: 9, adaptiveFiltering: true })
+//       .toBuffer();
+//     // 4️⃣ Safe filename
+//     const safeName = guest.fullname?.replace(/[^a-zA-Z0-9-_]/g, "_") || "guest";
+//     const safeTableNo = guest.TableNo?.toString().replace(/[^a-zA-Z0-9-_]/g, "_") || "noTable";
+//     const safeOthers = guest.others?.toString().replace(/[^a-zA-Z0-9-_]/g, "_") || "noOthers";
+//     const guestId = guest._id.toString();
+//     const filename = `qr-${safeName}_${safeTableNo}_${safeOthers}_${guestId}.png`;
+//     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+//     res.setHeader("Content-Type", "image/png");
+//     res.send(pngBuffer);
+//   } catch (error) {
+//     console.error("Error generating QR code:", error);
+//     res.status(500).json({ message: "Error downloading QR code" });
+//   }
+// };
+// export const downloadQRCode = async (req: Request, res: Response): Promise<void> => {
+//   try {
+//     const { id } = req.params;
+//     const guest = await Guest.findById(id);
+//     if (!guest) {
+//       res.status(404).json({ message: "Guest not found" });
+//       return;
+//     }
+//     const bgColorHex = rgbToHex(guest.qrCodeBgColor);
+//     const centerColorHex = rgbToHex(guest.qrCodeCenterColor);
+//     const edgeColorHex = rgbToHex(guest.qrCodeEdgeColor);
+//     // 1️⃣ Generate base QR SVG
+//     const qrSvg = new QRCode({
+//       content: guest._id.toString(),
+//       padding: 5,
+//       width: 512,
+//       height: 512,
+//       color: edgeColorHex, // base (we’ll replace with gradient)
+//       background: bgColorHex,
+//       xmlDeclaration: false,
+//     }).svg();
+//     // 2️⃣ Inject radial gradient into SVG
+//     const svgWithGradient = qrSvg
+//       .replace(
+//         /<svg([^>]*)>/,
+//         `<svg$1>
+//           <defs>
+//             <radialGradient id="grad1" cx="50%" cy="50%" r="50%" fx="50%" fy="50%">
+//               <stop offset="0%" stop-color="${centerColorHex}" stop-opacity="1"/>
+//               <stop offset="100%" stop-color="${edgeColorHex}" stop-opacity="1"/>
+//             </radialGradient>
+//           </defs>`
+//       )
+//       .replace(
+//         /<rect([^>]*?)style="fill:#[0-9a-fA-F]{3,6};([^"]*)"/g,
+//         (match, group1, group2) => {
+//           const isBoundingRect = /x="0".*y="0"/.test(group1);
+//           return isBoundingRect
+//             ? `<rect${group1}style="fill:${bgColorHex};${group2}"/>`
+//             : `<rect${group1}style="fill:url(#grad1);${group2}"/>`;
+//         }
+//       );
+//     // 3️⃣ Convert SVG → PNG with resvg-js (no Sharp!)
+//     const resvg = new Resvg(svgWithGradient, {
+//       fitTo: {
+//         mode: "width",
+//         value: 512,
+//       },
+//     });
+//     const pngData = resvg.render();
+//     const pngBuffer = pngData.asPng();
+//     // 4️⃣ Safe filename
+//     const safeName = guest.fullname?.replace(/[^a-zA-Z0-9-_]/g, "_") || "guest";
+//     const safeTableNo = guest.TableNo?.toString().replace(/[^a-zA-Z0-9-_]/g, "_") || "noTable";
+//     const safeOthers = guest.others?.toString().replace(/[^a-zA-Z0-9-_]/g, "_") || "noOthers";
+//     const guestId = guest._id.toString();
+//     const filename = `qr-${safeName}_${safeTableNo}_${safeOthers}_${guestId}.png`;
+//     // 5️⃣ Send response
+//     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+//     res.setHeader("Content-Type", "image/png");
+//     res.send(pngBuffer);
+//   } catch (error) {
+//     console.error("Error generating QR code:", error);
+//     res.status(500).json({ message: "Error downloading QR code" });
+//   }
+// };
+const downloadQRCode = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const guest = await guestmodel_1.Guest.findById(id);
+        if (!guest) {
+            res.status(404).json({ message: "Guest not found" });
+            return;
+        }
+        const bgColorHex = (0, colorUtils_1.rgbToHex)(guest.qrCodeBgColor);
+        const centerColorHex = (0, colorUtils_1.rgbToHex)(guest.qrCodeCenterColor);
+        const edgeColorHex = (0, colorUtils_1.rgbToHex)(guest.qrCodeEdgeColor);
+        const qr = new qrcode_svg_1.default({
+            content: guest._id.toString(),
+            padding: 5,
+            width: 512,
+            height: 512,
+            color: edgeColorHex,
+            background: bgColorHex,
+            xmlDeclaration: false,
+        });
+        let svg = qr.svg();
+        svg = svg.replace(/<svg([^>]*)>/, `<svg$1>
+        <defs>
+          <radialGradient id="grad1" cx="50%" cy="50%" r="50%" fx="50%" fy="50%">
+            <stop offset="0%" stop-color="${centerColorHex}" stop-opacity="1"/>
+            <stop offset="100%" stop-color="${edgeColorHex}" stop-opacity="1"/>
+          </radialGradient>
+        </defs>`);
+        svg = svg.replace(/<rect([^>]*?)style="fill:#[0-9a-fA-F]{3,6};([^"]*)"/g, (match, group1, group2) => {
+            const isBoundingRect = /x="0".*y="0"/.test(group1);
+            return isBoundingRect
+                ? `<rect${group1}style="fill:${bgColorHex};${group2}"/>`
+                : `<rect${group1}style="fill:url(#grad1);${group2}"/>`;
+        });
+        const pngBuffer = await (0, sharp_1.default)(Buffer.from(svg))
+            .resize(512, 512, { fit: "contain" })
+            .png({ compressionLevel: 9, adaptiveFiltering: true })
+            .toBuffer();
+        // 👇 Safe filename logic
+        const safeName = guest.fullname?.replace(/[^a-zA-Z0-9-_]/g, "_") || "guest";
+        const safeTableNo = guest.TableNo?.toString().replace(/[^a-zA-Z0-9-_]/g, "_") || "noTable";
+        const safeOthers = guest.others?.toString().replace(/[^a-zA-Z0-9-_]/g, "_") || "noOthers";
+        const guestId = guest._id.toString();
+        const filename = `qr-${safeName}_${safeTableNo}_${safeOthers}_${guestId}.png`;
+        // ✅ Encode PNG buffer to Base64
+        const base64Data = pngBuffer.toString("base64");
+        // ✅ Send response in API Gateway–compatible format
+        res.send({
+            isBase64Encoded: true,
+            statusCode: 200,
+            headers: {
+                "Content-Type": "image/png",
+                "Content-Disposition": `attachment; filename="${filename}"`,
+            },
+            body: base64Data,
+        });
+    }
+    catch (error) {
+        console.error("Error:", error);
+        res.status(500).json({ message: "Error downloading QR code" });
+    }
+};
+exports.downloadQRCode = downloadQRCode;
+// export const downloadQRCode = async (
+//   req: Request,
+//   res: Response
+// ): Promise<void> => {
+//   try {
+//     const { id } = req.params;
+//     const guest = await Guest.findById(id);
+//     if (!guest) {
+//       res.status(404).json({ message: "Guest not found" });
+//       return;
+//     }
+//     const bgColorHex = rgbToHex(guest.qrCodeBgColor);
+//     const centerColorHex = rgbToHex(guest.qrCodeCenterColor);
+//     const edgeColorHex = rgbToHex(guest.qrCodeEdgeColor);
+//     const qr = new QRCode({
+//       content: guest._id.toString(),
+//       padding: 5,
+//       width: 512,
+//       height: 512,
+//       color: edgeColorHex,
+//       background: bgColorHex,
+//       xmlDeclaration: false,
+//     });
+//     let svg = qr.svg();
+//     svg = svg.replace(
+//       /<svg([^>]*)>/,
+//       `<svg$1>
+//         <defs>
+//           <radialGradient id="grad1" cx="50%" cy="50%" r="50%" fx="50%" fy="50%">
+//             <stop offset="0%" stop-color="${centerColorHex}" stop-opacity="1"/>
+//             <stop offset="100%" stop-color="${edgeColorHex}" stop-opacity="1"/>
+//           </radialGradient>
+//         </defs>`
+//     );
+//     svg = svg.replace(
+//       /<rect([^>]*?)style="fill:#[0-9a-fA-F]{3,6};([^"]*)"/g,
+//       (match, group1, group2) => {
+//         const isBoundingRect = /x="0".*y="0"/.test(group1);
+//         return isBoundingRect
+//           ? `<rect${group1}style="fill:${bgColorHex};${group2}"/>`
+//           : `<rect${group1}style="fill:url(#grad1);${group2}"/>`;
+//       }
+//     );
+//     const pngBuffer = await sharp(Buffer.from(svg))
+//       .resize(512, 512, { fit: "contain" })
+//       .png({ compressionLevel: 9, adaptiveFiltering: true })
+//       .toBuffer();
+//     // 👇 Safe filename logic
+//     const safeName = guest.fullname?.replace(/[^a-zA-Z0-9-_]/g, "_") || "guest";
+//     const safeTableNo =
+//       guest.TableNo?.toString().replace(/[^a-zA-Z0-9-_]/g, "_") || "noTable";
+//     const safeOthers =
+//       guest.others?.toString().replace(/[^a-zA-Z0-9-_]/g, "_") || "noOthers";
+//     const guestId = guest._id.toString();
+//     const filename = `qr-${safeName}_${safeTableNo}_${safeOthers}_${guestId}.png`;
+//     // ✅ Send API Gateway–compatible binary response
+//     res.setHeader("Content-Type", "image/png");
+//     res.setHeader(
+//       "Content-Disposition",
+//       `attachment; filename="${filename}"`
+//     );
+//     // Express + serverless-http automatically handles base64 if we send Buffer
+//     res.end(pngBuffer, "binary");
+//   } catch (error) {
+//     console.error("Error:", error);
+//     res.status(500).json({ message: "Error downloading QR code" });
+//   }
+// };
+const downloadAllQRCodes = async (req, res) => {
     try {
         const { eventId } = req.params;
-        const guests = yield guestmodel_1.Guest.find({ eventId });
+        const guests = await guestmodel_1.Guest.find({ eventId });
         if (!guests.length) {
             res.status(404).json({ message: "No guests found" });
             return;
@@ -403,7 +663,7 @@ const downloadAllQRCodes = (req, res) => __awaiter(void 0, void 0, void 0, funct
                     : url.pathname;
                 return path.endsWith(".svg") ? path : null;
             }
-            catch (_a) {
+            catch {
                 return null;
             }
         })
@@ -413,20 +673,20 @@ const downloadAllQRCodes = (req, res) => __awaiter(void 0, void 0, void 0, funct
             return;
         }
         // Call Lambda: it will fetch the original SVGs, convert to PNG, and zip
-        const lambdaResponse = yield (0, lambdaUtils_1.invokeLambda)(process.env.ZIP_LAMBDA_FUNCTION_NAME, { qrPaths, eventId });
-        const statusCode = (lambdaResponse === null || lambdaResponse === void 0 ? void 0 : lambdaResponse.statusCode) || 500;
+        const lambdaResponse = await (0, lambdaUtils_1.invokeLambda)(process.env.ZIP_LAMBDA_FUNCTION_NAME, { qrPaths, eventId });
+        const statusCode = lambdaResponse?.statusCode || 500;
         let parsedBody = {};
         try {
-            parsedBody = (lambdaResponse === null || lambdaResponse === void 0 ? void 0 : lambdaResponse.body) ? JSON.parse(lambdaResponse.body) : {};
+            parsedBody = lambdaResponse?.body ? JSON.parse(lambdaResponse.body) : {};
         }
-        catch (_a) {
+        catch {
             parsedBody = { error: "Failed to parse Lambda response" };
         }
         if (statusCode !== 200 || !parsedBody.zipUrl) {
             res.status(statusCode).json({
                 message: "Lambda failed to create PNG ZIP archive",
-                error: (parsedBody === null || parsedBody === void 0 ? void 0 : parsedBody.error) || "Unknown Lambda error",
-                missingFiles: (parsedBody === null || parsedBody === void 0 ? void 0 : parsedBody.missingFiles) || [],
+                error: parsedBody?.error || "Unknown Lambda error",
+                missingFiles: parsedBody?.missingFiles || [],
             });
             return;
         }
@@ -446,15 +706,15 @@ const downloadAllQRCodes = (req, res) => __awaiter(void 0, void 0, void 0, funct
             error: error instanceof Error ? error.message : error,
         });
     }
-});
+};
 exports.downloadAllQRCodes = downloadAllQRCodes;
-const downloadBatchQRCodes = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+const downloadBatchQRCodes = async (req, res) => {
     try {
         const { eventId } = req.params;
         const { start, end } = req.query;
         const startDate = start ? new Date(start) : new Date(0);
         const endDate = end ? new Date(end) : new Date();
-        const guests = yield guestmodel_1.Guest.find({
+        const guests = await guestmodel_1.Guest.find({
             eventId,
             createdAt: { $gte: startDate, $lte: endDate },
         });
@@ -472,7 +732,7 @@ const downloadBatchQRCodes = (req, res) => __awaiter(void 0, void 0, void 0, fun
                 // 👇 Decode URI component so %20 stays as %20
                 return decodeURI(path.endsWith(".svg") ? path : "");
             }
-            catch (_a) {
+            catch {
                 return null;
             }
         })
@@ -481,25 +741,25 @@ const downloadBatchQRCodes = (req, res) => __awaiter(void 0, void 0, void 0, fun
             res.status(400).json({ message: "No valid QR code paths found in the given range" });
             return;
         }
-        const lambdaResponse = yield (0, lambdaUtils_1.invokeLambda)(process.env.ZIP_LAMBDA_FUNCTION_NAME, {
+        const lambdaResponse = await (0, lambdaUtils_1.invokeLambda)(process.env.ZIP_LAMBDA_FUNCTION_NAME, {
             qrPaths,
             eventId,
             startDate: startDate.toISOString(),
             endDate: endDate.toISOString(),
         });
-        const statusCode = (lambdaResponse === null || lambdaResponse === void 0 ? void 0 : lambdaResponse.statusCode) || 500;
+        const statusCode = lambdaResponse?.statusCode || 500;
         let parsedBody = {};
         try {
-            parsedBody = (lambdaResponse === null || lambdaResponse === void 0 ? void 0 : lambdaResponse.body) ? JSON.parse(lambdaResponse.body) : {};
+            parsedBody = lambdaResponse?.body ? JSON.parse(lambdaResponse.body) : {};
         }
-        catch (_a) {
+        catch {
             parsedBody = { error: "Failed to parse Lambda response" };
         }
         if (statusCode !== 200 || !parsedBody.zipUrl) {
             res.status(statusCode).json({
                 message: "Lambda failed to create ZIP archive",
-                error: (parsedBody === null || parsedBody === void 0 ? void 0 : parsedBody.error) || "Unknown Lambda error",
-                missingFiles: (parsedBody === null || parsedBody === void 0 ? void 0 : parsedBody.missingFiles) || [],
+                error: parsedBody?.error || "Unknown Lambda error",
+                missingFiles: parsedBody?.missingFiles || [],
             });
             return;
         }
@@ -518,12 +778,12 @@ const downloadBatchQRCodes = (req, res) => __awaiter(void 0, void 0, void 0, fun
             error: error instanceof Error ? error.message : error,
         });
     }
-});
+};
 exports.downloadBatchQRCodes = downloadBatchQRCodes;
-const getGuestsByEvent = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+const getGuestsByEvent = async (req, res) => {
     try {
         const { eventId } = req.params;
-        const guests = yield guestmodel_1.Guest.find({ eventId: eventId });
+        const guests = await guestmodel_1.Guest.find({ eventId: eventId });
         if (guests.length == 0) {
             res.status(400).json({ message: "No events found" });
             return;
@@ -536,13 +796,13 @@ const getGuestsByEvent = (req, res) => __awaiter(void 0, void 0, void 0, functio
     catch (error) {
         res.status(500).json({ message: "Error fetching guests" });
     }
-});
+};
 exports.getGuestsByEvent = getGuestsByEvent;
 // **Get Single Guest for an Event**
-const getGuestById = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+const getGuestById = async (req, res) => {
     try {
         const { id } = req.params;
-        const guest = yield guestmodel_1.Guest.findById(id);
+        const guest = await guestmodel_1.Guest.findById(id);
         if (!guest) {
             res.status(404).json({ message: "Guest not found" });
         }
@@ -551,12 +811,12 @@ const getGuestById = (req, res) => __awaiter(void 0, void 0, void 0, function* (
     catch (error) {
         res.status(500).json({ message: "Error fetching guest" });
     }
-});
+};
 exports.getGuestById = getGuestById;
-const deleteGuestById = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+const deleteGuestById = async (req, res) => {
     try {
         const { id } = req.params;
-        const guest = yield guestmodel_1.Guest.findById(id);
+        const guest = await guestmodel_1.Guest.findById(id);
         if (!guest) {
             res.status(404).json({ message: "Guest not found" });
             return;
@@ -565,41 +825,41 @@ const deleteGuestById = (req, res) => __awaiter(void 0, void 0, void 0, function
         if (guest.qrCode) {
             const url = new URL(guest.qrCode);
             const key = url.pathname.substring(1); // Remove leading slash
-            yield (0, s3Utils_1.deleteFromS3)(key);
+            await (0, s3Utils_1.deleteFromS3)(key);
         }
-        yield guestmodel_1.Guest.findByIdAndDelete(id);
+        await guestmodel_1.Guest.findByIdAndDelete(id);
         res.status(200).json({ message: "Guest deleted successfully" });
     }
     catch (error) {
         console.error("Error deleting guest:", error);
         res.status(500).json({ message: "Error deleting guest" });
     }
-});
+};
 exports.deleteGuestById = deleteGuestById;
-const deleteGuestsByEvent = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+const deleteGuestsByEvent = async (req, res) => {
     try {
         const { eventId } = req.params;
-        const guests = yield guestmodel_1.Guest.find({ eventId });
+        const guests = await guestmodel_1.Guest.find({ eventId });
         if (!guests.length) {
             res.status(404).json({ message: "No guests found for this event" });
             return;
         }
         // Delete QR codes from S3
-        const deletionPromises = guests.map((guest) => __awaiter(void 0, void 0, void 0, function* () {
+        const deletionPromises = guests.map(async (guest) => {
             if (guest.qrCode) {
                 try {
                     const key = new URL(guest.qrCode).pathname.slice(1);
-                    yield (0, s3Utils_1.deleteFromS3)(key);
+                    await (0, s3Utils_1.deleteFromS3)(key);
                 }
                 catch (err) {
                     console.error(`Failed to delete QR for ${guest.fullname}:`, err);
                 }
             }
-        }));
-        yield Promise.allSettled(deletionPromises);
-        yield guestmodel_1.Guest.deleteMany({ eventId });
+        });
+        await Promise.allSettled(deletionPromises);
+        await guestmodel_1.Guest.deleteMany({ eventId });
         // After successful create/update/delete operations:
-        yield lambdaClient.send(new client_lambda_1.InvokeCommand({
+        await lambdaClient.send(new client_lambda_1.InvokeCommand({
             FunctionName: process.env.BACKUP_LAMBDA,
             InvocationType: 'Event', // async
             Payload: Buffer.from(JSON.stringify({})) // can pass data if needed
@@ -613,9 +873,9 @@ const deleteGuestsByEvent = (req, res) => __awaiter(void 0, void 0, void 0, func
         console.error("Error deleting guests:", error);
         res.status(500).json({ message: "Error deleting guests" });
     }
-});
+};
 exports.deleteGuestsByEvent = deleteGuestsByEvent;
-const deleteGuestsByEventAndTimestamp = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+const deleteGuestsByEventAndTimestamp = async (req, res) => {
     try {
         const { eventId } = req.params;
         const { start, end } = req.query;
@@ -629,7 +889,7 @@ const deleteGuestsByEventAndTimestamp = (req, res) => __awaiter(void 0, void 0, 
             res.status(400).json({ message: "Invalid start or end date" });
             return;
         }
-        const guests = yield guestmodel_1.Guest.find({
+        const guests = await guestmodel_1.Guest.find({
             eventId,
             createdAt: { $gte: startDate, $lte: endDate }
         });
@@ -637,24 +897,24 @@ const deleteGuestsByEventAndTimestamp = (req, res) => __awaiter(void 0, void 0, 
             res.status(404).json({ message: "No guests found for the event/date range" });
             return;
         }
-        const deletionPromises = guests.map((guest) => __awaiter(void 0, void 0, void 0, function* () {
+        const deletionPromises = guests.map(async (guest) => {
             if (guest.qrCode) {
                 try {
                     const key = new URL(guest.qrCode).pathname.slice(1);
-                    yield (0, s3Utils_1.deleteFromS3)(key);
+                    await (0, s3Utils_1.deleteFromS3)(key);
                 }
                 catch (err) {
                     console.error(`Error deleting QR for ${guest.fullname}:`, err);
                 }
             }
-        }));
-        yield Promise.allSettled(deletionPromises);
-        const deleteResult = yield guestmodel_1.Guest.deleteMany({
+        });
+        await Promise.allSettled(deletionPromises);
+        const deleteResult = await guestmodel_1.Guest.deleteMany({
             eventId,
             createdAt: { $gte: startDate, $lte: endDate }
         });
         // After successful create/update/delete operations:
-        yield lambdaClient.send(new client_lambda_1.InvokeCommand({
+        await lambdaClient.send(new client_lambda_1.InvokeCommand({
             FunctionName: process.env.BACKUP_LAMBDA,
             InvocationType: 'Event', // async
             Payload: Buffer.from(JSON.stringify({})) // can pass data if needed
@@ -667,9 +927,9 @@ const deleteGuestsByEventAndTimestamp = (req, res) => __awaiter(void 0, void 0, 
         console.error("Error deleting guests by event + timestamp:", error);
         res.status(500).json({ message: "Internal server error" });
     }
-});
+};
 exports.deleteGuestsByEventAndTimestamp = deleteGuestsByEventAndTimestamp;
-const scanQRCode = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+const scanQRCode = async (req, res) => {
     try {
         const { qrData } = req.body;
         if (!qrData) {
@@ -683,13 +943,13 @@ const scanQRCode = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
             return;
         }
         // Find the guest by guestId
-        const guest = yield guestmodel_1.Guest.findById(guestId);
+        const guest = await guestmodel_1.Guest.findById(guestId);
         if (!guest) {
             res.status(404).json({ message: "Guest not found" });
             return;
         }
         // Get the event details related to the guest's eventId
-        const event = yield eventmodel_1.Event.findById(guest.eventId);
+        const event = await eventmodel_1.Event.findById(guest.eventId);
         if (!event) {
             res.status(404).json({ message: "Event not found" });
             return;
@@ -702,7 +962,7 @@ const scanQRCode = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
         // Mark the guest as checked in and update their status
         guest.checkedIn = true;
         guest.status = "checked-in";
-        yield guest.save();
+        await guest.save();
         // Send a response with the updated guest information and event details
         res.status(200).json({
             message: "Guest successfully checked in",
@@ -717,17 +977,17 @@ const scanQRCode = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
         console.error("🚨 Error during check-in:", error);
         res.status(500).json({ message: "Server error during check-in" });
     }
-});
+};
 exports.scanQRCode = scanQRCode;
-const generateAnalytics = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+const generateAnalytics = async (req, res) => {
     try {
         // Basic counts
-        const totalEvents = yield eventmodel_1.Event.countDocuments();
-        const totalGuests = yield guestmodel_1.Guest.countDocuments();
-        const checkedInGuests = yield guestmodel_1.Guest.countDocuments({ checkedIn: true });
+        const totalEvents = await eventmodel_1.Event.countDocuments();
+        const totalGuests = await guestmodel_1.Guest.countDocuments();
+        const checkedInGuests = await guestmodel_1.Guest.countDocuments({ checkedIn: true });
         const unusedCodes = totalGuests - checkedInGuests;
         // Guest status breakdown (pie chart data)
-        const guestStatusBreakdownRaw = yield guestmodel_1.Guest.aggregate([
+        const guestStatusBreakdownRaw = await guestmodel_1.Guest.aggregate([
             {
                 $group: {
                     _id: "$status",
@@ -740,7 +1000,7 @@ const generateAnalytics = (req, res) => __awaiter(void 0, void 0, void 0, functi
             value: item.count,
         }));
         // Check-in trend (last 7 days)
-        const checkInTrendRaw = yield guestmodel_1.Guest.aggregate([
+        const checkInTrendRaw = await guestmodel_1.Guest.aggregate([
             {
                 $match: {
                     checkedIn: true,
@@ -777,9 +1037,9 @@ const generateAnalytics = (req, res) => __awaiter(void 0, void 0, void 0, functi
         console.error("Error generating analytics:", error);
         res.status(500).json({ message: "Error generating analytics" });
     }
-});
+};
 exports.generateAnalytics = generateAnalytics;
-const generateEventAnalytics = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+const generateEventAnalytics = async (req, res) => {
     try {
         const { eventId } = req.params;
         if (!mongoose_1.default.Types.ObjectId.isValid(eventId)) {
@@ -787,7 +1047,7 @@ const generateEventAnalytics = (req, res) => __awaiter(void 0, void 0, void 0, f
             return;
         }
         // Get all guests using `eventId` (your schema design)
-        const guests = yield guestmodel_1.Guest.find({ eventId });
+        const guests = await guestmodel_1.Guest.find({ eventId });
         if (!guests.length) {
             res.status(200).json({
                 eventId,
@@ -800,13 +1060,13 @@ const generateEventAnalytics = (req, res) => __awaiter(void 0, void 0, void 0, f
             return;
         }
         const totalGuests = guests.length;
-        const checkedInGuests = yield guestmodel_1.Guest.countDocuments({
+        const checkedInGuests = await guestmodel_1.Guest.countDocuments({
             eventId,
             checkedIn: true,
         });
         const unusedCodes = totalGuests - checkedInGuests;
         // Guest status breakdown
-        const guestStatusBreakdownRaw = yield guestmodel_1.Guest.aggregate([
+        const guestStatusBreakdownRaw = await guestmodel_1.Guest.aggregate([
             {
                 $match: {
                     eventId: new mongoose_1.default.Types.ObjectId(eventId),
@@ -824,7 +1084,7 @@ const generateEventAnalytics = (req, res) => __awaiter(void 0, void 0, void 0, f
             value: item.count,
         }));
         // Check-in trend (last 7 days)
-        const checkInTrendRaw = yield guestmodel_1.Guest.aggregate([
+        const checkInTrendRaw = await guestmodel_1.Guest.aggregate([
             {
                 $match: {
                     eventId: new mongoose_1.default.Types.ObjectId(eventId),
@@ -861,13 +1121,13 @@ const generateEventAnalytics = (req, res) => __awaiter(void 0, void 0, void 0, f
         console.error("Error generating event analytics:", error);
         res.status(500).json({ message: "Error generating event analytics" });
     }
-});
+};
 exports.generateEventAnalytics = generateEventAnalytics;
-const generateTempLink = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+const generateTempLink = async (req, res) => {
     try {
         const { eventId } = req.params;
         // Check if the event exists
-        const event = yield eventmodel_1.Event.findById(eventId);
+        const event = await eventmodel_1.Event.findById(eventId);
         if (!event) {
             res.status(404).json({ message: "Event not found" });
             return;
@@ -882,5 +1142,5 @@ const generateTempLink = (req, res) => __awaiter(void 0, void 0, void 0, functio
         console.error("Error generating temp link:", error);
         res.status(500).json({ message: "Error generating temp link" });
     }
-});
+};
 exports.generateTempLink = generateTempLink;

@@ -88,7 +88,28 @@ const dbConnect_1 = require("./library/middlewares/dbConnect");
 dotenv_1.default.config();
 const app = (0, express_1.default)();
 // --- CORS setup ---
-const corsOptions = [
+// const corsOptions = [
+//   "http://localhost:3039",
+//   "http://192.168.0.197:3039",
+//   "http://100.64.100.6:3039",
+//   "https://www.softinvite.com",
+//   "https://softinvite.com",
+//   "http://localhost:3000",
+//   "https://softinvite-scan.vercel.app",
+// ];
+// app.use(
+//   cors({
+//     origin: (origin, callback) => {
+//       if (!origin || corsOptions.includes(origin)) {
+//         callback(null, true);
+//       } else {
+//         callback(new Error("Not allowed by CORS"));
+//       }
+//     },
+//     credentials: true,
+//   })
+// );
+const allowedOrigins = [
     "http://localhost:3039",
     "http://192.168.0.197:3039",
     "http://100.64.100.6:3039",
@@ -97,9 +118,9 @@ const corsOptions = [
     "http://localhost:3000",
     "https://softinvite-scan.vercel.app",
 ];
-app.use((0, cors_1.default)({
+const corsOptions = {
     origin: (origin, callback) => {
-        if (!origin || corsOptions.includes(origin)) {
+        if (!origin || allowedOrigins.includes(origin)) {
             callback(null, true);
         }
         else {
@@ -107,7 +128,8 @@ app.use((0, cors_1.default)({
         }
     },
     credentials: true,
-}));
+};
+app.use((0, cors_1.default)(corsOptions));
 // --- Middleware ---
 app.use((0, morgan_1.default)("dev"));
 app.use(express_1.default.json());
@@ -122,7 +144,10 @@ app.use("/guest", guestRoutes_1.default);
 app.use((err, req, res, next) => {
     console.error(err);
     const status = err.status || 500;
-    const response = Object.assign({ message: err.message }, (process.env.NODE_ENV === "development" && { stack: err.stack }));
+    const response = {
+        message: err.message,
+        ...(process.env.NODE_ENV === "development" && { stack: err.stack }),
+    };
     res.status(status).json(response);
 });
 // --- 404 handler ---

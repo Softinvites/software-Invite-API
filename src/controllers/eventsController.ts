@@ -6,6 +6,7 @@ import { deleteFromS3, uploadToS3 } from '../utils/s3Utils';
 import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
 const lambdaClient = new LambdaClient({ region: process.env.AWS_REGION });
 
+
 export const createEvent = async (req: Request, res: Response): Promise<void> => {
   try {
     const { name, date, location, description } = req.body;
@@ -26,7 +27,7 @@ export const createEvent = async (req: Request, res: Response): Promise<void> =>
 
     // Upload image to S3
     const safeName = name.replace(/[^a-zA-Z0-9-_]/g, "_");
-const ivImageUrl = await uploadToS3(
+    const ivImageUrl = await uploadToS3(
   req.file.buffer,
   `events/${safeName}_iv_${Date.now()}.png`,
   req.file.mimetype
@@ -55,19 +56,13 @@ const ivImageUrl = await uploadToS3(
     `;
     await sendEmail(adminEmail, `New Event Created: ${name}`, emailContent);
 
-
-// After successful create/update/delete operations:
-await lambdaClient.send(new InvokeCommand({
-  FunctionName: process.env.BACKUP_LAMBDA!,
-  InvocationType: 'Event', // async
-  Payload: Buffer.from(JSON.stringify({})) // can pass data if needed
-}));
-
     res.status(201).json({ message: "Event created successfully", event: newEvent });
   } catch (error) {
     res.status(500).json({ message: "Error creating event", error });
   }
 };
+
+
 
 // export const createEvent = async (req: Request, res: Response) => {
 //   try {
