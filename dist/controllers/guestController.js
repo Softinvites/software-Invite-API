@@ -652,28 +652,28 @@ const downloadAllQRCodes = async (req, res) => {
             return;
         }
         // collect valid QR code paths (keep them as .svg for S3 lookup)
-        const qrPaths = guests
+        const qrItems = guests
             .map((guest) => {
             try {
                 if (!guest.qrCode || typeof guest.qrCode !== "string")
                     return null;
                 const url = new URL(guest.qrCode);
-                const path = url.pathname.startsWith("/")
-                    ? url.pathname.slice(1)
-                    : url.pathname;
-                return path.endsWith(".svg") ? path : null;
+                const path = url.pathname.startsWith("/") ? url.pathname.slice(1) : url.pathname;
+                if (!path.endsWith(".svg"))
+                    return null;
+                return {
+                    key: path, // this is what Lambda uses to fetch from S3
+                    guestName: guest.fullname || "Guest",
+                    tableNo: guest.TableNo || "NoTable",
+                };
             }
             catch {
                 return null;
             }
         })
             .filter(Boolean);
-        if (!qrPaths.length) {
-            res.status(400).json({ message: "No valid QR code paths found" });
-            return;
-        }
-        // Call Lambda: it will fetch the original SVGs, convert to PNG, and zip
-        const lambdaResponse = await (0, lambdaUtils_1.invokeLambda)(process.env.ZIP_LAMBDA_FUNCTION_NAME, { qrPaths, eventId });
+        const lambdaResponse = await (0, lambdaUtils_1.invokeLambda)(process.env.ZIP_LAMBDA_FUNCTION_NAME, { qrItems, eventId } // <-- use `qrItems` here
+        );
         const statusCode = lambdaResponse?.statusCode || 500;
         let parsedBody = {};
         try {

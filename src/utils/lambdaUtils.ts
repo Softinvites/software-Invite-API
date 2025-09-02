@@ -25,6 +25,8 @@
 //   return JSON.parse(responsePayload);
 // };
 
+
+
 import { InvokeCommand, InvocationType } from "@aws-sdk/client-lambda";
 import { lambda } from "./awsConfig";
 
