@@ -12,7 +12,6 @@ const s3Utils_1 = require("../utils/s3Utils");
 const utils_1 = require("../utils/utils");
 const emailService_1 = require("../library/helpers/emailService");
 const colorUtils_1 = require("../utils/colorUtils");
-// import sharp from "sharp";
 const sharp_1 = __importDefault(require("sharp"));
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const mongoose_1 = __importDefault(require("mongoose"));
@@ -268,250 +267,6 @@ const updateGuest = async (req, res) => {
     }
 };
 exports.updateGuest = updateGuest;
-// export const downloadQRCode = async (
-//   req: Request,
-//   res: Response
-// ): Promise<void> => {
-//   try {
-//     const { id } = req.params;
-//     const guest = await Guest.findById(id);
-//     if (!guest) {
-//       res.status(404).json({ message: "Guest not found" });
-//       return;
-//     }
-//     const bgColorHex = rgbToHex(guest.qrCodeBgColor);
-//     const centerColorHex = rgbToHex(guest.qrCodeCenterColor);
-//     const edgeColorHex = rgbToHex(guest.qrCodeEdgeColor);
-//     const qr = new QRCode({
-//       content: guest._id.toString(),
-//       padding: 5,
-//       width: 512,
-//       height: 512,
-//       color: edgeColorHex,
-//       background: bgColorHex,
-//       xmlDeclaration: false,
-//     });
-//     let svg = qr.svg();
-//     svg = svg.replace(
-//       /<svg([^>]*)>/,
-//       `<svg$1>
-//         <defs>
-//           <radialGradient id="grad1" cx="50%" cy="50%" r="50%" fx="50%" fy="50%">
-//             <stop offset="0%" stop-color="${centerColorHex}" stop-opacity="1"/>
-//             <stop offset="100%" stop-color="${edgeColorHex}" stop-opacity="1"/>
-//           </radialGradient>
-//         </defs>`
-//     );
-//     svg = svg.replace(
-//       /<rect([^>]*?)style="fill:#[0-9a-fA-F]{3,6};([^"]*)"/g,
-//       (match, group1, group2) => {
-//         const isBoundingRect = /x="0".*y="0"/.test(group1);
-//         return isBoundingRect
-//           ? `<rect${group1}style="fill:${bgColorHex};${group2}"/>`
-//           : `<rect${group1}style="fill:url(#grad1);${group2}"/>`;
-//       }
-//     );
-//     const pngBuffer = await sharp(Buffer.from(svg))
-//       .resize(512, 512, { fit: "contain" })
-//       .png({ compressionLevel: 9, adaptiveFiltering: true })
-//       .toBuffer();
-//   // 👇 Safe filename logic here
-//   const safeName = guest.fullname?.replace(/[^a-zA-Z0-9-_]/g, "_") || "guest";
-//   const safeTableNo = guest.TableNo?.toString().replace(/[^a-zA-Z0-9-_]/g, "_") || "noTable";
-//   const safeOthers = guest.others?.toString().replace(/[^a-zA-Z0-9-_]/g, "_") || "noOthers";
-//   const guestId = guest._id.toString();
-//   const filename = `qr-${safeName}_${safeTableNo}_${safeOthers}_${guestId}.png`;
-//   res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
-//   res.setHeader("Content-Type", "image/png");
-//   res.send(pngBuffer);
-//   } catch (error) {
-//     console.error("Error:", error);
-//     res.status(500).json({ message: "Error downloading QR code" });
-//   }
-// };
-// export const downloadAllQRCodes = async (req: Request, res: Response): Promise<void> => {
-//   try {
-//     const { eventId } = req.params;
-//     const guests = await Guest.find({ eventId });
-//     if (!guests.length) {
-//       res.status(404).json({ message: "No guests found" });
-//       return;
-//     }
-//     const qrPaths = guests
-//       .map((guest) => {
-//         try {
-//           if (!guest.qrCode || typeof guest.qrCode !== "string") return null;
-//           const url = new URL(guest.qrCode);
-//           const path = url.pathname.startsWith("/") ? url.pathname.slice(1) : url.pathname;
-//           return path.endsWith(".svg") ? path : null;
-//         } catch {
-//           return null;
-//         }
-//       })
-//       .filter(Boolean) as string[];
-//     if (!qrPaths.length) {
-//       res.status(400).json({ message: "No valid QR code paths found" });
-//       return;
-//     }
-//     const lambdaResponse = await invokeLambda(process.env.ZIP_LAMBDA_FUNCTION_NAME!, {
-//       qrPaths,
-//       eventId,
-//     });
-//     const statusCode = lambdaResponse?.statusCode || 500;
-//     let parsedBody: any = {};
-//     try {
-//       parsedBody = lambdaResponse?.body ? JSON.parse(lambdaResponse.body) : {};
-//     } catch {
-//       parsedBody = { error: "Failed to parse Lambda response" };
-//     }
-//     if (statusCode !== 200 || !parsedBody.zipUrl) {
-//       res.status(statusCode).json({
-//         message: "Lambda failed to create ZIP archive",
-//         error: parsedBody?.error || "Unknown Lambda error",
-//         missingFiles: parsedBody?.missingFiles || [],
-//       });
-//       return;
-//     }
-//     res.status(200).json({
-//       zipDownloadLink: parsedBody.zipUrl,
-//       generatedAt: parsedBody.generatedAt,
-//       eventId: parsedBody.eventId,
-//       numberOfFiles: parsedBody.numberOfFiles,
-//       missingFiles: parsedBody.missingFiles || [],
-//     });
-//   } catch (error) {
-//     console.error("Error in downloadAllQRCodes:", error);
-//     res.status(500).json({
-//       message: "Internal server error",
-//       error: error instanceof Error ? error.message : error,
-//     });
-//   }
-// };
-// export const downloadQRCode = async (req: Request, res: Response): Promise<void> => {
-//   try {
-//     const { id } = req.params;
-//     const guest = await Guest.findById(id);
-//     if (!guest) {
-//       res.status(404).json({ message: "Guest not found" });
-//       return;
-//     }
-//     const bgColorHex = rgbToHex(guest.qrCodeBgColor)
-//     const centerColorHex = rgbToHex(guest.qrCodeCenterColor);
-//     const edgeColorHex = rgbToHex(guest.qrCodeEdgeColor);
-//     // 1️⃣ Generate QR code SVG
-//     const qrSvg = new QRCode({
-//       content: guest._id.toString(),
-//       padding: 5,
-//       width: 512,
-//       height: 512,
-//       color: edgeColorHex, // base color (will override with gradient)
-//       background: bgColorHex,
-//       xmlDeclaration: false,
-//     }).svg();
-//     // 2️⃣ Inject radial gradient into SVG
-//     const svgWithGradient = qrSvg.replace(
-//       /<svg([^>]*)>/,
-//       `<svg$1>
-//         <defs>
-//           <radialGradient id="grad1" cx="50%" cy="50%" r="50%" fx="50%" fy="50%">
-//             <stop offset="0%" stop-color="${centerColorHex}" stop-opacity="1"/>
-//             <stop offset="100%" stop-color="${edgeColorHex}" stop-opacity="1"/>
-//           </radialGradient>
-//         </defs>`
-//     ).replace(
-//       /<rect([^>]*?)style="fill:#[0-9a-fA-F]{3,6};([^"]*)"/g,
-//       (match, group1, group2) => {
-//         const isBoundingRect = /x="0".*y="0"/.test(group1);
-//         return isBoundingRect
-//           ? `<rect${group1}style="fill:${bgColorHex};${group2}"/>`
-//           : `<rect${group1}style="fill:url(#grad1);${group2}"/>`;
-//       }
-//     );
-//     // 3️⃣ Convert SVG → PNG using sharp (fast & Lambda-friendly)
-//     const pngBuffer = await sharp(Buffer.from(svgWithGradient))
-//       .resize(512, 512, { fit: "contain" })
-//       .png({ compressionLevel: 9, adaptiveFiltering: true })
-//       .toBuffer();
-//     // 4️⃣ Safe filename
-//     const safeName = guest.fullname?.replace(/[^a-zA-Z0-9-_]/g, "_") || "guest";
-//     const safeTableNo = guest.TableNo?.toString().replace(/[^a-zA-Z0-9-_]/g, "_") || "noTable";
-//     const safeOthers = guest.others?.toString().replace(/[^a-zA-Z0-9-_]/g, "_") || "noOthers";
-//     const guestId = guest._id.toString();
-//     const filename = `qr-${safeName}_${safeTableNo}_${safeOthers}_${guestId}.png`;
-//     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
-//     res.setHeader("Content-Type", "image/png");
-//     res.send(pngBuffer);
-//   } catch (error) {
-//     console.error("Error generating QR code:", error);
-//     res.status(500).json({ message: "Error downloading QR code" });
-//   }
-// };
-// export const downloadQRCode = async (req: Request, res: Response): Promise<void> => {
-//   try {
-//     const { id } = req.params;
-//     const guest = await Guest.findById(id);
-//     if (!guest) {
-//       res.status(404).json({ message: "Guest not found" });
-//       return;
-//     }
-//     const bgColorHex = rgbToHex(guest.qrCodeBgColor);
-//     const centerColorHex = rgbToHex(guest.qrCodeCenterColor);
-//     const edgeColorHex = rgbToHex(guest.qrCodeEdgeColor);
-//     // 1️⃣ Generate base QR SVG
-//     const qrSvg = new QRCode({
-//       content: guest._id.toString(),
-//       padding: 5,
-//       width: 512,
-//       height: 512,
-//       color: edgeColorHex, // base (we’ll replace with gradient)
-//       background: bgColorHex,
-//       xmlDeclaration: false,
-//     }).svg();
-//     // 2️⃣ Inject radial gradient into SVG
-//     const svgWithGradient = qrSvg
-//       .replace(
-//         /<svg([^>]*)>/,
-//         `<svg$1>
-//           <defs>
-//             <radialGradient id="grad1" cx="50%" cy="50%" r="50%" fx="50%" fy="50%">
-//               <stop offset="0%" stop-color="${centerColorHex}" stop-opacity="1"/>
-//               <stop offset="100%" stop-color="${edgeColorHex}" stop-opacity="1"/>
-//             </radialGradient>
-//           </defs>`
-//       )
-//       .replace(
-//         /<rect([^>]*?)style="fill:#[0-9a-fA-F]{3,6};([^"]*)"/g,
-//         (match, group1, group2) => {
-//           const isBoundingRect = /x="0".*y="0"/.test(group1);
-//           return isBoundingRect
-//             ? `<rect${group1}style="fill:${bgColorHex};${group2}"/>`
-//             : `<rect${group1}style="fill:url(#grad1);${group2}"/>`;
-//         }
-//       );
-//     // 3️⃣ Convert SVG → PNG with resvg-js (no Sharp!)
-//     const resvg = new Resvg(svgWithGradient, {
-//       fitTo: {
-//         mode: "width",
-//         value: 512,
-//       },
-//     });
-//     const pngData = resvg.render();
-//     const pngBuffer = pngData.asPng();
-//     // 4️⃣ Safe filename
-//     const safeName = guest.fullname?.replace(/[^a-zA-Z0-9-_]/g, "_") || "guest";
-//     const safeTableNo = guest.TableNo?.toString().replace(/[^a-zA-Z0-9-_]/g, "_") || "noTable";
-//     const safeOthers = guest.others?.toString().replace(/[^a-zA-Z0-9-_]/g, "_") || "noOthers";
-//     const guestId = guest._id.toString();
-//     const filename = `qr-${safeName}_${safeTableNo}_${safeOthers}_${guestId}.png`;
-//     // 5️⃣ Send response
-//     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
-//     res.setHeader("Content-Type", "image/png");
-//     res.send(pngBuffer);
-//   } catch (error) {
-//     console.error("Error generating QR code:", error);
-//     res.status(500).json({ message: "Error downloading QR code" });
-//   }
-// };
 const downloadQRCode = async (req, res) => {
     try {
         const { id } = req.params;
@@ -575,74 +330,6 @@ const downloadQRCode = async (req, res) => {
     }
 };
 exports.downloadQRCode = downloadQRCode;
-// export const downloadQRCode = async (
-//   req: Request,
-//   res: Response
-// ): Promise<void> => {
-//   try {
-//     const { id } = req.params;
-//     const guest = await Guest.findById(id);
-//     if (!guest) {
-//       res.status(404).json({ message: "Guest not found" });
-//       return;
-//     }
-//     const bgColorHex = rgbToHex(guest.qrCodeBgColor);
-//     const centerColorHex = rgbToHex(guest.qrCodeCenterColor);
-//     const edgeColorHex = rgbToHex(guest.qrCodeEdgeColor);
-//     const qr = new QRCode({
-//       content: guest._id.toString(),
-//       padding: 5,
-//       width: 512,
-//       height: 512,
-//       color: edgeColorHex,
-//       background: bgColorHex,
-//       xmlDeclaration: false,
-//     });
-//     let svg = qr.svg();
-//     svg = svg.replace(
-//       /<svg([^>]*)>/,
-//       `<svg$1>
-//         <defs>
-//           <radialGradient id="grad1" cx="50%" cy="50%" r="50%" fx="50%" fy="50%">
-//             <stop offset="0%" stop-color="${centerColorHex}" stop-opacity="1"/>
-//             <stop offset="100%" stop-color="${edgeColorHex}" stop-opacity="1"/>
-//           </radialGradient>
-//         </defs>`
-//     );
-//     svg = svg.replace(
-//       /<rect([^>]*?)style="fill:#[0-9a-fA-F]{3,6};([^"]*)"/g,
-//       (match, group1, group2) => {
-//         const isBoundingRect = /x="0".*y="0"/.test(group1);
-//         return isBoundingRect
-//           ? `<rect${group1}style="fill:${bgColorHex};${group2}"/>`
-//           : `<rect${group1}style="fill:url(#grad1);${group2}"/>`;
-//       }
-//     );
-//     const pngBuffer = await sharp(Buffer.from(svg))
-//       .resize(512, 512, { fit: "contain" })
-//       .png({ compressionLevel: 9, adaptiveFiltering: true })
-//       .toBuffer();
-//     // 👇 Safe filename logic
-//     const safeName = guest.fullname?.replace(/[^a-zA-Z0-9-_]/g, "_") || "guest";
-//     const safeTableNo =
-//       guest.TableNo?.toString().replace(/[^a-zA-Z0-9-_]/g, "_") || "noTable";
-//     const safeOthers =
-//       guest.others?.toString().replace(/[^a-zA-Z0-9-_]/g, "_") || "noOthers";
-//     const guestId = guest._id.toString();
-//     const filename = `qr-${safeName}_${safeTableNo}_${safeOthers}_${guestId}.png`;
-//     // ✅ Send API Gateway–compatible binary response
-//     res.setHeader("Content-Type", "image/png");
-//     res.setHeader(
-//       "Content-Disposition",
-//       `attachment; filename="${filename}"`
-//     );
-//     // Express + serverless-http automatically handles base64 if we send Buffer
-//     res.end(pngBuffer, "binary");
-//   } catch (error) {
-//     console.error("Error:", error);
-//     res.status(500).json({ message: "Error downloading QR code" });
-//   }
-// };
 const downloadAllQRCodes = async (req, res) => {
     try {
         const { eventId } = req.params;
@@ -651,7 +338,7 @@ const downloadAllQRCodes = async (req, res) => {
             res.status(404).json({ message: "No guests found" });
             return;
         }
-        // collect valid QR code paths (keep them as .svg for S3 lookup)
+        // Build array of qrItems for Lambda
         const qrItems = guests
             .map((guest) => {
             try {
@@ -662,9 +349,14 @@ const downloadAllQRCodes = async (req, res) => {
                 if (!path.endsWith(".svg"))
                     return null;
                 return {
-                    key: path, // this is what Lambda uses to fetch from S3
+                    key: path,
+                    guestId: guest._id.toString(), // Add guestId
                     guestName: guest.fullname || "Guest",
                     tableNo: guest.TableNo || "NoTable",
+                    others: guest.others || "-", // Optional
+                    qrCodeBgColor: guest.qrCodeBgColor || "255,255,255", // Add color fields
+                    qrCodeCenterColor: guest.qrCodeCenterColor || "0,0,0",
+                    qrCodeEdgeColor: guest.qrCodeEdgeColor || "0,0,0",
                 };
             }
             catch {
@@ -672,8 +364,14 @@ const downloadAllQRCodes = async (req, res) => {
             }
         })
             .filter(Boolean);
-        const lambdaResponse = await (0, lambdaUtils_1.invokeLambda)(process.env.ZIP_LAMBDA_FUNCTION_NAME, { qrItems, eventId } // <-- use `qrItems` here
-        );
+        if (!qrItems.length) {
+            res.status(400).json({ message: "No valid QR code paths found" });
+            return;
+        }
+        const lambdaResponse = await (0, lambdaUtils_1.invokeLambda)(process.env.ZIP_LAMBDA_FUNCTION_NAME, {
+            qrItems,
+            eventId,
+        });
         const statusCode = lambdaResponse?.statusCode || 500;
         let parsedBody = {};
         try {
@@ -684,7 +382,7 @@ const downloadAllQRCodes = async (req, res) => {
         }
         if (statusCode !== 200 || !parsedBody.zipUrl) {
             res.status(statusCode).json({
-                message: "Lambda failed to create PNG ZIP archive",
+                message: "Lambda failed to create ZIP archive",
                 error: parsedBody?.error || "Unknown Lambda error",
                 missingFiles: parsedBody?.missingFiles || [],
             });
@@ -696,7 +394,6 @@ const downloadAllQRCodes = async (req, res) => {
             eventId: parsedBody.eventId,
             numberOfFiles: parsedBody.numberOfFiles,
             missingFiles: parsedBody.missingFiles || [],
-            format: "png",
         });
     }
     catch (error) {
