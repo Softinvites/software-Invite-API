@@ -83,13 +83,13 @@ exports.createGuestSchema = joi_1.default.object({
     qrCodeEdgeColor: joi_1.default.string().required(),
 });
 exports.updateGuestSchema = joi_1.default.object({
+    id: joi_1.default.string().required(),
     fullname: joi_1.default.string().optional(),
     TableNo: joi_1.default.string().optional(),
     email: joi_1.default.string().email().optional(),
     phone: joi_1.default.string().optional(),
     message: joi_1.default.string().optional(),
     others: joi_1.default.string().optional(),
-    eventId: joi_1.default.string().required(),
     qrCodeBgColor: joi_1.default.string().optional(),
     qrCodeCenterColor: joi_1.default.string().optional(),
     qrCodeEdgeColor: joi_1.default.string().optional(),

@@ -61,33 +61,18 @@ const addGuest = async (req, res) => {
             others
         };
         const lambdaRawResponse = await (0, lambdaUtils_1.invokeLambda)(process.env.QR_LAMBDA_FUNCTION_NAME, lambdaPayload);
-        // Validate Lambda response
-        if (lambdaRawResponse.statusCode !== 200) {
-            let errorBody;
-            try {
-                errorBody = JSON.parse(lambdaRawResponse.body);
-            }
-            catch {
-                errorBody = { message: "Invalid response from QR Lambda" };
-            }
-            throw new Error(`QR Lambda failed: ${errorBody.error || errorBody.message || "Unknown error"}`);
-        }
-        let lambdaBody;
-        try {
-            lambdaBody = JSON.parse(lambdaRawResponse.body);
-        }
-        catch {
-            throw new Error("Failed to parse QR Lambda response");
-        }
-        let qrCodeUrl = lambdaBody.qrCodeUrl;
+        console.log("Raw Lambda Response:", lambdaRawResponse);
+        // At this point, lambdaRawResponse is already a JS object
+        const qrCodeUrl = lambdaRawResponse.qrCodeUrl;
         if (!qrCodeUrl || typeof qrCodeUrl !== "string") {
             throw new Error("QR Code URL is missing or invalid from Lambda response.");
         }
         // Ensure URL is absolute
-        if (!/^https?:\/\//.test(qrCodeUrl)) {
+        let finalQrUrl = qrCodeUrl;
+        if (!/^https?:\/\//.test(finalQrUrl)) {
             const s3Base = process.env.CDN_URL ||
                 `https://${process.env.S3_BUCKET}.s3.${process.env.AWS_REGION}.amazonaws.com`;
-            qrCodeUrl = `${s3Base}${qrCodeUrl.startsWith("/") ? "" : "/"}${qrCodeUrl}`;
+            finalQrUrl = `${s3Base}${finalQrUrl.startsWith("/") ? "" : "/"}${finalQrUrl}`;
         }
         // Update guest with QR code URL and qrCodeData
         savedGuest.qrCode = qrCodeUrl;
@@ -189,9 +174,14 @@ const importGuests = async (req, res) => {
 exports.importGuests = importGuests;
 const updateGuest = async (req, res) => {
     try {
-        const { id } = req.params;
-        const { email, phone, fullname, TableNo, message, others, qrCodeBgColor, qrCodeCenterColor, qrCodeEdgeColor, } = req.body;
-        const validateGuest = utils_1.updateGuestSchema.validate(req.body, utils_1.option);
+        // Handle both JSON string and already-parsed object
+        const body = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
+        const { id, email, phone, fullname, TableNo, message, others, qrCodeBgColor, qrCodeCenterColor, qrCodeEdgeColor, } = body;
+        if (!id) {
+            res.status(400).json({ message: "Guest ID is required" });
+            return;
+        }
+        const validateGuest = utils_1.updateGuestSchema.validate(body, utils_1.option);
         if (validateGuest.error) {
             res.status(400).json({ Error: validateGuest.error.details[0].message });
             return;
@@ -214,7 +204,6 @@ const updateGuest = async (req, res) => {
             guest.qrCodeBgColor = qrCodeBgColor || guest.qrCodeBgColor;
             guest.qrCodeCenterColor = qrCodeCenterColor || guest.qrCodeCenterColor;
             guest.qrCodeEdgeColor = qrCodeEdgeColor || guest.qrCodeEdgeColor;
-            // Generate new QR via Lambda
             const lambdaResponse = await (0, lambdaUtils_1.invokeLambda)(process.env.QR_LAMBDA_FUNCTION_NAME, {
                 guestId: guest._id.toString(),
                 fullname: fullname || guest.fullname,
@@ -224,7 +213,6 @@ const updateGuest = async (req, res) => {
                 eventId: guest.eventId,
             });
             const { qrCodeUrl } = lambdaResponse;
-            // Delete old QR from S3 if exists
             if (guest.qrCode) {
                 try {
                     const url = new URL(guest.qrCode);
@@ -237,21 +225,15 @@ const updateGuest = async (req, res) => {
             }
             guest.qrCode = qrCodeUrl;
             await guest.save();
-            if (guest.email) {
-                const emailContent = `
-          <h2>Your Event QR Code Has Been Updated</h2>
-          <p>Dear ${guest.fullname},</p>
-          <p>Your QR code for the event has been updated.</p>
-          <p><img src="${qrCodeUrl}" alt="QR Code" width="300"/></p>
-        `;
-                await (0, emailService_1.sendEmail)(guest.email, `Your Updated QR Code`, emailContent);
-            }
-            // After successful create/update/delete operations:
-            await lambdaClient.send(new client_lambda_1.InvokeCommand({
-                FunctionName: process.env.BACKUP_LAMBDA,
-                InvocationType: 'Event', // async
-                Payload: Buffer.from(JSON.stringify({})) // can pass data if needed
-            }));
+            // if (guest.email) {
+            //   const emailContent = `
+            //     <h2>Your Event QR Code Has Been Updated</h2>
+            //     <p>Dear ${guest.fullname},</p>
+            //     <p>Your QR code for the event has been updated.</p>
+            //     <p><img src="${qrCodeUrl}" alt="QR Code" width="300"/></p>
+            //   `;
+            //   await sendEmail(guest.email, `Your Updated QR Code`, emailContent);
+            // }
             res.status(200).json({
                 message: "Guest updated successfully and QR code regenerated",
                 guest,
@@ -263,7 +245,11 @@ const updateGuest = async (req, res) => {
         }
     }
     catch (error) {
-        res.status(500).json({ message: "Error updating guest", error });
+        console.error("❌ Error in updateGuest:", error);
+        res.status(500).json({
+            message: "Error updating guest",
+            error: error instanceof Error ? error.message : error,
+        });
     }
 };
 exports.updateGuest = updateGuest;
@@ -419,27 +405,40 @@ const downloadBatchQRCodes = async (req, res) => {
             res.status(404).json({ message: "No guests found for given date range" });
             return;
         }
-        const qrPaths = guests
+        // Build array of qrItems (same as downloadAllQRCodes)
+        const qrItems = guests
             .map((guest) => {
             try {
                 if (!guest.qrCode || typeof guest.qrCode !== "string")
                     return null;
                 const url = new URL(guest.qrCode);
-                const path = url.pathname.startsWith("/") ? url.pathname.slice(1) : url.pathname;
-                // 👇 Decode URI component so %20 stays as %20
-                return decodeURI(path.endsWith(".svg") ? path : "");
+                const path = url.pathname.startsWith("/")
+                    ? url.pathname.slice(1)
+                    : url.pathname;
+                if (!path.endsWith(".svg"))
+                    return null;
+                return {
+                    key: path,
+                    guestId: guest._id.toString(),
+                    guestName: guest.fullname || "Guest",
+                    tableNo: guest.TableNo || "NoTable",
+                    others: guest.others || "-",
+                    qrCodeBgColor: guest.qrCodeBgColor || "255,255,255",
+                    qrCodeCenterColor: guest.qrCodeCenterColor || "0,0,0",
+                    qrCodeEdgeColor: guest.qrCodeEdgeColor || "0,0,0",
+                };
             }
             catch {
                 return null;
             }
         })
             .filter(Boolean);
-        if (!qrPaths.length) {
+        if (!qrItems.length) {
             res.status(400).json({ message: "No valid QR code paths found in the given range" });
             return;
         }
         const lambdaResponse = await (0, lambdaUtils_1.invokeLambda)(process.env.ZIP_LAMBDA_FUNCTION_NAME, {
-            qrPaths,
+            qrItems,
             eventId,
             startDate: startDate.toISOString(),
             endDate: endDate.toISOString(),

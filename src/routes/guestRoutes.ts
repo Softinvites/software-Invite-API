@@ -28,7 +28,7 @@ const uploadCSVExcel = multer({ storage: multer.memoryStorage() });
 
 // Guest routes
 router.post("/add-guest", auth, addGuest);
-router.put("/update-guest/:id", auth, updateGuest);
+router.put("/update-guest", auth, updateGuest);
 router.post(
   "/import-guest-csv",
   uploadCSVExcel.single("file"),

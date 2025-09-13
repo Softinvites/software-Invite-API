@@ -176,7 +176,7 @@
           "S3Bucket": {
             "Ref": "ServerlessDeploymentBucket"
           },
-          "S3Key": "serverless/softinvites-backend/dev/1756796685612-2025-09-02T07:04:45.612Z/app.zip"
+          "S3Key": "serverless/softinvites-backend/dev/1757000865840-2025-09-04T15:47:45.840Z/app.zip"
         },
         "Handler": "dist/index.handler",
         "Runtime": "nodejs20.x",
@@ -224,7 +224,7 @@
           "S3Bucket": {
             "Ref": "ServerlessDeploymentBucket"
           },
-          "S3Key": "serverless/softinvites-backend/dev/1756796685612-2025-09-02T07:04:45.612Z/backup.zip"
+          "S3Key": "serverless/softinvites-backend/dev/1757000865840-2025-09-04T15:47:45.840Z/backup.zip"
         },
         "Handler": "dist/backup.handler",
         "Runtime": "nodejs20.x",
@@ -274,14 +274,14 @@
         "Description": "Event-driven MongoDB backup to S3"
       }
     },
-    "AppLambdaVersionJmKXkn0XrV3Cc0xV4g7TZgJat35vx72LjZlnZvEL7w": {
+    "AppLambdaVersion30RzydBpFZgHpbYXor80YPAW427qNZx83dOemyxgJU": {
       "Type": "AWS::Lambda::Version",
       "DeletionPolicy": "Retain",
       "Properties": {
         "FunctionName": {
           "Ref": "AppLambdaFunction"
         },
-        "CodeSha256": "PmOCJDvZywSbQwuu6647xbxA5T382pdPvHu4p901IhA="
+        "CodeSha256": "eZqHKYlKO461Uw//vQeszQsXYbUnBusLJ9gACNBeOiQ="
       }
     },
     "HttpApi": {
@@ -290,6 +290,7 @@
         "Name": "dev-softinvites-backend",
         "ProtocolType": "HTTP",
         "CorsConfiguration": {
+          "AllowCredentials": true,
           "AllowHeaders": [
             "Content-Type",
             "Authorization",
@@ -423,7 +424,7 @@
     "AppLambdaFunctionQualifiedArn": {
       "Description": "Current Lambda function version",
       "Value": {
-        "Ref": "AppLambdaVersionJmKXkn0XrV3Cc0xV4g7TZgJat35vx72LjZlnZvEL7w"
+        "Ref": "AppLambdaVersion30RzydBpFZgHpbYXor80YPAW427qNZx83dOemyxgJU"
       },
       "Export": {
         "Name": "sls-softinvites-backend-dev-AppLambdaFunctionQualifiedArn"

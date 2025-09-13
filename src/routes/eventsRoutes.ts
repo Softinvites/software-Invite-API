@@ -12,7 +12,7 @@ import multer from "multer";
 
 const router = express.Router();
 
-const storage = multer.memoryStorage(); // or use diskStorage if needed
+const storage = multer.memoryStorage(); 
 const upload = multer({ 
   storage,
   fileFilter: (req, file, cb) => {
@@ -22,7 +22,9 @@ const upload = multer({
 });
 
 router.post("/create", auth, upload.single("iv"), createEvent);
-router.put("/update/:id", auth, upload.single("iv"), updateEvent);
+// router.put("/update/:id", auth, upload.single("iv"), updateEvent);
+router.put("/update", auth, upload.single("iv"), updateEvent);
+router.post("/update/:id", auth, upload.single("iv"), updateEvent);
 router.get("/events", auth, getAllEvents);
 router.get("/events/:id", auth, getEventById);
 router.delete("/events", auth, deleteAllEvents);

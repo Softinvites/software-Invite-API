@@ -12,7 +12,7 @@ const router = express_1.default.Router();
 const uploadCSVExcel = (0, multer_1.default)({ storage: multer_1.default.memoryStorage() });
 // Guest routes
 router.post("/add-guest", auth_1.default, guestController_1.addGuest);
-router.put("/update-guest/:id", auth_1.default, guestController_1.updateGuest);
+router.put("/update-guest", auth_1.default, guestController_1.updateGuest);
 router.post("/import-guest-csv", uploadCSVExcel.single("file"), auth_1.default, guestController_1.importGuests);
 router.get("/download-qrcode/:id", auth_1.default, guestController_1.downloadQRCode);
 router.get("/download-all-qrcode/:eventId", auth_1.default, guestController_1.downloadAllQRCodes);

@@ -86,13 +86,13 @@ export const createGuestSchema = Joi.object({
 });
 
 export const updateGuestSchema = Joi.object({
+  id: Joi.string().required(),
   fullname: Joi.string().optional(),
   TableNo: Joi.string().optional(),
   email: Joi.string().email().optional(),
   phone: Joi.string().optional(),
   message: Joi.string().optional(),
   others: Joi.string().optional(),
-  eventId: Joi.string().required(),
   qrCodeBgColor: Joi.string().optional(),
   qrCodeCenterColor: Joi.string().optional(),
   qrCodeEdgeColor: Joi.string().optional(),
