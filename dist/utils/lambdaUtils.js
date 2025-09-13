@@ -28,6 +28,7 @@ const awsConfig_1 = require("./awsConfig");
 const invokeLambda = async (functionName, payload, asyncInvoke = false) => {
     console.log("🚀 Invoking Lambda:", { functionName, payload, asyncInvoke });
     const command = new client_lambda_1.InvokeCommand({
+        // FunctionName: "softinvites-backend-dev-app",
         FunctionName: functionName,
         InvocationType: asyncInvoke ? "Event" : "RequestResponse",
         Payload: Buffer.from(JSON.stringify(payload)),

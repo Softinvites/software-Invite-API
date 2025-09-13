@@ -38,7 +38,8 @@ export const invokeLambda = async (
   console.log("🚀 Invoking Lambda:", { functionName, payload, asyncInvoke });
 
   const command = new InvokeCommand({
-    FunctionName: functionName,
+    // FunctionName: "softinvites-backend-dev-app",
+    FunctionName: functionName, 
     InvocationType: asyncInvoke ? "Event" as InvocationType : "RequestResponse" as InvocationType,
     Payload: Buffer.from(JSON.stringify(payload)),
   });
