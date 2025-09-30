@@ -16,7 +16,7 @@ router.put("/update-guest", auth_1.default, guestController_1.updateGuest);
 router.post("/import-guest-csv", uploadCSVExcel.single("file"), auth_1.default, guestController_1.importGuests);
 router.get("/download-qrcode/:id", auth_1.default, guestController_1.downloadQRCode);
 router.get("/download-all-qrcode/:eventId", auth_1.default, guestController_1.downloadAllQRCodes);
-router.get("/batch-qrcode-download/:eventId/timestamp", auth_1.default, guestController_1.downloadBatchQRCodes);
+router.post("/batch-qrcode-download/:eventId/timestamp", auth_1.default, guestController_1.downloadBatchQRCodes);
 // routhers others can access temporarily
 router.post("/scan-qrcode", combinedAuth_1.combinedAuth, guestController_1.scanQRCode);
 router.get("/events-guest/:eventId", combinedAuth_1.combinedAuth, guestController_1.getGuestsByEvent);

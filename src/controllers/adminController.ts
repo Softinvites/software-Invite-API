@@ -184,7 +184,7 @@ export const updateAdminPassword = async (
   res: Response
 ): Promise<void> => {
   try {
-    const { id } = req.params;
+    const { id } = req.params; 
     const { old_password, new_password, confirm_password } = req.body;
 
     if (!mongoose.Types.ObjectId.isValid(id)) {

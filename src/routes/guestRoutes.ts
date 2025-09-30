@@ -38,7 +38,7 @@ router.post(
 
 router.get("/download-qrcode/:id", auth, downloadQRCode);
 router.get("/download-all-qrcode/:eventId", auth, downloadAllQRCodes);
-router.get("/batch-qrcode-download/:eventId/timestamp", auth, downloadBatchQRCodes);
+router.post("/batch-qrcode-download/:eventId/timestamp", auth, downloadBatchQRCodes);
 
 // routhers others can access temporarily
 router.post("/scan-qrcode", combinedAuth, scanQRCode);

@@ -391,10 +391,101 @@ const downloadAllQRCodes = async (req, res) => {
     }
 };
 exports.downloadAllQRCodes = downloadAllQRCodes;
+// export const downloadBatchQRCodes = async (
+//   req: Request,
+//   res: Response
+// ): Promise<void> => {
+//   try {
+//     const { eventId } = req.params;
+//     const { start, end } = req.query;
+//     const startDate = start ? new Date(start as string) : new Date(0);
+//     const endDate = end ? new Date(end as string) : new Date();
+//     const guests = await Guest.find({
+//       eventId,
+//       createdAt: { $gte: startDate, $lte: endDate },
+//     });
+//     if (!guests.length) {
+//       res.status(404).json({ message: "No guests found for given date range" });
+//       return;
+//     }
+//     // Build array of qrItems (same as downloadAllQRCodes)
+//     const qrItems = guests
+//       .map((guest) => {
+//         try {
+//           if (!guest.qrCode || typeof guest.qrCode !== "string") return null;
+//           const url = new URL(guest.qrCode);
+//           const path = url.pathname.startsWith("/")
+//             ? url.pathname.slice(1)
+//             : url.pathname;
+//           if (!path.endsWith(".svg")) return null;
+//           return {
+//             key: path,
+//             guestId: guest._id.toString(),
+//             guestName: guest.fullname || "Guest",
+//             tableNo: guest.TableNo || "NoTable",
+//             others: guest.others || "-",
+//             qrCodeBgColor: guest.qrCodeBgColor || "255,255,255",
+//             qrCodeCenterColor: guest.qrCodeCenterColor || "0,0,0",
+//             qrCodeEdgeColor: guest.qrCodeEdgeColor || "0,0,0",
+//           };
+//         } catch {
+//           return null;
+//         }
+//       })
+//       .filter(Boolean) as {
+//         key: string;
+//         guestId: string;
+//         guestName: string;
+//         tableNo: string;
+//         others: string;
+//         qrCodeBgColor: string;
+//         qrCodeCenterColor: string;
+//         qrCodeEdgeColor: string;
+//       }[];
+//     if (!qrItems.length) {
+//       res.status(400).json({ message: "No valid QR code paths found in the given range" });
+//       return;
+//     }
+//     const lambdaResponse = await invokeLambda(process.env.ZIP_LAMBDA_FUNCTION_NAME!, {
+//       qrItems,
+//       eventId,
+//       startDate: startDate.toISOString(),
+//       endDate: endDate.toISOString(),
+//     });
+//     const statusCode = lambdaResponse?.statusCode || 500;
+//     let parsedBody: any = {};
+//     try {
+//       parsedBody = lambdaResponse?.body ? JSON.parse(lambdaResponse.body) : {};
+//     } catch {
+//       parsedBody = { error: "Failed to parse Lambda response" };
+//     }
+//     if (statusCode !== 200 || !parsedBody.zipUrl) {
+//       res.status(statusCode).json({
+//         message: "Lambda failed to create ZIP archive",
+//         error: parsedBody?.error || "Unknown Lambda error",
+//         missingFiles: parsedBody?.missingFiles || [],
+//       });
+//       return;
+//     }
+//     res.status(200).json({
+//       zipDownloadLink: parsedBody.zipUrl,
+//       generatedAt: parsedBody.generatedAt,
+//       eventId: parsedBody.eventId,
+//       numberOfFiles: parsedBody.numberOfFiles,
+//       missingFiles: parsedBody.missingFiles || [],
+//     });
+//   } catch (error) {
+//     console.error("Error in downloadBatchQRCodes:", error);
+//     res.status(500).json({
+//       message: "Internal server error while creating batch QR ZIP",
+//       error: error instanceof Error ? error.message : error,
+//     });
+//   }
+// };
 const downloadBatchQRCodes = async (req, res) => {
     try {
         const { eventId } = req.params;
-        const { start, end } = req.query;
+        const { start, end } = req.body;
         const startDate = start ? new Date(start) : new Date(0);
         const endDate = end ? new Date(end) : new Date();
         const guests = await guestmodel_1.Guest.find({
@@ -405,7 +496,6 @@ const downloadBatchQRCodes = async (req, res) => {
             res.status(404).json({ message: "No guests found for given date range" });
             return;
         }
-        // Build array of qrItems (same as downloadAllQRCodes)
         const qrItems = guests
             .map((guest) => {
             try {
@@ -434,7 +524,9 @@ const downloadBatchQRCodes = async (req, res) => {
         })
             .filter(Boolean);
         if (!qrItems.length) {
-            res.status(400).json({ message: "No valid QR code paths found in the given range" });
+            res
+                .status(400)
+                .json({ message: "No valid QR code paths found in the given range" });
             return;
         }
         const lambdaResponse = await (0, lambdaUtils_1.invokeLambda)(process.env.ZIP_LAMBDA_FUNCTION_NAME, {
@@ -446,7 +538,9 @@ const downloadBatchQRCodes = async (req, res) => {
         const statusCode = lambdaResponse?.statusCode || 500;
         let parsedBody = {};
         try {
-            parsedBody = lambdaResponse?.body ? JSON.parse(lambdaResponse.body) : {};
+            parsedBody = lambdaResponse?.body
+                ? JSON.parse(lambdaResponse.body)
+                : {};
         }
         catch {
             parsedBody = { error: "Failed to parse Lambda response" };
