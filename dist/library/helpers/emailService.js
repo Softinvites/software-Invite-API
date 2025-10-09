@@ -7,10 +7,10 @@ const s3Utils_1 = require("../../utils/s3Utils");
 const sendEmail = async (to, subject, htmlContent, attachments) => {
     try {
         // If in development, use local email sending
-        if (process.env.NODE_ENV === 'development') {
-            console.log('Would send email:', { to, subject });
-            return;
-        }
+        // if (process.env.NODE_ENV === 'development') {
+        //   console.log('Would send email:', { to, subject });
+        //   return;
+        // }
         // Upload attachments to S3 if any
         const attachmentPromises = (attachments || []).map(async (attachment) => {
             const s3Key = `email-attachments/${Date.now()}_${attachment.filename}`;
@@ -22,24 +22,28 @@ const sendEmail = async (to, subject, htmlContent, attachments) => {
             };
         });
         const emailAttachments = await Promise.all(attachmentPromises);
-        // Invoke Lambda for production
-        console.log("🚀 About to invoke Lambda:", {
+        // Add more logging
+        console.log("Starting Lambda invocation with params:", {
             functionName: process.env.EMAIL_LAMBDA_FUNCTION_NAME,
-            region: process.env.AWS_REGION,
-            to,
-            from: process.env.EMAIL_FROM,
+            payload: {
+                from: process.env.EMAIL_FROM,
+                to,
+                subject,
+                htmlContent: htmlContent.substring(0, 100) + "..." // Log first 100 chars
+            }
         });
-        await (0, lambdaUtils_1.invokeLambda)(process.env.EMAIL_LAMBDA_FUNCTION_NAME, {
+        const result = await (0, lambdaUtils_1.invokeLambda)(process.env.EMAIL_LAMBDA_FUNCTION_NAME, {
             from: process.env.EMAIL_FROM,
             to,
             subject,
             htmlContent,
             attachments: emailAttachments
         });
-        console.log("✅ Email Lambda invoked for", to);
+        console.log("Lambda invocation result:", result);
+        return result;
     }
     catch (error) {
-        console.error('Error in sendEmail:', error);
+        console.error('Detailed error in sendEmail:', error);
         throw error;
     }
 };

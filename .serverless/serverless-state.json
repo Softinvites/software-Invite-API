@@ -6,7 +6,7 @@
     },
     "provider": {
       "name": "aws",
-      "runtime": "nodejs20.x",
+      "runtime": "nodejs18.x",
       "region": "us-east-2",
       "apiGateway": {
         "binaryMediaTypes": [
@@ -51,6 +51,7 @@
         "QR_LAMBDA_FUNCTION_NAME": "generateQrToS3",
         "IMPORT_LAMBDA_FUNCTION_NAME": "importGuestsLambda",
         "ZIP_LAMBDA_FUNCTION_NAME": "downloadZipLambdaFunction",
+        "EMAIL_LAMBDA_FUNCTION_NAME": "sendEmailLambdaFunction",
         "FRONTEND_URL": "https://www.softinvite.com",
         "BACKUP_BUCKET": "softinvites-backups",
         "BACKUP_LAMBDA": "softinvites-backend-dev-backup",
@@ -245,10 +246,10 @@
                 "S3Bucket": {
                   "Ref": "ServerlessDeploymentBucket"
                 },
-                "S3Key": "serverless/softinvites-backend/dev/1757000865840-2025-09-04T15:47:45.840Z/app.zip"
+                "S3Key": "serverless/softinvites-backend/dev/1760050036017-2025-10-09T22:47:16.017Z/app.zip"
               },
               "Handler": "dist/index.handler",
-              "Runtime": "nodejs20.x",
+              "Runtime": "nodejs18.x",
               "FunctionName": "softinvites-backend-dev-app",
               "MemorySize": 1024,
               "Timeout": 30,
@@ -265,6 +266,7 @@
                   "QR_LAMBDA_FUNCTION_NAME": "generateQrToS3",
                   "IMPORT_LAMBDA_FUNCTION_NAME": "importGuestsLambda",
                   "ZIP_LAMBDA_FUNCTION_NAME": "downloadZipLambdaFunction",
+                  "EMAIL_LAMBDA_FUNCTION_NAME": "sendEmailLambdaFunction",
                   "FRONTEND_URL": "https://www.softinvite.com",
                   "BACKUP_BUCKET": "softinvites-backups",
                   "BACKUP_LAMBDA": "softinvites-backend-dev-backup",
@@ -293,10 +295,10 @@
                 "S3Bucket": {
                   "Ref": "ServerlessDeploymentBucket"
                 },
-                "S3Key": "serverless/softinvites-backend/dev/1757000865840-2025-09-04T15:47:45.840Z/backup.zip"
+                "S3Key": "serverless/softinvites-backend/dev/1760050036017-2025-10-09T22:47:16.017Z/backup.zip"
               },
               "Handler": "dist/backup.handler",
-              "Runtime": "nodejs20.x",
+              "Runtime": "nodejs18.x",
               "FunctionName": "softinvites-backend-dev-backup",
               "MemorySize": 512,
               "Timeout": 120,
@@ -314,6 +316,7 @@
                   "QR_LAMBDA_FUNCTION_NAME": "generateQrToS3",
                   "IMPORT_LAMBDA_FUNCTION_NAME": "importGuestsLambda",
                   "ZIP_LAMBDA_FUNCTION_NAME": "downloadZipLambdaFunction",
+                  "EMAIL_LAMBDA_FUNCTION_NAME": "sendEmailLambdaFunction",
                   "FRONTEND_URL": "https://www.softinvite.com",
                   "BACKUP_BUCKET": "softinvites-backups",
                   "BACKUP_LAMBDA": "softinvites-backend-dev-backup",
@@ -332,25 +335,25 @@
               "BackupLogGroup"
             ]
           },
-          "BackupLambdaVersion4q9m16KGQauFyNWjhjlXutthHeMnaTirb3oJCZjU": {
+          "BackupLambdaVersionzwksnFrbKdtrca6dz7cuUMSJ0GrJezutBjpQPeTcyuQ": {
             "Type": "AWS::Lambda::Version",
             "DeletionPolicy": "Retain",
             "Properties": {
               "FunctionName": {
                 "Ref": "BackupLambdaFunction"
               },
-              "CodeSha256": "KKLedlUfVhm8rIGvvudKSerLWqZjDvLeQ+wej4IWRS4=",
+              "CodeSha256": "h1BqRjBOrvXpL4hbGCsNNVOGDWQPg0oj5o0mJmDcy3o=",
               "Description": "Event-driven MongoDB backup to S3"
             }
           },
-          "AppLambdaVersion30RzydBpFZgHpbYXor80YPAW427qNZx83dOemyxgJU": {
+          "AppLambdaVersionXVU9YVX15X8B6upzczB83LZGGHjycOc8TlMkXb8A": {
             "Type": "AWS::Lambda::Version",
             "DeletionPolicy": "Retain",
             "Properties": {
               "FunctionName": {
                 "Ref": "AppLambdaFunction"
               },
-              "CodeSha256": "eZqHKYlKO461Uw//vQeszQsXYbUnBusLJ9gACNBeOiQ="
+              "CodeSha256": "lT4kzVYf109zenQvmsSm9P0XeXIZNx+FT/olDFblbXU="
             }
           },
           "HttpApi": {
@@ -481,7 +484,7 @@
           "BackupLambdaFunctionQualifiedArn": {
             "Description": "Current Lambda function version",
             "Value": {
-              "Ref": "BackupLambdaVersion4q9m16KGQauFyNWjhjlXutthHeMnaTirb3oJCZjU"
+              "Ref": "BackupLambdaVersionzwksnFrbKdtrca6dz7cuUMSJ0GrJezutBjpQPeTcyuQ"
             },
             "Export": {
               "Name": "sls-softinvites-backend-dev-BackupLambdaFunctionQualifiedArn"
@@ -490,7 +493,7 @@
           "AppLambdaFunctionQualifiedArn": {
             "Description": "Current Lambda function version",
             "Value": {
-              "Ref": "AppLambdaVersion30RzydBpFZgHpbYXor80YPAW427qNZx83dOemyxgJU"
+              "Ref": "AppLambdaVersionXVU9YVX15X8B6upzczB83LZGGHjycOc8TlMkXb8A"
             },
             "Export": {
               "Name": "sls-softinvites-backend-dev-AppLambdaFunctionQualifiedArn"
@@ -667,12 +670,12 @@
         "timeout": 30,
         "name": "softinvites-backend-dev-app",
         "package": {
-          "artifact": ".serverless\\app.zip"
+          "artifact": ".serverless/app.zip"
         },
         "memory": 1024,
-        "runtime": "nodejs20.x",
+        "runtime": "nodejs18.x",
         "vpc": {},
-        "versionLogicalId": "AppLambdaVersion30RzydBpFZgHpbYXor80YPAW427qNZx83dOemyxgJU"
+        "versionLogicalId": "AppLambdaVersionXVU9YVX15X8B6upzczB83LZGGHjycOc8TlMkXb8A"
       },
       "backup": {
         "handler": "dist/backup.handler",
@@ -686,12 +689,12 @@
         "events": [],
         "name": "softinvites-backend-dev-backup",
         "package": {
-          "artifact": ".serverless\\backup.zip"
+          "artifact": ".serverless/backup.zip"
         },
         "memory": 512,
-        "runtime": "nodejs20.x",
+        "runtime": "nodejs18.x",
         "vpc": {},
-        "versionLogicalId": "BackupLambdaVersion4q9m16KGQauFyNWjhjlXutthHeMnaTirb3oJCZjU"
+        "versionLogicalId": "BackupLambdaVersionzwksnFrbKdtrca6dz7cuUMSJ0GrJezutBjpQPeTcyuQ"
       }
     },
     "configValidationMode": "error",
@@ -729,7 +732,7 @@
   },
   "package": {
     "individually": true,
-    "artifactDirectoryName": "serverless/softinvites-backend/dev/1757000865840-2025-09-04T15:47:45.840Z",
+    "artifactDirectoryName": "serverless/softinvites-backend/dev/1760050036017-2025-10-09T22:47:16.017Z",
     "artifact": ""
   }
 }

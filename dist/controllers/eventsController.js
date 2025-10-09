@@ -98,8 +98,73 @@ const lambdaClient = new client_lambda_1.LambdaClient({ region: process.env.AWS_
 //     res.status(500).json({ message: "Server error", error });
 //   }
 // };
+// export const createEvent = async (req: Request, res: Response): Promise<void> => {
+//   try {
+//     const { name, date, location, description } = req.body;
+//     // ✅ Validate event fields
+//     const validateEvent = createEventSchema.validate(
+//       { name, date, location, description },
+//       option
+//     );
+//     if (validateEvent.error) {
+//       res.status(400).json({ error: validateEvent.error.details[0].message });
+//       return;
+//     }
+//     let ivImageUrl: string | null = null;
+//     // ✅ Upload IV image if provided
+//     if (req.file) {
+//       const safeName = name.replace(/[^a-zA-Z0-9-_]/g, "_");
+//       ivImageUrl = await uploadToS3(
+//         req.file.buffer,
+//         `events/${safeName}_iv_${Date.now()}.png`,
+//         req.file.mimetype
+//       );
+//     }
+//     // ✅ Create event in DB
+//     const newEvent = await Event.create({
+//       name,
+//       date,
+//       location,
+//       description,
+//       iv: ivImageUrl,
+//     });
+//     // ✅ Respond immediately so frontend doesn’t break
+//     res.status(201).json({
+//       message: "Event created successfully",
+//       event: newEvent,
+//     });
+//     // ✅ Fire-and-forget email (doesn’t block response)
+//     const adminEmail = "softinvites@gmail.com";
+//     const emailContent = `
+//       <h2>🎉 New Event Created</h2>
+//       <p>Dear Admin,</p>
+//       <p>A new event has been created on your platform:</p>
+//       <ul>
+//         <li><strong>Name:</strong> ${name}</li>
+//         <li><strong>Date:</strong> ${date}</li>
+//         <li><strong>Location:</strong> ${location}</li>
+//       </ul>
+//       <p>Log in to view more details.</p>
+//     `;
+//     sendEmail(adminEmail, `New Event Created: ${name}`, emailContent)
+//       .catch((err) => console.error("Email failed:", err));
+//   } catch (error: any) {
+//     console.error("Error creating event:", error);
+//     res.status(500).json({
+//       message: "Error creating event",
+//       error: error.message || "Unknown error",
+//     });
+//   }
+// };
 const createEvent = async (req, res) => {
     try {
+        // Log environment configuration
+        console.log('Environment check:', {
+            NODE_ENV: process.env.NODE_ENV,
+            EMAIL_LAMBDA_FUNCTION_NAME: process.env.EMAIL_LAMBDA_FUNCTION_NAME,
+            EMAIL_FROM: process.env.EMAIL_FROM,
+            AWS_REGION: process.env.AWS_REGION
+        });
         const { name, date, location, description } = req.body;
         // ✅ Validate event fields
         const validateEvent = utils_1.createEventSchema.validate({ name, date, location, description }, utils_1.option);
@@ -110,8 +175,15 @@ const createEvent = async (req, res) => {
         let ivImageUrl = null;
         // ✅ Upload IV image if provided
         if (req.file) {
-            const safeName = name.replace(/[^a-zA-Z0-9-_]/g, "_");
-            ivImageUrl = await (0, s3Utils_1.uploadToS3)(req.file.buffer, `events/${safeName}_iv_${Date.now()}.png`, req.file.mimetype);
+            try {
+                const safeName = name.replace(/[^a-zA-Z0-9-_]/g, "_");
+                ivImageUrl = await (0, s3Utils_1.uploadToS3)(req.file.buffer, `events/${safeName}_iv_${Date.now()}.png`, req.file.mimetype);
+                console.log('✅ Image uploaded successfully:', ivImageUrl);
+            }
+            catch (uploadError) {
+                console.error('❌ Image upload failed:', uploadError);
+                // Continue without image if upload fails
+            }
         }
         // ✅ Create event in DB
         const newEvent = await eventmodel_1.Event.create({
@@ -121,13 +193,14 @@ const createEvent = async (req, res) => {
             description,
             iv: ivImageUrl,
         });
-        // ✅ Respond immediately so frontend doesn’t break
+        console.log('✅ Event created successfully:', newEvent.id);
+        // ✅ Respond immediately so frontend doesn't break
         res.status(201).json({
             message: "Event created successfully",
             event: newEvent,
         });
-        // ✅ Fire-and-forget email (doesn’t block response)
-        const adminEmail = "softinvites@gmail.com";
+        // ✅ Send admin notification email with better error handling
+        const adminEmail = process.env.ADMIN_EMAIL || "softinvites@gmail.com";
         const emailContent = `
       <h2>🎉 New Event Created</h2>
       <p>Dear Admin,</p>
@@ -139,11 +212,32 @@ const createEvent = async (req, res) => {
       </ul>
       <p>Log in to view more details.</p>
     `;
-        (0, emailService_1.sendEmail)(adminEmail, `New Event Created: ${name}`, emailContent)
-            .catch((err) => console.error("Email failed:", err));
+        try {
+            console.log('📧 Attempting to send admin notification email...');
+            await (0, emailService_1.sendEmail)(adminEmail, `New Event Created: ${name}`, emailContent);
+            console.log('✅ Admin notification email sent successfully');
+        }
+        catch (emailError) {
+            console.error('❌ Failed to send admin notification:', emailError);
+            // Implement retry logic
+            try {
+                console.log('🔄 Retrying email send...');
+                await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second
+                await (0, emailService_1.sendEmail)(adminEmail, `New Event Created: ${name}`, emailContent);
+                console.log('✅ Admin notification email sent successfully on retry');
+            }
+            catch (retryError) {
+                console.error('❌ Email retry failed:', retryError);
+                // Consider implementing a queue system or notification for failed emails
+            }
+        }
     }
     catch (error) {
-        console.error("Error creating event:", error);
+        console.error("❌ Error creating event:", {
+            error: error.message,
+            stack: error.stack,
+            name: error.name
+        });
         res.status(500).json({
             message: "Error creating event",
             error: error.message || "Unknown error",

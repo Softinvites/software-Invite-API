@@ -5,8 +5,8 @@ configValidationMode: error
 
 provider:
   name: aws
-  runtime: nodejs20.x
-  # runtime: nodejs18.x
+  # runtime: nodejs20.x
+  runtime: nodejs18.x
   region: ${env:AWS_REGION, 'us-east-2'}
   apiGateway:
     binaryMediaTypes:
@@ -47,6 +47,7 @@ provider:
     QR_LAMBDA_FUNCTION_NAME: ${env:QR_LAMBDA_FUNCTION_NAME, 'generateQrToS3'}
     IMPORT_LAMBDA_FUNCTION_NAME: ${env:IMPORT_LAMBDA_FUNCTION_NAME, 'importGuestsLambda'}
     ZIP_LAMBDA_FUNCTION_NAME: ${env:ZIP_LAMBDA_FUNCTION_NAME, 'downloadZipLambdaFunction'}
+    EMAIL_LAMBDA_FUNCTION_NAME: ${env:EMAIL_LAMBDA_FUNCTION_NAME, 'sendEmailLambdaFunction'}
     FRONTEND_URL: ${env:FRONTEND_URL, 'https://www.softinvite.com'}
     BACKUP_BUCKET: ${env:BACKUP_BUCKET, 'softinvites-backups'}
     BACKUP_LAMBDA: ${env:BACKUP_LAMBDA, 'softinvites-backend-dev-backup'}
