@@ -13,12 +13,6 @@ export const sendEmail = async (
   }>
 ) => {
   try {
-    // If in development, use local email sending
-    // if (process.env.NODE_ENV === 'development') {
-    //   console.log('Would send email:', { to, subject });
-    //   return;
-    // }
-
     // Upload attachments to S3 if any
     const attachmentPromises = (attachments || []).map(async (attachment) => {
       const s3Key = `email-attachments/${Date.now()}_${attachment.filename}`;
@@ -31,6 +25,7 @@ export const sendEmail = async (
     });
 
     const emailAttachments = await Promise.all(attachmentPromises);
+        // Use custom from address or fallback to environment variable
 
     // Add more logging
     console.log("Starting Lambda invocation with params:", {

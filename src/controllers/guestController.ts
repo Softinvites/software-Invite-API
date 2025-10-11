@@ -15,7 +15,6 @@ import sanitizeHtml from "sanitize-html";
 import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
 const lambdaClient = new LambdaClient({ region: process.env.AWS_REGION });
 
-
 export const addGuest = async (req: Request, res: Response): Promise<void> => {
   try {
     const {
@@ -31,14 +30,14 @@ export const addGuest = async (req: Request, res: Response): Promise<void> => {
       qrCodeEdgeColor,
     } = req.body;
 
-    // Validate input
+    // --- Validate Input ---
     const validateGuest = createGuestSchema.validate(req.body, option);
     if (validateGuest.error) {
       res.status(400).json({ error: validateGuest.error.details[0].message });
       return;
     }
 
-    // Check event existence
+    // --- Check Event Existence ---
     const event = await Event.findById(eventId);
     if (!event) {
       res.status(404).json({ message: "Event not found" });
@@ -47,8 +46,8 @@ export const addGuest = async (req: Request, res: Response): Promise<void> => {
 
     const eventName = event.name;
     const iv = event.iv;
-
-    // Create guest without QR fields first
+    
+    // --- Create Guest (no QR yet) ---
     const newGuest = new Guest({
       fullname,
       message,
@@ -64,7 +63,7 @@ export const addGuest = async (req: Request, res: Response): Promise<void> => {
 
     const savedGuest = await newGuest.save();
 
-    // Call Lambda to generate QR code SVG URL
+    // --- Call Lambda to generate QR ---
     const lambdaPayload = {
       guestId: savedGuest._id.toString(),
       fullname,
@@ -73,89 +72,169 @@ export const addGuest = async (req: Request, res: Response): Promise<void> => {
       qrCodeEdgeColor,
       eventId,
       TableNo,
-      others
+      others,
     };
 
-    const lambdaRawResponse = await invokeLambda(
-  process.env.QR_LAMBDA_FUNCTION_NAME!,
-  lambdaPayload
-);
-console.log("Raw Lambda Response:", lambdaRawResponse);
+    console.log("📤 Sending to Lambda:", lambdaPayload);
 
-// At this point, lambdaRawResponse is already a JS object
-const qrCodeUrl = lambdaRawResponse.qrCodeUrl;
+    let lambdaResponse;
+    try {
+      lambdaResponse = await invokeLambda(process.env.QR_LAMBDA_FUNCTION_NAME!, lambdaPayload);
+      console.log("✅ Lambda Response Received:", JSON.stringify(lambdaResponse, null, 2));
+    } catch (lambdaError) {
+      console.error("❌ Lambda invocation failed:", lambdaError);
+      lambdaResponse = {};
+    }
 
-if (!qrCodeUrl || typeof qrCodeUrl !== "string") {
-  throw new Error("QR Code URL is missing or invalid from Lambda response.");
-}
+    let qrSvg = lambdaResponse?.qrSvg;
+    let qrCodeUrl = lambdaResponse?.qrCodeUrl;
 
-// Ensure URL is absolute
-let finalQrUrl = qrCodeUrl;
-if (!/^https?:\/\//.test(finalQrUrl)) {
-  const s3Base =
-    process.env.CDN_URL ||
-    `https://${process.env.S3_BUCKET}.s3.${process.env.AWS_REGION}.amazonaws.com`;
-  finalQrUrl = `${s3Base}${finalQrUrl.startsWith("/") ? "" : "/"}${finalQrUrl}`;
-}
-
-
-    // Update guest with QR code URL and qrCodeData
-    savedGuest.qrCode = qrCodeUrl;
-    savedGuest.qrCodeData = savedGuest._id.toString();
-    await savedGuest.save();
-
-if (email) {
-  try {
-    const sanitizedMessage = sanitizeHtml(message, {
-      allowedTags: ["p", "b", "i", "strong", "em", "ul", "li", "br"],
-      allowedAttributes: {},
+    console.log("🔍 QR Code Analysis:", {
+      hasSvg: !!qrSvg,
+      svgType: typeof qrSvg,
+      svgLength: qrSvg?.length,
+      svgPreview: qrSvg?.substring(0, 100),
+      hasUrl: !!qrCodeUrl,
+      url: qrCodeUrl ? qrCodeUrl.substring(0, 100) + "..." : undefined
     });
 
-    const emailContent = `
-      <div style="font-family: 'Georgia', serif; color: #000; background-color: #fff; padding: 20px;">
-        <h2 style="text-align: center; font-weight: bold; font-size: 24px; margin-bottom: 10px;">${eventName}</h2>
-        <hr style="border: none; border-top: 1px solid #ccc; margin: 10px auto; width: 60%;" />
-        <div style="text-align: center; margin: 30px 0;">
-          <img src="${iv}" alt="Invitation" width="400" style="border: 10px solid #7d0e2b; border-radius: 5px;" />
-        </div>
-        <p>Dear <strong>${fullname}</strong>,</p>
-        <h3 style="font-weight: bold;">Traditional Wedding Ceremony</h3>
-        ${sanitizedMessage}
-        <p style="font-weight: bold; margin-top: 30px;">
-          Please note: This event is strictly by invitation and this invitation is uniquely intended for you. A personalised QR code will be shared closer to the event date.
-        </p>
-        <p>Kindly acknowledge receipt of this e-invitation. We look forward to welcoming you at the event.</p>
-        <p><strong>${eventName}</strong><br />
-        <em>Message powered by SoftInvites.</em></p>
-        <div style="text-align: center; margin: 40px 0;">
-          <p><strong>Your QR Code:</strong></p>
-          <img src="${qrCodeUrl}" alt="QR Code" width="200" style="margin-top: 10px;" />
-        </div>
-        <footer style="margin-top: 40px; padding-top: 20px; border-top: 1px solid #ccc; text-align: center; font-size: 14px; color: #666;">
-          <p><strong>SoftInvites</strong><br />
-          Lagos<br />
-          Nigeria</p>
-          <p style="font-size: 12px;">You received this email because you have been invited to this event.<br />
-          <a href="#" style="color: #7d0e2b; text-decoration: underline;">Opt Out</a></p>
-        </footer>
-      </div>
-    `;
- 
+    // --- Save QR info to DB ---
+    savedGuest.qrCodeData = savedGuest._id.toString();
+    savedGuest.qrCode = qrCodeUrl || "";
+    await savedGuest.save();
+    console.log("💾 QR data saved to database");
 
-    // Send the email
-    await sendEmail(email, `${eventName}`, emailContent);
-    console.log(`Invitation email sent to ${email}`);
-  } catch (emailError) {
-    console.error("Failed to send email:", emailError);
-  }
-}
+    // --- Email Sending ---
+    if (email) {
+      try {
+        const sanitizedMessage = sanitizeHtml(message, {
+          allowedTags: ["p", "b", "i", "strong", "em", "ul", "li", "br", "h1", "h2"],
+          allowedAttributes: {},
+        });
 
-// After successful create/update/delete operations:
-await lambdaClient.send(new InvokeCommand({
-  FunctionName: process.env.BACKUP_LAMBDA!,
-  InvocationType: 'Event', // async
-  Payload: Buffer.from(JSON.stringify({})) // can pass data if needed
-}));
+        console.log("📧 Email QR Status:", {
+          hasS3Url: !!qrCodeUrl,
+          s3Url: qrCodeUrl
+        });
+
+        let qrImgTag;
+        
+        // Use S3 URL directly in email
+        if (qrCodeUrl) {
+          qrImgTag = `
+            <div style="text-align: center; margin: 20px 0;">
+              <img src="${qrCodeUrl}" 
+                   alt="[SHOW IMAGES] Your Event QR Code - Required for Entry at ${eventName}" 
+                   width="200" height="200" 
+                   style="margin: 15px auto; border: 2px solid #7d0e2b; display: block; border-radius: 8px;" />
+              
+              <div style="background: #fff5f5; padding: 15px; margin: 15px 0; border-radius: 8px; border: 1px solid #ff6b6b;">
+                <p style="color: #d63031; font-weight: bold; margin: 0 0 10px 0; text-align: center;">
+                  ⚠️ Can't see the QR code above?
+                </p>
+                <p style="text-align: center; margin: 0;">
+                  <a href="${qrCodeUrl}" 
+                     style="color: #ffffff; background-color: #7d0e2b; padding: 12px 25px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block; margin: 5px;">
+                     🔍 CLICK TO VIEW YOUR QR CODE
+                  </a>
+                </p>
+                <p style="color: #666; font-size: 12px; text-align: center; margin: 10px 0 0 0;">
+                  Or look for "Display images" or "Load external content" in your email client
+                </p>
+              </div>
+            </div>
+          `;
+          console.log("✅ Using S3 URL in email HTML");
+        } else {
+          qrImgTag = `
+            <div style="border: 2px solid #ff6b6b; padding: 15px; margin: 10px 0; text-align: center; background: #fff5f5;">
+              <p style="color: #d63031; margin: 0; font-weight: bold;">QR CODE NOT AVAILABLE</p>
+              <p style="color: #d63031; margin: 5px 0 0 0; font-size: 12px;">Please contact the event organizer</p>
+            </div>
+          `;
+          console.error("❌ No QR code URL available for email");
+        }
+
+        const emailContent = `
+          <div style="font-family: 'Georgia', serif; color: #000; background-color: #fff; padding: 20px; max-width: 600px; margin: 0 auto;">
+            <!-- IMPORTANT WARNING BANNER -->
+            <div style="background: #fff5f5; border: 2px solid #ff6b6b; border-radius: 8px; padding: 15px; margin-bottom: 25px; text-align: center;">
+              <p style="color: #d63031; margin: 0; font-weight: bold; font-size: 14px;">
+                🔍 IMPORTANT: Enable images to view your QR code event pass
+              </p>
+              <p style="color: #666; margin: 5px 0 0 0; font-size: 12px;">
+                Most email providers block images by default for security
+              </p>
+            </div>
+            
+            <h2 style="text-align: center; font-weight: bold; font-size: 24px; margin-bottom: 10px; color: #7d0e2b;">${eventName}</h2>
+            <hr style="border: none; border-top: 2px solid #7d0e2b; margin: 10px auto; width: 80%;" />
+
+            <div style="text-align: center; margin: 30px 0;">
+              <img src="${iv}" alt="Event Invitation" width="400" style="border: 10px solid #7d0e2b; border-radius: 8px; max-width: 100%;" />
+            </div>
+
+            <p style="font-size: 16px; line-height: 1.6;">Dear <strong style="color: #7d0e2b;">${fullname}</strong>,</p>
+            <p style="font-weight: bold; font-size: 16px; line-height: 1.6; background: #fff5f5; padding: 15px; border-radius: 5px;">${sanitizedMessage}</p>
+
+            <p style="font-weight: bold; margin-top: 30px; font-size: 14px; color: #555;">
+              Please note: This event is strictly by invitation and this invitation is uniquely intended for you. 
+              A personalised QR code is provided below.
+            </p>
+            <p style="font-size: 14px; line-height: 1.6;">Kindly acknowledge receipt of this e-invitation. We look forward to welcoming you at the event.</p>
+            <p style="font-style: italic; color: #666; text-align: center; margin: 20px 0;">Message powered by SoftInvites.</p>
+
+            <!-- ENHANCED QR CODE SECTION -->
+            <div style="text-align: center; margin: 40px 0; padding: 25px; background: #f8f9fa; border-radius: 10px; border: 2px dashed #7d0e2b;">
+              <p style="font-weight: bold; font-size: 20px; color: #7d0e2b; margin-bottom: 20px;">
+                🎟️ YOUR EVENT PASS - QR CODE REQUIRED FOR ENTRY
+              </p>
+              
+              ${qrImgTag}
+              
+              <div style="font-size: 10px; color: #999; margin-top: 15px; padding: 10px; background: #fff; border-radius: 5px;">
+                Guest: ${fullname} | Table: ${TableNo || 'N/A'} | ID: ${savedGuest._id.toString().substring(0, 8)}
+              </div>
+            </div>
+
+            <footer style="margin-top: 40px; padding-top: 20px; border-top: 1px solid #ccc; text-align: center; font-size: 12px; color: #666;">
+              <p><strong>SoftInvites</strong><br />Lagos, Nigeria</p>
+              <p style="margin-top: 10px;">
+                You received this email because you have been invited to this event.<br />
+              </p>
+            </footer>
+          </div>
+        `;
+
+        console.log("📤 Sending email to:", email);
+        
+        // Send email WITHOUT attachments - QR code is embedded via S3 URL
+        await sendEmail(
+          email, 
+          `${eventName} - Invitation - Enable Images for QR Code`, // Enhanced subject line
+          emailContent
+        );
+
+        
+        console.log(`✅ Email sent to ${email}`);
+
+      } catch (emailError) {
+        console.error("❌ Failed to send email:", emailError);
+      }
+    }
+
+    // --- Trigger Backup Lambda (async) ---
+    try {
+      await lambdaClient.send(
+        new InvokeCommand({
+          FunctionName: process.env.BACKUP_LAMBDA!,
+          InvocationType: "Event",
+          Payload: Buffer.from(JSON.stringify({})),
+        })
+      );
+    } catch (backupError) {
+      console.error("❌ Backup Lambda failed:", backupError);
+    }
 
     res.status(201).json({
       message: "Guest created successfully",
@@ -169,7 +248,6 @@ await lambdaClient.send(new InvokeCommand({
     });
   }
 };
-
 
 export const importGuests = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -211,6 +289,279 @@ export const importGuests = async (req: Request, res: Response): Promise<void> =
   }
 };
 
+// export const updateGuest = async (req: Request, res: Response): Promise<void> => {
+//   try {
+//     // Handle both JSON string and already-parsed object
+//     const body = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
+
+//     const {
+//       id,
+//       email,
+//       eventId,
+//       phone,
+//       fullname,
+//       TableNo,
+//       message,
+//       others,
+//       qrCodeBgColor,
+//       qrCodeCenterColor,
+//       qrCodeEdgeColor,
+//     } = body;
+
+//     if (!id) {
+//       res.status(400).json({ message: "Guest ID is required" });
+//       return;
+//     }
+
+//     const validateGuest = updateGuestSchema.validate(body, option);
+//     if (validateGuest.error) {
+//       res.status(400).json({ Error: validateGuest.error.details[0].message });
+//       return;
+//     }
+
+//     const guest = await Guest.findById(id);
+//     if (!guest) {
+//       res.status(404).json({ message: "Guest not found" });
+//       return;
+//     }
+
+//     // DEBUG: Check guest QR code status BEFORE any updates
+//     console.log("🔍 Guest QR Code Status BEFORE Update:", {
+//       guestId: guest._id.toString(),
+//       hasQrCode: !!guest.qrCode,
+//       qrCode: guest.qrCode,
+//       hasQrCodeData: !!guest.qrCodeData,
+//       qrCodeData: guest.qrCodeData
+//     });
+
+//     // --- Check Event Existence ---
+//     const event = await Event.findById(eventId || guest.eventId);
+//     if (!event) {
+//       res.status(404).json({ message: "Event not found" });
+//       return;
+//     }
+
+//     const eventName = event.name;
+//     const iv = event.iv;
+
+//     // Store original values for comparison
+//     const originalEmail = guest.email;
+//     const emailChanged = email && email !== originalEmail;
+
+//     // Check if QR colors changed
+//     const qrColorsChanged =
+//       qrCodeBgColor !== guest.qrCodeBgColor ||
+//       qrCodeCenterColor !== guest.qrCodeCenterColor ||
+//       qrCodeEdgeColor !== guest.qrCodeEdgeColor;
+
+//     // Update guest fields
+//     guest.fullname = fullname || guest.fullname;
+//     guest.TableNo = TableNo || guest.TableNo;
+//     guest.email = email || guest.email;
+//     guest.phone = phone || guest.phone;
+//     guest.message = sanitizeHtml(message || guest.message, {
+//       allowedTags: ["p", "b", "i", "strong", "em", "ul", "li", "br", "h1", "h2"],
+//       allowedAttributes: {},
+//     });
+//     guest.others = others || guest.others;
+
+//     let qrCodeUrl = guest.qrCode;
+//     let qrCodeRegenerated = false;
+
+//     // --- REGENERATE QR CODE IF MISSING ---
+//     if (!guest.qrCode) {
+//       console.log("🔄 QR code missing in database, generating now...");
+      
+//       // Set default colors if not provided
+//       guest.qrCodeBgColor = qrCodeBgColor || guest.qrCodeBgColor || "#FFFFFF";
+//       guest.qrCodeCenterColor = qrCodeCenterColor || guest.qrCodeCenterColor || "#000000";
+//       guest.qrCodeEdgeColor = qrCodeEdgeColor || guest.qrCodeEdgeColor || "#7d0e2b";
+
+//       const lambdaPayload = {
+//         guestId: guest._id.toString(),
+//         fullname: guest.fullname,
+//         qrCodeBgColor: guest.qrCodeBgColor,
+//         qrCodeCenterColor: guest.qrCodeCenterColor,
+//         qrCodeEdgeColor: guest.qrCodeEdgeColor,
+//         eventId: guest.eventId,
+//         TableNo: guest.TableNo,
+//         others: guest.others,
+//       };
+
+//       console.log("📤 Generating missing QR code:", lambdaPayload);
+
+//       let lambdaResponse;
+//       try {
+//         lambdaResponse = await invokeLambda(process.env.QR_LAMBDA_FUNCTION_NAME!, lambdaPayload);
+//         console.log("✅ Lambda Response for missing QR:", JSON.stringify(lambdaResponse, null, 2));
+        
+//         qrCodeUrl = lambdaResponse?.qrCodeUrl;
+        
+//         if (qrCodeUrl) {
+//           guest.qrCode = qrCodeUrl;
+//           guest.qrCodeData = guest._id.toString();
+//           qrCodeRegenerated = true;
+//           console.log("💾 Saved regenerated QR code to guest");
+//         } else {
+//           console.error("❌ QR code generation failed - no URL returned");
+//         }
+//       } catch (lambdaError) {
+//         console.error("❌ Lambda invocation failed for missing QR:", lambdaError);
+//       }
+//     } 
+//     // Update QR colors only if changed (but don't regenerate QR code)
+//     else if (qrColorsChanged) {
+//       guest.qrCodeBgColor = qrCodeBgColor || guest.qrCodeBgColor;
+//       guest.qrCodeCenterColor = qrCodeCenterColor || guest.qrCodeCenterColor;
+//       guest.qrCodeEdgeColor = qrCodeEdgeColor || guest.qrCodeEdgeColor;
+      
+//       console.log("🎨 QR colors updated but QR code NOT regenerated (same guest ID)");
+//     }
+
+//     await guest.save();
+//     console.log("💾 Guest data saved to database");
+
+//     // Use QR code URL (either existing or newly generated)
+//     qrCodeUrl = guest.qrCode;
+//     console.log("📄 Final QR code URL:", qrCodeUrl);
+
+//     // --- Email Sending ---
+//     // Send email if email changed OR QR was regenerated OR colors changed
+//     const shouldSendEmail = (emailChanged || qrCodeRegenerated || qrColorsChanged || message) && guest.email;
+    
+//     if (shouldSendEmail) {
+//       try {
+//         console.log("📧 Email Details:", {
+//           hasS3Url: !!qrCodeUrl,
+//           emailChanged,
+//           qrColorsChanged,
+//           qrCodeRegenerated,
+//           s3Url: qrCodeUrl
+//         });
+
+//         let qrImgTag;
+        
+//         // Use S3 URL directly in email
+//         if (qrCodeUrl) {
+//           qrImgTag = `
+//             <div style="text-align: center; margin: 20px 0;">
+//               <img src="${qrCodeUrl}" 
+//                    alt="[SHOW IMAGES] Your Event QR Code - Required for Entry at ${eventName}" 
+//                    width="200" height="200" 
+//                    style="margin: 15px auto; border: 2px solid #7d0e2b; display: block; border-radius: 8px;" />
+              
+//               <div style="background: #fff5f5; padding: 15px; margin: 15px 0; border-radius: 8px; border: 1px solid #ff6b6b;">
+//                 <p style="color: #d63031; font-weight: bold; margin: 0 0 10px 0; text-align: center;">
+//                   ⚠️ Can't see the QR code above?
+//                 </p>
+//                 <p style="text-align: center; margin: 0;">
+//                   <a href="${qrCodeUrl}" 
+//                      style="color: #ffffff; background-color: #7d0e2b; padding: 12px 25px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block; margin: 5px;">
+//                      🔍 CLICK TO VIEW YOUR QR CODE
+//                   </a>
+//                 </p>
+//                 <p style="color: #666; font-size: 12px; text-align: center; margin: 10px 0 0 0;">
+//                   Or look for "Display images" or "Load external content" in your email client
+//                 </p>
+//               </div>
+//             </div>
+//           `;
+//           console.log("✅ Using S3 URL in email HTML");
+//         } else {
+//           qrImgTag = `
+//             <div style="border: 2px solid #ff6b6b; padding: 15px; margin: 10px 0; text-align: center; background: #fff5f5;">
+//               <p style="color: #d63031; margin: 0; font-weight: bold;">QR CODE NOT AVAILABLE</p>
+//               <p style="color: #d63031; margin: 5px 0 0 0; font-size: 12px;">Please contact the event organizer</p>
+//             </div>
+//           `;
+//           console.error("❌ No QR code URL available for email");
+//         }
+
+//         const emailContent = `
+//           <div style="font-family: 'Georgia', serif; color: #000; background-color: #fff; padding: 20px; max-width: 600px; margin: 0 auto;">
+//             <!-- IMPORTANT WARNING BANNER -->
+//             <div style="background: #fff5f5; border: 2px solid #ff6b6b; border-radius: 8px; padding: 15px; margin-bottom: 25px; text-align: center;">
+//               <p style="color: #d63031; margin: 0; font-weight: bold; font-size: 14px;">
+//                 🔍 IMPORTANT: Enable images to view your QR code event pass
+//               </p>
+//               <p style="color: #666; margin: 5px 0 0 0; font-size: 12px;">
+//                 Most email providers block images by default for security
+//               </p>
+//             </div>
+            
+//             <h2 style="text-align: center; font-weight: bold; font-size: 24px; margin-bottom: 10px; color: #7d0e2b;">${eventName}</h2>
+//             <hr style="border: none; border-top: 2px solid #7d0e2b; margin: 10px auto; width: 80%;" />
+
+//             <div style="text-align: center; margin: 30px 0;">
+//               <img src="${iv}" alt="Event Invitation" width="400" style="border: 10px solid #7d0e2b; border-radius: 8px; max-width: 100%;" />
+//             </div>
+
+//             <p style="font-size: 16px; line-height: 1.6;">Dear <strong style="color: #7d0e2b;">${guest.fullname}</strong>,</p>
+//             <p style="font-weight: bold; font-size: 16px; line-height: 1.6; background: #fff5f5; padding: 15px; border-radius: 5px;">${guest.message}</p>
+
+//             <p style="font-weight: bold; margin-top: 30px; font-size: 14px; color: #555;">
+//               Please note: This event is strictly by invitation and this invitation is uniquely intended for you. 
+//               ${qrCodeRegenerated ? 'Your QR code has been generated.' : qrColorsChanged ? 'Your invitation details have been updated.' : 'Your invitation has been updated.'}
+//             </p>
+//             <p style="font-size: 14px; line-height: 1.6;">Kindly acknowledge receipt of this e-invitation. We look forward to welcoming you at the event.</p>
+//             <p style="font-style: italic; color: #666; text-align: center; margin: 20px 0;">Message powered by SoftInvites.</p>
+
+//             <!-- ENHANCED QR CODE SECTION -->
+//             <div style="text-align: center; margin: 40px 0; padding: 25px; background: #f8f9fa; border-radius: 10px; border: 2px dashed #7d0e2b;">
+//               <p style="font-weight: bold; font-size: 20px; color: #7d0e2b; margin-bottom: 20px;">
+//                 🎟️ YOUR EVENT PASS - QR CODE REQUIRED FOR ENTRY
+//               </p>
+              
+//               ${qrImgTag}
+              
+//               <div style="font-size: 10px; color: #999; margin-top: 15px; padding: 10px; background: #fff; border-radius: 5px;">
+//                 Guest: ${guest.fullname} | Table: ${guest.TableNo || 'N/A'} | ID: ${guest._id.toString().substring(0, 8)}
+//               </div>
+//             </div>
+
+//             <footer style="margin-top: 40px; padding-top: 20px; border-top: 1px solid #ccc; text-align: center; font-size: 12px; color: #666;">
+//               <p><strong>SoftInvites</strong><br />Lagos, Nigeria</p>
+//               <p style="margin-top: 10px;">
+//                 You received this email because you have been invited to this event.<br />
+//               </p>
+//             </footer>
+//           </div>
+//         `;
+
+//         console.log("📤 Sending email to:", guest.email);
+        
+//         // Send email using QR code
+//         await sendEmail(
+//           guest.email,
+//           `${eventName} - Updated Invitation - Enable Images for QR Code`,
+//           emailContent
+//         );
+        
+//         console.log(`✅ Email sent to ${guest.email}`);
+
+//       } catch (emailError) {
+//         console.error("❌ Failed to send email:", emailError);
+//       }
+//     }
+
+//     res.status(200).json({
+//       message: qrCodeRegenerated 
+//         ? "Guest updated successfully and QR code regenerated" 
+//         : "Guest updated successfully",
+//       guest,
+//       emailSent: shouldSendEmail,
+//       qrCodeAvailable: !!qrCodeUrl,
+//       qrCodeRegenerated: qrCodeRegenerated
+//     });
+
+//   } catch (error) {
+//     console.error("❌ Error in updateGuest:", error);
+//     res.status(500).json({
+//       message: "Error updating guest",
+//       error: error instanceof Error ? error.message : error,
+//     });
+//   }
+// };
 export const updateGuest = async (req: Request, res: Response): Promise<void> => {
   try {
     // Handle both JSON string and already-parsed object
@@ -218,12 +569,13 @@ export const updateGuest = async (req: Request, res: Response): Promise<void> =>
 
     const {
       id,
-      email,
-      phone,
       fullname,
       TableNo,
+      email,
+      phone,
       message,
       others,
+      eventId,
       qrCodeBgColor,
       qrCodeCenterColor,
       qrCodeEdgeColor,
@@ -246,65 +598,250 @@ export const updateGuest = async (req: Request, res: Response): Promise<void> =>
       return;
     }
 
-    const qrColorsChanged =
-      qrCodeBgColor !== guest.qrCodeBgColor ||
-      qrCodeCenterColor !== guest.qrCodeCenterColor ||
-      qrCodeEdgeColor !== guest.qrCodeEdgeColor;
+    // DEBUG: Check guest QR code status BEFORE any updates
+    console.log("🔍 Guest QR Code Status BEFORE Update:", {
+      guestId: guest._id.toString(),
+      hasQrCode: !!guest.qrCode,
+      qrCode: guest.qrCode,
+      hasQrCodeData: !!guest.qrCodeData,
+      qrCodeData: guest.qrCodeData
+    });
 
-    guest.fullname = fullname || guest.fullname;
-    guest.TableNo = TableNo || guest.TableNo;
-    guest.email = email || guest.email;
-    guest.phone = phone || guest.phone;
-    guest.message = sanitizeHtml(message) || guest.message;
-    guest.others = others || guest.others;
-
-    if (qrColorsChanged) {
-      guest.qrCodeBgColor = qrCodeBgColor || guest.qrCodeBgColor;
-      guest.qrCodeCenterColor = qrCodeCenterColor || guest.qrCodeCenterColor;
-      guest.qrCodeEdgeColor = qrCodeEdgeColor || guest.qrCodeEdgeColor;
-
-      const lambdaResponse = await invokeLambda(process.env.QR_LAMBDA_FUNCTION_NAME!, {
-        guestId: guest._id.toString(),
-        fullname: fullname || guest.fullname,
-        bgColorHex: rgbToHex(qrCodeBgColor || guest.qrCodeBgColor),
-        centerColorHex: rgbToHex(qrCodeCenterColor || guest.qrCodeCenterColor),
-        edgeColorHex: rgbToHex(qrCodeEdgeColor || guest.qrCodeEdgeColor),
-        eventId: guest.eventId,
-      });
-
-      const { qrCodeUrl } = lambdaResponse;
-
-      if (guest.qrCode) {
-        try {
-          const url = new URL(guest.qrCode);
-          const key = url.pathname.substring(1);
-          await deleteFromS3(key);
-        } catch (error) {
-          console.error("Error deleting old QR:", error);
-        }
-      }
-
-      guest.qrCode = qrCodeUrl;
-      await guest.save();
-
-      // if (guest.email) {
-      //   const emailContent = `
-      //     <h2>Your Event QR Code Has Been Updated</h2>
-      //     <p>Dear ${guest.fullname},</p>
-      //     <p>Your QR code for the event has been updated.</p>
-      //     <p><img src="${qrCodeUrl}" alt="QR Code" width="300"/></p>
-      //   `;
-      //   await sendEmail(guest.email, `Your Updated QR Code`, emailContent);
-      // }
-
-      res.status(200).json({
-        message: "Guest updated successfully and QR code regenerated",
-        guest,
-      });
-    } else {
-      await guest.save();
-      res.status(200).json({ message: "Guest updated successfully", guest });
+    // --- Check Event Existence ---
+    const event = await Event.findById(eventId || guest.eventId);
+    if (!event) {
+      res.status(404).json({ message: "Event not found" });
+      return;
     }
+
+    const eventName = event.name;
+    const iv = event.iv;
+
+    // Store original values for comparison
+    const originalEmail = guest.email;
+    const emailChanged = email !== undefined && email !== originalEmail;
+
+    // Check if QR colors changed (only if provided in request)
+    const qrColorsChanged = (
+      (qrCodeBgColor !== undefined && qrCodeBgColor !== guest.qrCodeBgColor) ||
+      (qrCodeCenterColor !== undefined && qrCodeCenterColor !== guest.qrCodeCenterColor) ||
+      (qrCodeEdgeColor !== undefined && qrCodeEdgeColor !== guest.qrCodeEdgeColor)
+    );
+
+    // Update guest fields only if provided (proper optional field handling)
+    if (fullname !== undefined) guest.fullname = fullname;
+    if (TableNo !== undefined) guest.TableNo = TableNo;
+    if (email !== undefined) guest.email = email;
+    if (phone !== undefined) guest.phone = phone;
+    if (message !== undefined) {
+      guest.message = sanitizeHtml(message, {
+        allowedTags: ["p", "b", "i", "strong", "em", "ul", "li", "br", "h1", "h2"],
+        allowedAttributes: {},
+      });
+    }
+    if (others !== undefined) guest.others = others;
+
+    let qrCodeUrl = guest.qrCode;
+    let qrCodeRegenerated = false;
+
+    // --- REGENERATE QR CODE IF MISSING ---
+    if (!guest.qrCode) {
+      console.log("🔄 QR code missing in database, generating now...");
+      
+      // Set colors if provided, otherwise use existing or defaults
+      if (qrCodeBgColor !== undefined) guest.qrCodeBgColor = qrCodeBgColor;
+      if (qrCodeCenterColor !== undefined) guest.qrCodeCenterColor = qrCodeCenterColor;
+      if (qrCodeEdgeColor !== undefined) guest.qrCodeEdgeColor = qrCodeEdgeColor;
+      
+      // Ensure we have colors (use existing or defaults)
+      guest.qrCodeBgColor = guest.qrCodeBgColor || "#FFFFFF";
+      guest.qrCodeCenterColor = guest.qrCodeCenterColor || "#000000";
+      guest.qrCodeEdgeColor = guest.qrCodeEdgeColor || "#7d0e2b";
+
+      const lambdaPayload = {
+        guestId: guest._id.toString(),
+        fullname: guest.fullname,
+        qrCodeBgColor: guest.qrCodeBgColor,
+        qrCodeCenterColor: guest.qrCodeCenterColor,
+        qrCodeEdgeColor: guest.qrCodeEdgeColor,
+        eventId: guest.eventId,
+        TableNo: guest.TableNo,
+        phone: guest.phone,
+        others: guest.others,
+      };
+
+      console.log("📤 Generating missing QR code:", lambdaPayload);
+
+      let lambdaResponse;
+      try {
+        lambdaResponse = await invokeLambda(process.env.QR_LAMBDA_FUNCTION_NAME!, lambdaPayload);
+        console.log("✅ Lambda Response for missing QR:", JSON.stringify(lambdaResponse, null, 2));
+        
+        qrCodeUrl = lambdaResponse?.qrCodeUrl;
+        
+        if (qrCodeUrl) {
+          guest.qrCode = qrCodeUrl;
+          guest.qrCodeData = guest._id.toString();
+          qrCodeRegenerated = true;
+          console.log("💾 Saved regenerated QR code to guest");
+        } else {
+          console.error("❌ QR code generation failed - no URL returned");
+        }
+      } catch (lambdaError) {
+        console.error("❌ Lambda invocation failed for missing QR:", lambdaError);
+      }
+    } 
+    // Update QR colors only if changed and provided
+    else if (qrColorsChanged) {
+      if (qrCodeBgColor !== undefined) guest.qrCodeBgColor = qrCodeBgColor;
+      if (qrCodeCenterColor !== undefined) guest.qrCodeCenterColor = qrCodeCenterColor;
+      if (qrCodeEdgeColor !== undefined) guest.qrCodeEdgeColor = qrCodeEdgeColor;
+      
+      console.log("🎨 QR colors updated but QR code NOT regenerated (same guest ID)");
+    }
+
+    await guest.save();
+    console.log("💾 Guest data saved to database");
+
+    // Use QR code URL (either existing or newly generated)
+    qrCodeUrl = guest.qrCode;
+    console.log("📄 Final QR code URL:", qrCodeUrl);
+
+    // --- Email Sending ---
+    // Send email if email changed OR QR was regenerated OR colors changed OR message changed
+    const shouldSendEmail = (
+      emailChanged || 
+      qrCodeRegenerated || 
+      qrColorsChanged || 
+      (message !== undefined && message !== guest.message)
+    ) && guest.email;
+    
+    if (shouldSendEmail) {
+      try {
+        console.log("📧 Email Details:", {
+          hasS3Url: !!qrCodeUrl,
+          emailChanged,
+          qrColorsChanged,
+          qrCodeRegenerated,
+          messageChanged: message !== undefined && message !== guest.message,
+          s3Url: qrCodeUrl
+        });
+
+        let qrImgTag;
+        
+        // Use S3 URL directly in email
+        if (qrCodeUrl) {
+          qrImgTag = `
+            <div style="text-align: center; margin: 20px 0;">
+              <img src="${qrCodeUrl}" 
+                   alt="[SHOW IMAGES] Your Event QR Code - Required for Entry at ${eventName}" 
+                   width="200" height="200" 
+                   style="margin: 15px auto; border: 2px solid #7d0e2b; display: block; border-radius: 8px;" />
+              
+              <div style="background: #fff5f5; padding: 15px; margin: 15px 0; border-radius: 8px; border: 1px solid #ff6b6b;">
+                <p style="color: #d63031; font-weight: bold; margin: 0 0 10px 0; text-align: center;">
+                  ⚠️ Can't see the QR code above?
+                </p>
+                <p style="text-align: center; margin: 0;">
+                  <a href="${qrCodeUrl}" 
+                     style="color: #ffffff; background-color: #7d0e2b; padding: 12px 25px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block; margin: 5px;">
+                     🔍 CLICK TO VIEW YOUR QR CODE
+                  </a>
+                </p>
+                <p style="color: #666; font-size: 12px; text-align: center; margin: 10px 0 0 0;">
+                  Or look for "Display images" or "Load external content" in your email client
+                </p>
+              </div>
+            </div>
+          `;
+          console.log("✅ Using S3 URL in email HTML");
+        } else {
+          qrImgTag = `
+            <div style="border: 2px solid #ff6b6b; padding: 15px; margin: 10px 0; text-align: center; background: #fff5f5;">
+              <p style="color: #d63031; margin: 0; font-weight: bold;">QR CODE NOT AVAILABLE</p>
+              <p style="color: #d63031; margin: 5px 0 0 0; font-size: 12px;">Please contact the event organizer</p>
+            </div>
+          `;
+          console.error("❌ No QR code URL available for email");
+        }
+
+        const emailContent = `
+          <div style="font-family: 'Georgia', serif; color: #000; background-color: #fff; padding: 20px; max-width: 600px; margin: 0 auto;">
+            <!-- IMPORTANT WARNING BANNER -->
+            <div style="background: #fff5f5; border: 2px solid #ff6b6b; border-radius: 8px; padding: 15px; margin-bottom: 25px; text-align: center;">
+              <p style="color: #d63031; margin: 0; font-weight: bold; font-size: 14px;">
+                🔍 IMPORTANT: Enable images to view your QR code event pass
+              </p>
+              <p style="color: #666; margin: 5px 0 0 0; font-size: 12px;">
+                Most email providers block images by default for security
+              </p>
+            </div>
+            
+            <h2 style="text-align: center; font-weight: bold; font-size: 24px; margin-bottom: 10px; color: #7d0e2b;">${eventName}</h2>
+            <hr style="border: none; border-top: 2px solid #7d0e2b; margin: 10px auto; width: 80%;" />
+
+            <div style="text-align: center; margin: 30px 0;">
+              <img src="${iv}" alt="Event Invitation" width="400" style="border: 10px solid #7d0e2b; border-radius: 8px; max-width: 100%;" />
+            </div>
+
+            <p style="font-size: 16px; line-height: 1.6;">Dear <strong style="color: #7d0e2b;">${guest.fullname}</strong>,</p>
+            <p style="font-weight: bold; font-size: 16px; line-height: 1.6; background: #fff5f5; padding: 15px; border-radius: 5px;">${guest.message}</p>
+
+            <p style="font-weight: bold; margin-top: 30px; font-size: 14px; color: #555;">
+              Please note: This event is strictly by invitation and this invitation is uniquely intended for you. 
+              ${qrCodeRegenerated ? 'Your QR code has been generated.' : qrColorsChanged ? 'Your invitation details have been updated.' : 'Your invitation has been updated.'}
+            </p>
+            <p style="font-size: 14px; line-height: 1.6;">Kindly acknowledge receipt of this e-invitation. We look forward to welcoming you at the event.</p>
+            <p style="font-style: italic; color: #666; text-align: center; margin: 20px 0;">Message powered by SoftInvites.</p>
+
+            <!-- ENHANCED QR CODE SECTION -->
+            <div style="text-align: center; margin: 40px 0; padding: 25px; background: #f8f9fa; border-radius: 10px; border: 2px dashed #7d0e2b;">
+              <p style="font-weight: bold; font-size: 20px; color: #7d0e2b; margin-bottom: 20px;">
+                🎟️ YOUR EVENT PASS - QR CODE REQUIRED FOR ENTRY
+              </p>
+              
+              ${qrImgTag}
+              
+              <div style="font-size: 10px; color: #999; margin-top: 15px; padding: 10px; background: #fff; border-radius: 5px;">
+                Guest: ${guest.fullname} | Table: ${guest.TableNo || 'N/A'} | ID: ${guest._id.toString().substring(0, 8)}
+              </div>
+            </div>
+
+            <footer style="margin-top: 40px; padding-top: 20px; border-top: 1px solid #ccc; text-align: center; font-size: 12px; color: #666;">
+              <p><strong>SoftInvites</strong><br />Lagos, Nigeria</p>
+              <p style="margin-top: 10px;">
+                You received this email because you have been invited to this event.<br />
+              </p>
+            </footer>
+          </div>
+        `;
+
+        console.log("📤 Sending email to:", guest.email);
+        
+        // Send email using QR code
+        await sendEmail(
+          guest.email,
+          `${eventName} - Updated Invitation - Enable Images for QR Code`,
+          emailContent
+        );
+        
+        console.log(`✅ Email sent to ${guest.email}`);
+
+      } catch (emailError) {
+        console.error("❌ Failed to send email:", emailError);
+      }
+    }
+
+    res.status(200).json({
+      message: qrCodeRegenerated 
+        ? "Guest updated successfully and QR code regenerated" 
+        : "Guest updated successfully",
+      guest,
+      emailSent: shouldSendEmail,
+      qrCodeAvailable: !!qrCodeUrl,
+      qrCodeRegenerated: qrCodeRegenerated
+    });
+
   } catch (error) {
     console.error("❌ Error in updateGuest:", error);
     res.status(500).json({
@@ -313,8 +850,6 @@ export const updateGuest = async (req: Request, res: Response): Promise<void> =>
     });
   }
 };
-
-
 
 export const downloadQRCode = async (
   req: Request,

@@ -6,11 +6,6 @@ const lambdaUtils_1 = require("../../utils/lambdaUtils");
 const s3Utils_1 = require("../../utils/s3Utils");
 const sendEmail = async (to, subject, htmlContent, attachments) => {
     try {
-        // If in development, use local email sending
-        // if (process.env.NODE_ENV === 'development') {
-        //   console.log('Would send email:', { to, subject });
-        //   return;
-        // }
         // Upload attachments to S3 if any
         const attachmentPromises = (attachments || []).map(async (attachment) => {
             const s3Key = `email-attachments/${Date.now()}_${attachment.filename}`;
@@ -22,6 +17,7 @@ const sendEmail = async (to, subject, htmlContent, attachments) => {
             };
         });
         const emailAttachments = await Promise.all(attachmentPromises);
+        // Use custom from address or fallback to environment variable
         // Add more logging
         console.log("Starting Lambda invocation with params:", {
             functionName: process.env.EMAIL_LAMBDA_FUNCTION_NAME,

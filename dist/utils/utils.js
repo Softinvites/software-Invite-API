@@ -84,13 +84,13 @@ exports.createGuestSchema = joi_1.default.object({
 });
 exports.updateGuestSchema = joi_1.default.object({
     id: joi_1.default.string().required(),
-    fullname: joi_1.default.string().optional(),
-    TableNo: joi_1.default.string().optional(),
-    email: joi_1.default.string().email().optional(),
-    phone: joi_1.default.string().optional(),
-    message: joi_1.default.string().optional(),
-    others: joi_1.default.string().optional(),
-    qrCodeBgColor: joi_1.default.string().optional(),
-    qrCodeCenterColor: joi_1.default.string().optional(),
-    qrCodeEdgeColor: joi_1.default.string().optional(),
+    fullname: joi_1.default.string().allow('').optional(),
+    TableNo: joi_1.default.string().allow('').optional(),
+    email: joi_1.default.string().email().allow('').optional(),
+    phone: joi_1.default.string().allow('').optional(),
+    message: joi_1.default.string().allow('').optional(),
+    others: joi_1.default.string().allow('').optional(),
+    qrCodeBgColor: joi_1.default.string().allow('').optional(),
+    qrCodeCenterColor: joi_1.default.string().allow('').optional(),
+    qrCodeEdgeColor: joi_1.default.string().allow('').optional(),
 });

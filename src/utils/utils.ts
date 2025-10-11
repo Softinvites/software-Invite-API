@@ -87,13 +87,13 @@ export const createGuestSchema = Joi.object({
 
 export const updateGuestSchema = Joi.object({
   id: Joi.string().required(),
-  fullname: Joi.string().optional(),
-  TableNo: Joi.string().optional(),
-  email: Joi.string().email().optional(),
-  phone: Joi.string().optional(),
-  message: Joi.string().optional(),
-  others: Joi.string().optional(),
-  qrCodeBgColor: Joi.string().optional(),
-  qrCodeCenterColor: Joi.string().optional(),
-  qrCodeEdgeColor: Joi.string().optional(),
+  fullname: Joi.string().allow('').optional(),
+  TableNo: Joi.string().allow('').optional(),
+  email: Joi.string().email().allow('').optional(),
+  phone: Joi.string().allow('').optional(),
+  message: Joi.string().allow('').optional(),
+  others: Joi.string().allow('').optional(), // Now allows empty strings
+  qrCodeBgColor: Joi.string().allow('').optional(),
+  qrCodeCenterColor: Joi.string().allow('').optional(),
+  qrCodeEdgeColor: Joi.string().allow('').optional(),
 });
