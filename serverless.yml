@@ -15,7 +15,8 @@ provider:
       - "application/octet-stream"
 
   stage: ${env:STAGE, 'dev'}
-  architecture: arm64
+  # architecture: arm64
+  architecture: x86_64
 
   httpApi:
     cors:
@@ -67,7 +68,8 @@ functions:
   app:
     handler: dist/index.handler
     layers:
-      - arn:aws:lambda:us-east-2:402961397587:layer:Sharp:1
+      - arn:aws:lambda:us-east-2:402961397587:layer:Sharp2:1
+      
     events:
       - httpApi:
           method: ANY

@@ -15,6 +15,7 @@ import {
   generateAnalytics,
   generateEventAnalytics,
   generateTempLink,
+  downloadEmailQRCode
 } from "../controllers/guestController";
 import auth from "../library/middlewares/auth";
 import { combinedAuth } from "../library/middlewares/combinedAuth";
@@ -37,6 +38,7 @@ router.post(
 );
 
 router.get("/download-qrcode/:id", auth, downloadQRCode);
+router.get("/download-emailcode/:id", downloadEmailQRCode);
 router.get("/download-all-qrcode/:eventId", auth, downloadAllQRCodes);
 router.get("/batch-qrcode-download/:eventId/timestamp", auth, downloadBatchQRCodes);
 

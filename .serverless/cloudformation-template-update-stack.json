@@ -176,7 +176,7 @@
           "S3Bucket": {
             "Ref": "ServerlessDeploymentBucket"
           },
-          "S3Key": "serverless/softinvites-backend/dev/1760179026701-2025-10-11T10:37:06.701Z/app.zip"
+          "S3Key": "serverless/softinvites-backend/dev/1760338418364-2025-10-13T06:53:38.364Z/app.zip"
         },
         "Handler": "dist/index.handler",
         "Runtime": "nodejs18.x",
@@ -211,7 +211,7 @@
           ]
         },
         "Layers": [
-          "arn:aws:lambda:us-east-2:402961397587:layer:Sharp:1"
+          "arn:aws:lambda:us-east-2:402961397587:layer:Sharp2:1"
         ]
       },
       "DependsOn": [
@@ -225,7 +225,7 @@
           "S3Bucket": {
             "Ref": "ServerlessDeploymentBucket"
           },
-          "S3Key": "serverless/softinvites-backend/dev/1760179026701-2025-10-11T10:37:06.701Z/backup.zip"
+          "S3Key": "serverless/softinvites-backend/dev/1760338418364-2025-10-13T06:53:38.364Z/backup.zip"
         },
         "Handler": "dist/backup.handler",
         "Runtime": "nodejs18.x",
@@ -265,25 +265,25 @@
         "BackupLogGroup"
       ]
     },
-    "BackupLambdaVersionKHeUrurNY6F6zlVD6LyPX6V9yzK19hgTGJJzX3yjvI": {
+    "BackupLambdaVersionOXW8ZRf5lEiHOufE5LjoegUdzRnaTqY5pfNNNJ21No": {
       "Type": "AWS::Lambda::Version",
       "DeletionPolicy": "Retain",
       "Properties": {
         "FunctionName": {
           "Ref": "BackupLambdaFunction"
         },
-        "CodeSha256": "xnOua+VPExgZ58s21g9UEu2CJKXC+qLismIDKna73No=",
+        "CodeSha256": "UMhDC+5wG3ludx7m+KVxjf8VJwaS3/5kpf6AbfM42rw=",
         "Description": "Event-driven MongoDB backup to S3"
       }
     },
-    "AppLambdaVersionEMVfnWZ9TCB4Lp4NyaPppoHAwNwHyvUUT9hGTjoVg": {
+    "AppLambdaVersionbrXbZbIYSgf2O4T5dJF7Id1Z2hbubMypPCZxXLfbg": {
       "Type": "AWS::Lambda::Version",
       "DeletionPolicy": "Retain",
       "Properties": {
         "FunctionName": {
           "Ref": "AppLambdaFunction"
         },
-        "CodeSha256": "GVDrz6if2fBXYrAjdoXHgDMjyUlbKRvMMusQ1OvZBMo="
+        "CodeSha256": "eKLjyz+A0Jcc7oLeY55YouSebp1vgKvY76My6rcUIec="
       }
     },
     "HttpApi": {
@@ -417,7 +417,7 @@
     "BackupLambdaFunctionQualifiedArn": {
       "Description": "Current Lambda function version",
       "Value": {
-        "Ref": "BackupLambdaVersionKHeUrurNY6F6zlVD6LyPX6V9yzK19hgTGJJzX3yjvI"
+        "Ref": "BackupLambdaVersionOXW8ZRf5lEiHOufE5LjoegUdzRnaTqY5pfNNNJ21No"
       },
       "Export": {
         "Name": "sls-softinvites-backend-dev-BackupLambdaFunctionQualifiedArn"
@@ -426,7 +426,7 @@
     "AppLambdaFunctionQualifiedArn": {
       "Description": "Current Lambda function version",
       "Value": {
-        "Ref": "AppLambdaVersionEMVfnWZ9TCB4Lp4NyaPppoHAwNwHyvUUT9hGTjoVg"
+        "Ref": "AppLambdaVersionbrXbZbIYSgf2O4T5dJF7Id1Z2hbubMypPCZxXLfbg"
       },
       "Export": {
         "Name": "sls-softinvites-backend-dev-AppLambdaFunctionQualifiedArn"

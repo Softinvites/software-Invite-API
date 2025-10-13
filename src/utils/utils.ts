@@ -92,7 +92,7 @@ export const updateGuestSchema = Joi.object({
   email: Joi.string().email().allow('').optional(),
   phone: Joi.string().allow('').optional(),
   message: Joi.string().allow('').optional(),
-  others: Joi.string().allow('').optional(), // Now allows empty strings
+  others: Joi.string().allow('').optional(), 
   qrCodeBgColor: Joi.string().allow('').optional(),
   qrCodeCenterColor: Joi.string().allow('').optional(),
   qrCodeEdgeColor: Joi.string().allow('').optional(),
