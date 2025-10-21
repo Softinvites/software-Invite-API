@@ -52,7 +52,7 @@ provider:
     FRONTEND_URL: ${env:FRONTEND_URL, 'https://www.softinvite.com'}
     BACKUP_BUCKET: ${env:BACKUP_BUCKET, 'softinvites-backups'}
     BACKUP_LAMBDA: ${env:BACKUP_LAMBDA, 'softinvites-backend-dev-backup'}
-    EMAIL_FROM: ${env:EMAIL_FROM, 'info@softinvite.com'}
+    EMAIL_FROM: ${env:EMAIL_FROM, 'SoftInvites <info@softinvite.com>'}
     SERVERLESS_LICENSE_KEY: ${env:SERVERLESS_LICENSE_KEY, 'eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJvcmdJZCI6IjdmYjQ0ZmY4LTQ5YmUtNGY0My1iMmM2LTliMzIyYmU5ZmQ3OSIsImlhdCI6MTc1NjM3MjU3NCwiZXhwIjoxNzg3OTA4NTc0LCJpc3MiOiJhcHAuc2VydmVybGVzcy5jb20ifQ.wxYOYIhN7zKm1zUY3l0RaHDnGOWKBqjdt9aPzjaiWZrMqhOxRWr8AD7Oy_-KQ-JnBu4ow1rKFqgFWc62EYwMY5XZvtCM91U-3lixSNMtqCyMhokEusEVM3IApNdQcl2fBS65RHGg1DVdWIVMGBBURMTDyy1DP0fhcINigjr08zP6iNeyjypdNp_az1TfDPZHVpAItKsIhk0sp0I9TBC_GPObgQ8gH9BK2guDNsEP92XJLoQaDCRXwlVemX3QjT3H6lEJBJjrzzAkOiDaGBd0TEHcpwbORdWKpZB9IRjmD0B6RVXU4W2azSGx8HEG3wHimraoUYXSG9Y9VOKEcpHq2w'}
 
   iam:
@@ -75,7 +75,7 @@ functions:
           method: ANY
           path: /{proxy+}   
     memorySize: 1024
-    timeout: 30
+    timeout: 900
 
   backup:
     handler: dist/backup.handler

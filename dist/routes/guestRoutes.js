@@ -17,7 +17,7 @@ router.post("/import-guest-csv", uploadCSVExcel.single("file"), auth_1.default, 
 router.get("/download-qrcode/:id", auth_1.default, guestController_1.downloadQRCode);
 router.get("/download-emailcode/:id", guestController_1.downloadEmailQRCode);
 router.get("/download-all-qrcode/:eventId", auth_1.default, guestController_1.downloadAllQRCodes);
-router.get("/batch-qrcode-download/:eventId/timestamp", auth_1.default, guestController_1.downloadBatchQRCodes);
+router.post("/batch-qrcode-download/:eventId/timestamp", auth_1.default, guestController_1.downloadBatchQRCodes);
 // routhers others can access temporarily
 router.post("/scan-qrcode", combinedAuth_1.combinedAuth, guestController_1.scanQRCode);
 router.get("/events-guest/:eventId", combinedAuth_1.combinedAuth, guestController_1.getGuestsByEvent);
@@ -29,4 +29,8 @@ router.delete("/delete/:eventId/timestamp", auth_1.default, guestController_1.de
 router.get("/get-analytics/", auth_1.default, guestController_1.generateAnalytics);
 router.get("/event-analytics/:eventId", combinedAuth_1.combinedAuth, guestController_1.generateEventAnalytics);
 router.post("/generate-temp-link/:eventId", auth_1.default, guestController_1.generateTempLink);
+//Restore guests from backup
+router.post("/guests-restore", auth_1.default, guestController_1.restoreGuestsAndRegenerateQRCodes);
+router.get("/test-database/:eventId", auth_1.default, guestController_1.testDatabase);
+router.get("/check-qrcode-status/:eventId", combinedAuth_1.combinedAuth, guestController_1.checkQRCodeStatus);
 exports.default = router;

@@ -15,7 +15,10 @@ import {
   generateAnalytics,
   generateEventAnalytics,
   generateTempLink,
-  downloadEmailQRCode
+  downloadEmailQRCode,
+  restoreGuestsAndRegenerateQRCodes,
+  testDatabase,
+  checkQRCodeStatus
 } from "../controllers/guestController";
 import auth from "../library/middlewares/auth";
 import { combinedAuth } from "../library/middlewares/combinedAuth";
@@ -40,7 +43,7 @@ router.post(
 router.get("/download-qrcode/:id", auth, downloadQRCode);
 router.get("/download-emailcode/:id", downloadEmailQRCode);
 router.get("/download-all-qrcode/:eventId", auth, downloadAllQRCodes);
-router.get("/batch-qrcode-download/:eventId/timestamp", auth, downloadBatchQRCodes);
+router.post("/batch-qrcode-download/:eventId/timestamp", auth, downloadBatchQRCodes);
 
 // routhers others can access temporarily
 router.post("/scan-qrcode", combinedAuth, scanQRCode);
@@ -59,5 +62,10 @@ router.delete(
 router.get("/get-analytics/", auth, generateAnalytics);
 router.get("/event-analytics/:eventId", combinedAuth, generateEventAnalytics);
 router.post("/generate-temp-link/:eventId", auth, generateTempLink);
+
+//Restore guests from backup
+router.post("/guests-restore", auth, restoreGuestsAndRegenerateQRCodes);
+router.get("/test-database/:eventId", auth, testDatabase);
+router.get("/check-qrcode-status/:eventId", combinedAuth, checkQRCodeStatus);
 
 export default router;
