@@ -76,13 +76,13 @@ const lambdaPayload = {
   others,
 };
 
-console.log("📤 Sending to Lambda:", lambdaPayload);
+// console.log("📤 Sending to Lambda:", lambdaPayload);
 
 let qrSvg, qrCodeUrl;
 
 try {
   const lambdaResponse = await invokeLambda(process.env.QR_LAMBDA_FUNCTION_NAME!, lambdaPayload);
-  console.log("✅ Lambda Response Received:", JSON.stringify(lambdaResponse, null, 2));
+  // console.log("✅ Lambda Response Received:", JSON.stringify(lambdaResponse, null, 2));
   
   // Parse the nested response structure
   let parsedBody;
@@ -101,18 +101,18 @@ try {
     parsedBody = lambdaResponse;
   }
   
-  console.log("🔍 Parsed Lambda Body:", parsedBody);
+  // console.log("🔍 Parsed Lambda Body:", parsedBody);
   
   // Extract QR data from parsed body
   qrSvg = parsedBody?.qrSvg;
   qrCodeUrl = parsedBody?.qrCodeUrl;
   
-  console.log("🎯 Extracted QR Data:", {
-    hasSvg: !!qrSvg,
-    svgLength: qrSvg?.length,
-    hasUrl: !!qrCodeUrl,
-    url: qrCodeUrl
-  });
+  // console.log("🎯 Extracted QR Data:", {
+  //   hasSvg: !!qrSvg,
+  //   svgLength: qrSvg?.length,
+  //   hasUrl: !!qrCodeUrl,
+  //   url: qrCodeUrl
+  // });
   
 } catch (lambdaError) {
   console.error("❌ Lambda invocation failed:", lambdaError);
@@ -121,34 +121,35 @@ try {
 }
 
 // Continue with your existing logic...
-console.log("🔍 QR Code Analysis:", { 
-  hasSvg: !!qrSvg, 
-  svgType: typeof qrSvg, 
-  svgLength: qrSvg?.length, 
-  svgPreview: qrSvg ? qrSvg.substring(0, 100) + '...' : undefined, 
-  hasUrl: !!qrCodeUrl, 
-  url: qrCodeUrl 
-});
+
+// console.log("🔍 QR Code Analysis:", { 
+//   hasSvg: !!qrSvg, 
+//   svgType: typeof qrSvg, 
+//   svgLength: qrSvg?.length, 
+//   svgPreview: qrSvg ? qrSvg.substring(0, 100) + '...' : undefined, 
+//   hasUrl: !!qrCodeUrl, 
+//   url: qrCodeUrl 
+// });
 
 // Update guest with QR data
 savedGuest.qrCode = qrCodeUrl || qrSvg || "";
 await savedGuest.save();
-console.log("💾 QR data saved to database");
+// console.log("💾 QR data saved to database");
 
-    console.log("🔍 QR Code Analysis:", {
-      hasSvg: !!qrSvg,
-      svgType: typeof qrSvg,
-      svgLength: qrSvg?.length,
-      svgPreview: qrSvg?.substring(0, 100),
-      hasUrl: !!qrCodeUrl,
-      url: qrCodeUrl ? qrCodeUrl.substring(0, 100) + "..." : undefined
-    });
+    // console.log("🔍 QR Code Analysis:", {
+    //   hasSvg: !!qrSvg,
+    //   svgType: typeof qrSvg,
+    //   svgLength: qrSvg?.length,
+    //   svgPreview: qrSvg?.substring(0, 100),
+    //   hasUrl: !!qrCodeUrl,
+    //   url: qrCodeUrl ? qrCodeUrl.substring(0, 100) + "..." : undefined
+    // });
 
     // --- Save QR info to DB ---
     savedGuest.qrCodeData = savedGuest._id.toString();
     savedGuest.qrCode = qrCodeUrl || "";
     await savedGuest.save();
-    console.log("💾 QR data saved to database");
+    // console.log("💾 QR data saved to database");
 
     // --- Email Sending ---
     if (email) {
@@ -190,7 +191,7 @@ console.log("💾 QR data saved to database");
               </div>
             </div>
           `;
-          console.log("✅ Using S3 URL in email HTML");
+          // console.log("✅ Using S3 URL in email HTML");
         } else {
           qrImgTag = `
             <div style="border: 2px solid #ff6b6b; padding: 15px; margin: 10px 0; text-align: center; background: #fff5f5;">
@@ -198,7 +199,7 @@ console.log("💾 QR data saved to database");
               <p style="color: #d63031; margin: 5px 0 0 0; font-size: 12px;">Please contact the event organizer</p>
             </div>
           `;
-          console.error("❌ No QR code URL available for email");
+          // console.error("❌ No QR code URL available for email");
         }
 
         const emailContent = `
@@ -252,7 +253,7 @@ console.log("💾 QR data saved to database");
           </div>
         `;
 
-        console.log("📤 Sending email to:", email);
+        // console.log("📤 Sending email to:", email);
         
         // Send email WITHOUT attachments - QR code is embedded via S3 URL
         await sendEmail(
@@ -262,7 +263,7 @@ console.log("💾 QR data saved to database");
         );
 
         
-        console.log(`✅ Email sent to ${email}`);
+        // console.log(`✅ Email sent to ${email}`);
 
       } catch (emailError) {
         console.error("❌ Failed to send email:", emailError);

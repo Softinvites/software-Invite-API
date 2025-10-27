@@ -311,22 +311,63 @@ export const handler = async (event: any) => {
     const fulfilled = results.filter(r => r.status === "fulfilled").map((r: any) => r.value);
     const successCount = fulfilled.filter((g) => g.success).length;
     const failedCount = fulfilled.filter((g) => !g.success).length;
+    const failed = fulfilled.filter((g) => !g.success);
 
     // 4. Send completion summary to admin
     console.log(`📊 Import Summary: ${successCount} successful, ${failedCount} failed`);
     
+    // await invokeLambda(process.env.EMAIL_LAMBDA_FUNCTION_NAME!, {
+    //   to: userEmail,
+    //   subject: "Guest Import Completed",
+    //   htmlContent: `
+    //     <h3>Guest Import Completed</h3>
+    //     <p>Event: <strong>${eventDetails.name}</strong></p>
+    //     <p>Total Guests Processed: ${results.length}</p>
+    //     <p>Successful: ${successCount}</p>
+    //     <p>Failed: ${failedCount}</p>
+    //     <p>Failed Guest: ${failed}</p>
+    //     ${failedCount > 0 ? '<p style="color: #d63031;">Check the logs for details on failed imports.</p>' : ''}
+    //   `,
+    // }, true);
+
     await invokeLambda(process.env.EMAIL_LAMBDA_FUNCTION_NAME!, {
-      to: userEmail,
-      subject: "Guest Import Completed",
-      htmlContent: `
-        <h3>Guest Import Completed</h3>
-        <p>Event: <strong>${eventDetails.name}</strong></p>
-        <p>Total Guests Processed: ${results.length}</p>
-        <p>Successful: ${successCount}</p>
-        <p>Failed: ${failedCount}</p>
-        ${failedCount > 0 ? '<p style="color: #d63031;">Check the logs for details on failed imports.</p>' : ''}
-      `,
-    }, true);
+  to: userEmail,
+  subject: "Guest Import Completed",
+  htmlContent: `
+    <h3>Guest Import Completed</h3>
+    <p>Event: <strong>${eventDetails.name}</strong></p>
+    <p>Total Guests Processed: ${results.length}</p>
+    <p>Successful: ${successCount}</p>
+    <p>Failed: ${failedCount}</p>
+    
+    ${failedCount > 0 ? `
+      <h4>Failed Guests:</h4>
+      <table border="1" cellpadding="8" cellspacing="0" style="border-collapse: collapse; width: 100%;">
+        <thead style="background-color: #f2f2f2;">
+          <tr>
+            <th>Full Name</th>
+            <th>Table No</th>
+            <th>Email</th>
+            <th>Phone</th>
+            <th>Others</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${failed.map(guest => `
+            <tr>
+              <td>${guest.fullname || 'N/A'}</td>
+              <td>${guest.TableNo || 'N/A'}</td>
+              <td>${guest.email || 'N/A'}</td>
+              <td>${guest.phone || 'N/A'}</td>
+              <td>${guest.others || 'N/A'}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+      <p style="color: #d63031; margin-top: 10px;">Check the logs for details on failed imports.</p>
+    ` : ''}
+  `,
+}, true);
 
     // 5. ✅ Cleanup CSV
     try {
@@ -344,6 +385,8 @@ export const handler = async (event: any) => {
         successful: successCount,
         failed: failedCount,
         eventName: eventDetails.name,
+        FailedGuests: failed,
+        
       }),
     };
   } catch (error: any) {
