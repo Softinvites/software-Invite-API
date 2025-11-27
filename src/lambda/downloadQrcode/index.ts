@@ -1,21 +1,34 @@
+import AWS from "aws-sdk";
+import sharp from "sharp";
 import { connectDB } from "./db.js";
 import { Guest } from "./guestmodel.js";
-import sharp from "sharp";
+import { generateQrSvg } from "./generateQrSvg.js";
+import { rgbToHex } from "./colorUtils.js";
+
+const s3 = new AWS.S3();
+
+// ✅ Sanitize names for filenames
+function safeName(str: string) {
+  return str ? str.replace(/[^a-zA-Z0-9._-]/g, "_") : "unknown";
+}
 
 export const handler = async (event: any) => {
-  const guestId = event.pathParameters?.guestId;
-  
-  if (!guestId) {
-    return {
-      statusCode: 400,
-      body: JSON.stringify({ message: "Guest ID is required" }),
-    };
-  }
-
   try {
+    const bucket = process.env.S3_BUCKET;
+    if (!bucket) throw new Error("S3_BUCKET not configured");
+
+    const guestId = event.pathParameters?.guestId;
+    if (!guestId) {
+      return {
+        statusCode: 400,
+        body: JSON.stringify({ message: "Guest ID is required" }),
+      };
+    }
+
+    // ✅ Connect to MongoDB
     await connectDB();
 
-    // Find the guest
+    // ✅ Find guest in database
     const guest = await Guest.findById(guestId);
     if (!guest) {
       return {
@@ -24,57 +37,89 @@ export const handler = async (event: any) => {
       };
     }
 
-    // Get the QR code URL
-    const qrCodeUrl = guest.qrCode;
-    if (!qrCodeUrl) {
-      return {
-        statusCode: 404,
-        body: JSON.stringify({ message: "QR code not found for this guest" }),
-      };
-    }
+    // ✅ Extract color fields safely
+    const bgColorHex = rgbToHex(guest.qrCodeBgColor);
+    const centerColorHex = rgbToHex(guest.qrCodeCenterColor);
+    const edgeColorHex = rgbToHex(guest.qrCodeEdgeColor);
 
-    // Download the SVG
-    const response = await fetch(qrCodeUrl);
-    if (!response.ok) {
-      throw new Error(`Failed to download SVG: ${response.statusText}`);
-    }
+    // ✅ Generate QR SVG dynamically
+    const svg = generateQrSvg(
+      guest._id.toString(),
+      bgColorHex,
+      centerColorHex,
+      edgeColorHex
+    );
 
-    const svgText = await response.text();
 
-    // Convert SVG to PNG
-    const pngBuffer = await sharp(Buffer.from(svgText))
-      .resize(512, 512, { fit: "contain" })
-      .png({ compressionLevel: 9, adaptiveFiltering: true })
-      .toBuffer();
+    console.log("✅ SVG length:", svg.length);
+console.log("✅ SVG preview:", svg.substring(0, 300));
 
-    // Safe filename logic
-    const safeName = guest.fullname?.replace(/[^a-zA-Z0-9-_]/g, "_") || "guest";
-    const safeTableNo = guest.TableNo?.toString().replace(/[^a-zA-Z0-9-_]/g, "_") || "noTable";
-    const safeOthers = guest.others?.toString().replace(/[^a-zA-Z0-9-_]/g, "_") || "noOthers";
+// Validate that the SVG starts with <svg
+if (!svg.trim().startsWith("<svg")) {
+  throw new Error("Generated SVG is invalid or empty");
+}
 
-    const filename = `qr-${safeName}_${safeTableNo}_${safeOthers}_${guestId}.png`;
+let pngBuffer: Buffer;
+try {
+  pngBuffer = await sharp(Buffer.from(svg), { density: 300 })
+    .png({ compressionLevel: 9 })
+    .toBuffer();
+} catch (err) {
+  console.error("❌ Sharp conversion failed. SVG snippet:\n", svg.substring(0, 400));
+  console.error("Error:", err);
+  throw new Error("QR code image conversion failed");
+}
 
-    // Return as base64 encoded response
+    // ✅ Clean filename & S3 key
+    const filename = `qr-${safeName(guest.fullname)}_${safeName(
+      guest.TableNo
+    )}_${safeName(guest.others)}_${guest._id}.png`;
+
+    const key = `single_qrs/${guest._id}/${filename}`;
+
+    // ✅ Upload to S3
+    await s3
+      .putObject({
+        Bucket: bucket,
+        Key: key,
+        Body: pngBuffer,
+        ContentType: "image/png",
+      })
+      .promise();
+
+    const fileUrl = `https://${bucket}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`;
+    console.log(`✅ QR PNG uploaded: ${fileUrl}`);
+
+    // ✅ Return response with file URL
     return {
-      isBase64Encoded: true,
       statusCode: 200,
       headers: {
-        "Content-Type": "image/png",
-        "Content-Disposition": `attachment; filename="${filename}"`,
+        "Content-Type": "application/json",
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Methods": "GET, OPTIONS",
         "Access-Control-Allow-Headers": "Content-Type, Authorization",
       },
-      body: pngBuffer.toString("base64"),
+      body: JSON.stringify({
+        message: "QR code generated successfully",
+        guestId,
+        filename,
+        fileUrl,
+      }),
     };
-
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("❌ Error downloading QR code:", error);
+
+    // ✅ Safe handling of unknown error type
+    const err =
+      error instanceof Error
+        ? { message: error.message, stack: error.stack }
+        : { message: String(error) };
+
     return {
       statusCode: 500,
-      body: JSON.stringify({ 
+      body: JSON.stringify({
         message: "Error downloading QR code",
-        error: error 
+        error: err,
       }),
     };
   }

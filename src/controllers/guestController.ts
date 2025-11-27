@@ -12,7 +12,8 @@ import jwt from "jsonwebtoken";
 import mongoose, { Types } from "mongoose";
 import sanitizeHtml from "sanitize-html";
 import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
-import { S3Client, GetObjectCommand, HeadObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
+import { generateQrSvg } from "../utils/generateQrSvg"; 
 
 const lambdaClient = new LambdaClient({ region: process.env.AWS_REGION });
 
@@ -672,77 +673,244 @@ export const updateGuest = async (req: Request, res: Response): Promise<void> =>
   }
 };
 
-export const downloadQRCode = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
+// export const downloadQRCode = async (
+//   req: Request,
+//   res: Response
+// ): Promise<void> => {
+//   try {
+//     const { id } = req.params;
+//     const guest = await Guest.findById(id);
+
+//     if (!guest) {
+//       res.status(404).json({ message: "Guest not found" });
+//       return;
+//     }
+
+//     const bgColorHex = rgbToHex(guest.qrCodeBgColor);
+//     const centerColorHex = rgbToHex(guest.qrCodeCenterColor);
+//     const edgeColorHex = rgbToHex(guest.qrCodeEdgeColor);
+
+//     const qr = new QRCode({
+//       content: guest._id.toString(),
+//       padding: 5,
+//       width: 512,
+//       height: 512,
+//       color: edgeColorHex,
+//       background: bgColorHex,
+//       xmlDeclaration: false,
+//     });
+
+//     let svg = qr.svg();
+
+//     svg = svg.replace(
+//       /<svg([^>]*)>/,
+//       `<svg$1>
+//         <defs>
+//           <radialGradient id="grad1" cx="50%" cy="50%" r="50%" fx="50%" fy="50%">
+//             <stop offset="0%" stop-color="${centerColorHex}" stop-opacity="1"/>
+//             <stop offset="100%" stop-color="${edgeColorHex}" stop-opacity="1"/>
+//           </radialGradient>
+//         </defs>`
+//     );
+
+//     svg = svg.replace(
+//       /<rect([^>]*?)style="fill:#[0-9a-fA-F]{3,6};([^"]*)"/g,
+//       (match, group1, group2) => {
+//         const isBoundingRect = /x="0".*y="0"/.test(group1);
+//         return isBoundingRect
+//           ? `<rect${group1}style="fill:${bgColorHex};${group2}"/>`
+//           : `<rect${group1}style="fill:url(#grad1);${group2}"/>`;
+//       }
+//     );
+
+//     const pngBuffer = await sharp(Buffer.from(svg))
+//       .resize(512, 512, { fit: "contain" })
+//       .png({ compressionLevel: 9, adaptiveFiltering: true })
+//       .toBuffer();
+
+//   // 👇 Safe filename logic here
+//   const safeName = guest.fullname?.replace(/[^a-zA-Z0-9-_]/g, "_") || "guest";
+//   const safeTableNo = guest.TableNo?.toString().replace(/[^a-zA-Z0-9-_]/g, "_") || "noTable";
+//   const safeOthers = guest.others?.toString().replace(/[^a-zA-Z0-9-_]/g, "_") || "noOthers";
+//   const guestId = guest._id.toString();
+
+//   const filename = `qr-${safeName}_${safeTableNo}_${safeOthers}_${guestId}.png`;
+
+//   res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+//   res.setHeader("Content-Type", "image/png");
+//   res.send(pngBuffer);
+//   } catch (error) {
+//     console.error("Error:", error);
+//     res.status(500).json({ message: "Error downloading QR code" });
+//   }
+// };
+
+
+// export const downloadQRCode = async (req: Request, res: Response): Promise<void> => {
+//   try {
+//     const { id } = req.params;
+//     const guest = await Guest.findById(id);
+
+//     if (!guest) {
+//       res.status(404).json({ message: "Guest not found" });
+//       return;
+//     }
+
+//     // Convert colors to hex
+//     const bgColorHex = rgbToHex(guest.qrCodeBgColor);
+//     const centerColorHex = rgbToHex(guest.qrCodeCenterColor);
+//     const edgeColorHex = rgbToHex(guest.qrCodeEdgeColor);
+
+//     // Generate base SVG QR
+//     const qr = new QRCode({
+//       content: guest._id.toString(),
+//       padding: 5,
+//       width: 512,
+//       height: 512,
+//       color: edgeColorHex,
+//       background: bgColorHex,
+//       xmlDeclaration: false,
+//     });
+
+//     let svg = qr.svg();
+
+//     // Add radial gradient definition
+//     svg = svg.replace(
+//       /<svg([^>]*)>/,
+//       `<svg$1>
+//         <defs>
+//           <radialGradient id="grad1" cx="50%" cy="50%" r="50%" fx="50%" fy="50%">
+//             <stop offset="0%" stop-color="${centerColorHex}" />
+//             <stop offset="100%" stop-color="${edgeColorHex}" />
+//           </radialGradient>
+//         </defs>`
+//     );
+
+//     // Replace fill colors dynamically
+//     svg = svg.replace(
+//       /<rect([^>]*?)style="fill:#[0-9a-fA-F]{3,6};([^"]*)"/g,
+//       (match, group1, group2) => {
+//         const isBoundingRect = /x="0".*y="0"/.test(group1);
+//         return isBoundingRect
+//           ? `<rect${group1}style="fill:${bgColorHex};${group2}"/>`
+//           : `<rect${group1}style="fill:url(#grad1);${group2}"/>`;
+//       }
+//     );
+
+//     // Convert SVG to PNG using Sharp
+// const pngBuffer = await sharp(Buffer.from(svg), { density: 300 })
+//   .resize({
+//     width: 512,
+//     height: 512,
+//     fit: "contain",
+//     background: { r: 255, g: 255, b: 255, alpha: 0 } // transparent padding
+//   })
+//   .png({
+//     compressionLevel: 9,   // safe, integer only
+//     force: true            // explicitly boolean for Lambda layer
+//   })
+//   .toBuffer();
+
+
+
+//     // Safe filename construction
+//     const safe = (val: string | number) =>
+//       val?.toString().replace(/[^a-zA-Z0-9-_]/g, "_") || "none";
+
+//     const filename = `qr-${safe(guest.fullname)}_${safe(guest.TableNo)}_${safe(
+//       guest.others
+//     )}_${guest._id}.png`;
+
+//     // ✅ Lambda-friendly + Express-safe download response
+//     if (process.env.AWS_LAMBDA_FUNCTION_NAME) {
+//       // Running in Lambda
+//       const base64 = pngBuffer.toString("base64");
+//       res.setHeader("Content-Type", "application/json");
+//       res.send({
+//         isBase64Encoded: true,
+//         statusCode: 200,
+//         headers: {
+//           "Content-Type": "image/png",
+//           "Content-Disposition": `attachment; filename="${filename}"`,
+//         },
+//         body: base64,
+//       });
+//     } else {
+//       // Running locally (Express)
+//       res.setHeader("Content-Type", "image/png");
+//       res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+//       res.send(pngBuffer);
+//     }
+//   } catch (error) {
+//   console.error("🔥 Error downloading QR code:", error);
+//   res.status(500).json({
+//     message: "Error downloading QR code",
+    // error: (error as any)?.message,
+    // stack: (error as any)?.stack,
+//   });
+// }
+// };
+
+
+
+export const downloadQRCode = async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
-    const guest = await Guest.findById(id);
 
+    // ✅ Validate guest exists first
+    const guest = await Guest.findById(id);
     if (!guest) {
       res.status(404).json({ message: "Guest not found" });
       return;
     }
 
-    const bgColorHex = rgbToHex(guest.qrCodeBgColor);
-    const centerColorHex = rgbToHex(guest.qrCodeCenterColor);
-    const edgeColorHex = rgbToHex(guest.qrCodeEdgeColor);
-
-    const qr = new QRCode({
-      content: guest._id.toString(),
-      padding: 5,
-      width: 512,
-      height: 512,
-      color: edgeColorHex,
-      background: bgColorHex,
-      xmlDeclaration: false,
+    // ✅ Invoke your Lambda (e.g. "downloadSingleQRCodeLambda")
+    const lambdaResponse = await invokeLambda(process.env.SINGLE_QR_LAMBDA_FUNCTION_NAME!, {
+      pathParameters: { guestId: id },
     });
 
-    let svg = qr.svg();
+    const statusCode = lambdaResponse?.statusCode || 500;
+    let parsedBody: any = {};
 
-    svg = svg.replace(
-      /<svg([^>]*)>/,
-      `<svg$1>
-        <defs>
-          <radialGradient id="grad1" cx="50%" cy="50%" r="50%" fx="50%" fy="50%">
-            <stop offset="0%" stop-color="${centerColorHex}" stop-opacity="1"/>
-            <stop offset="100%" stop-color="${edgeColorHex}" stop-opacity="1"/>
-          </radialGradient>
-        </defs>`
-    );
+    // ⚙️ Handle both Base64 PNG and JSON error body
+    if (lambdaResponse?.isBase64Encoded && lambdaResponse?.body) {
+      // If Lambda returns Base64 PNG (success)
+      const buffer = Buffer.from(lambdaResponse.body, "base64");
 
-    svg = svg.replace(
-      /<rect([^>]*?)style="fill:#[0-9a-fA-F]{3,6};([^"]*)"/g,
-      (match, group1, group2) => {
-        const isBoundingRect = /x="0".*y="0"/.test(group1);
-        return isBoundingRect
-          ? `<rect${group1}style="fill:${bgColorHex};${group2}"/>`
-          : `<rect${group1}style="fill:url(#grad1);${group2}"/>`;
+      res.setHeader(
+        "Content-Disposition",
+        lambdaResponse.headers?.["Content-Disposition"] ||
+          `attachment; filename="qr-${guest.fullname || "guest"}.png"`
+      );
+      res.setHeader("Content-Type", lambdaResponse.headers?.["Content-Type"] || "image/png");
+      res.setHeader("Access-Control-Allow-Origin", "*");
+
+      res.status(200).send(buffer);
+      return;
+    } else {
+      // If Lambda returned JSON (error or info)
+      try {
+        parsedBody = lambdaResponse?.body ? JSON.parse(lambdaResponse.body) : {};
+      } catch {
+        parsedBody = { error: "Failed to parse Lambda response" };
       }
-    );
 
-    const pngBuffer = await sharp(Buffer.from(svg))
-      .resize(512, 512, { fit: "contain" })
-      .png({ compressionLevel: 9, adaptiveFiltering: true })
-      .toBuffer();
-
-  // 👇 Safe filename logic here
-  const safeName = guest.fullname?.replace(/[^a-zA-Z0-9-_]/g, "_") || "guest";
-  const safeTableNo = guest.TableNo?.toString().replace(/[^a-zA-Z0-9-_]/g, "_") || "noTable";
-  const safeOthers = guest.others?.toString().replace(/[^a-zA-Z0-9-_]/g, "_") || "noOthers";
-  const guestId = guest._id.toString();
-
-  const filename = `qr-${safeName}_${safeTableNo}_${safeOthers}_${guestId}.png`;
-
-  res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
-  res.setHeader("Content-Type", "image/png");
-  res.send(pngBuffer);
+      res.status(statusCode).json({
+        message: parsedBody.message || "Lambda failed to generate QR PNG",
+        error: parsedBody.error || "Unknown Lambda error",
+      });
+    }
   } catch (error) {
-    console.error("Error:", error);
-    res.status(500).json({ message: "Error downloading QR code" });
+    console.error("❌ Error in downloadQRCode Controller:", error);
+    res.status(500).json({
+      message: "Internal server error",
+      error: error instanceof Error ? error.message : error,
+    });
   }
 };
+
+
+
 
 export const downloadAllQRCodes = async (req: Request, res: Response): Promise<void> => {
   try {
