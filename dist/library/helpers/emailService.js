@@ -4,7 +4,7 @@ exports.sendEmail = void 0;
 // library/helpers/emailService.ts
 const lambdaUtils_1 = require("../../utils/lambdaUtils");
 const s3Utils_1 = require("../../utils/s3Utils");
-const sendEmail = async (to, subject, htmlContent, attachments) => {
+const sendEmail = async (to, subject, htmlContent, from, attachments) => {
     try {
         // Upload attachments to S3 if any
         const attachmentPromises = (attachments || []).map(async (attachment) => {
@@ -22,14 +22,14 @@ const sendEmail = async (to, subject, htmlContent, attachments) => {
         console.log("Starting Lambda invocation with params:", {
             functionName: process.env.EMAIL_LAMBDA_FUNCTION_NAME,
             payload: {
-                from: process.env.EMAIL_FROM,
+                from: from || process.env.EMAIL_FROM,
                 to,
                 subject,
                 htmlContent: htmlContent.substring(0, 100) + "..." // Log first 100 chars
             }
         });
         const result = await (0, lambdaUtils_1.invokeLambda)(process.env.EMAIL_LAMBDA_FUNCTION_NAME, {
-            from: process.env.EMAIL_FROM,
+            from: from || process.env.EMAIL_FROM,
             to,
             subject,
             htmlContent,

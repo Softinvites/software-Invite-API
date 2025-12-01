@@ -6,7 +6,6 @@ import { connectDB } from "./db.js";
 import { Guest } from "./guestmodel.js";
 import { Event } from "./eventmodel.js";
 import { S3Client, DeleteObjectCommand, GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
-import sharp from "sharp";
 import sanitizeHtml from "sanitize-html";
 
 const s3 = new S3Client({ region: process.env.AWS_REGION });
@@ -24,61 +23,30 @@ async function getEventDetails(eventId: string) {
     const event = await Event.findById(eventId);
     if (!event) {
       console.warn(`Event not found for ID: ${eventId}`);
-      return { name: "Our Event", iv: "" };
+      return { name: "Our Event", date: "", iv: "" };
     }
     return {
       name: event.name,
+      date: event.date,
       iv: event.iv || ""
     };
   } catch (error) {
     console.error("Error fetching event details:", error);
-    return { name: "Our Event", iv: "" };
+    return { name: "Our Event", date: "", iv: "" };
   }
 }
 
-// Function to convert SVG QR code to PNG and upload to S3
-async function convertQrToPngAndUpload(svgUrl: string, guestId: string, eventId: string): Promise<string> {
-  try {
-    console.log("🔄 Converting QR code to PNG:", svgUrl);
-    
-    // Download the SVG directly using fetch
-    const response = await fetch(svgUrl);
-    if (!response.ok) {
-      throw new Error(`Failed to download SVG: ${response.statusText}`);
-    }
-    
-    // Get SVG as text
-    const svgText = await response.text();
-    
-    // Convert SVG to PNG using sharp with proper SVG input
-    const pngBuffer = await sharp(Buffer.from(svgText))
-      .resize(400, 400)
-      .png()
-      .toBuffer();
-    
-    // Upload PNG to S3
-    const pngKey = `qr_codes/png/${eventId}/${guestId}.png`;
-    const putObjectCommand = new PutObjectCommand({
-      Bucket: process.env.S3_BUCKET,
-      Key: pngKey,
-      Body: pngBuffer,
-      ContentType: "image/png",
-    });
-    
-    await s3.send(putObjectCommand);
-    
-    // Generate direct URL for the PNG
-    const pngUrl = `https://${process.env.S3_BUCKET}.s3.${process.env.AWS_REGION}.amazonaws.com/${pngKey}`;
-    
-    console.log("✅ QR code converted to PNG:", pngUrl);
-    return pngUrl;
-    
-  } catch (error) {
-    console.error("❌ Failed to convert QR to PNG:", error);
-    // Fallback to original SVG URL
-    return svgUrl;
-  }
-}
+// Helper function to adjust color brightness
+const adjustColorBrightness = (hex: string, percent: number): string => {
+  const num = parseInt(hex.replace("#", ""), 16);
+  const amt = Math.round(2.55 * percent);
+  const R = (num >> 16) + amt;
+  const G = (num >> 8 & 0x00FF) + amt;
+  const B = (num & 0x0000FF) + amt;
+  return "#" + (0x1000000 + (R < 255 ? R < 1 ? 0 : R : 255) * 0x10000 +
+    (G < 255 ? G < 1 ? 0 : G : 255) * 0x100 +
+    (B < 255 ? B < 1 ? 0 : B : 255)).toString(16).slice(1);
+};
 
 export const handler = async (event: any) => {
   const userEmail = event.userEmail || "softinvites@gmail.com";
@@ -173,127 +141,119 @@ export const handler = async (event: any) => {
                 allowedAttributes: {},
               }) : "You are cordially invited to our special event. We look forward to celebrating with you.";
 
-              let qrCodeUrlForEmail = qrData.qrCodeUrl;
-              let attachments: any[] = [];
-
-              try {
-                // Try to convert to PNG for better compatibility
-                qrCodeUrlForEmail = await convertQrToPngAndUpload(qrData.qrCodeUrl, savedGuest._id.toString(), eventId);
-                if (qrCodeUrlForEmail !== qrData.qrCodeUrl) {
-                  // Only add attachment if PNG conversion was successful
-                  attachments = [
-                    {
-                      filename: `QR-Code-${guest.fullname.replace(/[^a-zA-Z0-9]/g, '-')}-${eventDetails.name.replace(/[^a-zA-Z0-9]/g, '-')}.png`,
-                      url: qrCodeUrlForEmail
-                    }
-                  ];
+              // Convert SVG to PNG for email compatibility using pngConvertLambda
+              let pngQrCodeUrl = "";
+              if (qrData.qrCodeUrl) {
+                try {
+                  const lambdaResponse = await invokeLambda(process.env.PNG_CONVERT_LAMBDA!, {
+                    guestId: savedGuest._id.toString(),
+                    eventId: eventId
+                  });
+                  
+                  const parsedBody = typeof lambdaResponse.body === 'string' 
+                    ? JSON.parse(lambdaResponse.body) 
+                    : lambdaResponse.body;
+                  
+                  pngQrCodeUrl = parsedBody?.pngUrl || "";
+                } catch (pngError) {
+                  console.error("❌ PNG conversion failed:", pngError);
                 }
-              } catch (conversionError) {
-                console.warn("⚠️ Using SVG QR code as fallback:", conversionError);
-                qrCodeUrlForEmail = qrData.qrCodeUrl;
               }
-
-              // Create download URL for the QR code
+              
+              const finalQrUrl = pngQrCodeUrl || qrData.qrCodeUrl;
               const downloadUrl = `https://292x833w13.execute-api.us-east-2.amazonaws.com/guest/download-emailcode/${savedGuest._id.toString()}`;
 
+              // Get QR center color for header and determine text color
+              const centerColorHex = rgbToHex(guest.qrCodeCenterColor || "0,0,0");
+              const darkerCenterColor = adjustColorBrightness(centerColorHex, -20);
+              
+              // Simple text color logic: white for dark colors, black for light colors
+              const num = parseInt(centerColorHex.replace("#", ""), 16);
+              const r = (num >> 16) & 255;
+              const g = (num >> 8) & 255;
+              const b = num & 255;
+              const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+              const textColor = brightness > 180 ? "#000000" : "#ffffff";
+              
               const emailContent = `
-  <div style="font-family: 'Georgia', serif; color: #000; background-color: #fff; padding: 20px; max-width: 600px; margin: 0 auto;">
-    <!-- IMPORTANT WARNING BANNER -->
-    <div style="background: #fff5f5; border: 2px solid #ff6b6b; border-radius: 8px; padding: 15px; margin-bottom: 25px; text-align: center;">
-      <p style="color: #d63031; margin: 0; font-weight: bold; font-size: 14px;">
-        🔍 IMPORTANT: Enable images to view your QR code
-      </p>
-      <p style="color: #666; margin: 5px 0 0 0; font-size: 12px;">
-        Most email providers block images by default for security
-      </p>
-    </div>
-    
-    <h2 style="text-align: center; font-weight: bold; font-size: 24px; margin-bottom: 10px; color: #7d0e2b;">${eventDetails.name}</h2>
-    <hr style="border: none; border-top: 2px solid #7d0e2b; margin: 10px auto; width: 80%;" />
-
-    ${eventDetails.iv ? `
-      <div style="text-align: center; margin: 30px 0;">
-        <img src="${eventDetails.iv}" alt="Event Invitation" width="400" style="border: 10px solid #7d0e2b; border-radius: 8px; max-width: 100%;" />
-      </div>
-    ` : ''}
-
-    <p style="font-size: 16px; line-height: 1.6;">Dear <strong style="color: #7d0e2b;">${guest.fullname}</strong>,</p>
-    <p style="font-weight: bold; font-size: 16px; line-height: 1.6; background: #fff5f5; padding: 15px; border-radius: 5px;">${sanitizedMessage}</p>
-
-    <p style="font-weight: bold; margin-top: 30px; font-size: 14px; color: #555;">
-      Please note: This event is strictly by invitation and this invitation is uniquely intended for you. 
-      A personalised QR code is provided below.
-    </p>
-    <p style="font-size: 14px; line-height: 1.6;">Kindly acknowledge receipt of this e-invitation. We look forward to welcoming you at the event.</p>
-    <p style="font-style: italic; color: #666; text-align: center; margin: 20px 0;">Message powered by SoftInvites.</p>
-
-    <!-- ENHANCED QR CODE SECTION -->
-    <div style="text-align: center; margin: 40px 0; padding: 25px; background: #f8f9fa; border-radius: 10px; border: 2px dashed #7d0e2b;">
-      <p style="font-weight: bold; font-size: 20px; color: #7d0e2b; margin-bottom: 20px;">
-        🎟️ YOUR EVENT PASS - QR CODE REQUIRED FOR ENTRY
-      </p>
-      
-      <div style="text-align: center; margin: 20px 0;">
-        <img src="${qrCodeUrlForEmail}" 
-             alt="[SHOW IMAGES] Your Event QR Code - Required for Entry at ${eventDetails.name}" 
-             width="200" height="200" 
-             style="margin: 15px auto; border: 2px solid #7d0e2b; display: block; border-radius: 8px;" />
-        
-        <div style="background: #fff5f5; padding: 15px; margin: 15px 0; border-radius: 8px; border: 1px solid #ff6b6b;">
-          <p style="color: #d63031; font-weight: bold; margin: 0 0 10px 0; text-align: center;">
-            ⚠️ Can't see the QR code above?
-          </p>
-          <p style="text-align: center; margin: 0;">
-            <a href="${downloadUrl}" 
-               style="color: #ffffff; background-color: #7d0e2b; padding: 12px 25px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block; margin: 5px;"
-               download="qr-code-${guest.fullname}.png">
-               📥 DOWNLOAD YOUR QR CODE
-            </a>
-          </p>
-          <p style="color: #666; font-size: 12px; text-align: center; margin: 10px 0 0 0;">
-            Click to download a high-quality PNG version of your QR code
-          </p>
-        </div>
-      </div>
-      
-      <div style="background: #e8f5e8; padding: 15px; margin: 15px 0; border-radius: 8px; border: 1px solid #4caf50;">
-        <p style="color: #2e7d32; font-weight: bold; margin: 0 0 10px 0; text-align: center;">
-          ✅ QR Code Successfully Generated
-        </p>
-        <p style="color: #666; font-size: 12px; text-align: center; margin: 10px 0 0 0;">
-          Present this QR code at the event entrance for scanning
-        </p>
-      </div>
-      
-      <div style="font-size: 10px; color: #999; margin-top: 15px; padding: 10px; background: #fff; border-radius: 5px;">
-        Guest: ${guest.fullname} | Table: ${guest.TableNo || 'N/A'} | ID: ${savedGuest._id.toString().substring(0, 8)}
-      </div>
-    </div>
-
-    <footer style="margin-top: 40px; padding-top: 20px; border-top: 1px solid #ccc; text-align: center; font-size: 12px; color: #666;">
-      <p><strong>SoftInvites</strong><br />Lagos, Nigeria</p>
-      <p style="margin-top: 10px;">
-        You received this email because you have been invited to this event.<br />
-      </p>
-    </footer>
-  </div>
-`;
+                <div style="font-family: 'Segoe UI', 'Arial', sans-serif; background: #f7f8fc; padding: 20px 10px; margin: 0; line-height: 1.6;">
+                  <div style="width: 100%; margin: 0 auto; background: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 8px 32px rgba(0,0,0,0.08);">
+                    <div style="background: linear-gradient(135deg, ${centerColorHex} 0%, ${darkerCenterColor} 100%); padding: 40px 20px; text-align: center;">
+                      <h1 style="color: ${textColor}; font-size: clamp(24px, 5vw, 32px); font-weight: 600; margin: 0 0 8px 0; letter-spacing: 0.5px;">${eventDetails.name}</h1>
+                      <p style="color: ${textColor}; font-size: clamp(14px, 3vw, 18px); margin: 0; opacity: 0.9;">${eventDetails.date}</p>
+                    </div>
+                    <div style="padding: 30px 20px;">
+                      <div style="margin-bottom: 30px;">
+                        <div style="background: #f8faff; padding: 20px; border-radius: 8px;">
+                          <p style="font-size: clamp(16px, 4vw, 18px); margin: 0 0 12px 0; font-weight: 600; color: ${darkerCenterColor};">Dear ${guest.fullname},</p>
+                          <div style="font-size: clamp(14px, 3.5vw, 16px); color: #4a5568; line-height: 1.7;">
+                            ${sanitizedMessage}
+                          </div>
+                        </div>
+                      </div>
+                      <div style="text-align: center; background: linear-gradient(135deg, #f8faff 0%, #e8f2ff 100%); padding: 30px 15px; border-radius: 12px; border: 1px solid #e2e8f0;">
+                        <h2 style="color: ${centerColorHex}; font-size: clamp(18px, 4vw, 22px); font-weight: 600; margin: 0 0 25px 0;">🎟️ Your Digital Pass</h2>
+                        <div style="background: #ffffff; padding: clamp(30px, 6vw, 50px); border-radius: 12px; display: inline-block; box-shadow: 0 4px 16px rgba(30,60,114,0.1); border: 1px solid #e2e8f0;">
+                          ${finalQrUrl ? `<a href="${downloadUrl}"><img src="${finalQrUrl}" alt="Your Event QR Code" width="300" height="300" style="display: block; border-radius: 8px; max-width: 100%; height: auto; cursor: pointer;" /></a>` : `<div style="width: 300px; height: 300px; background: #f7f8fc; border-radius: 8px; display: flex; align-items: center; justify-content: center; border: 2px dashed #cbd5e0; max-width: 100%;"><p style="color: #718096; margin: 0; font-size: 14px; text-align: center;">Loading QR Code...</p></div>`}
+                        </div>
+                        <p style="color: #718096; font-size: clamp(12px, 3vw, 14px); margin: 20px 0 25px 0;">Present this code at the event entrance for quick check-in</p>
+                        <a href="${downloadUrl}" style="display: inline-block; background: linear-gradient(135deg, ${centerColorHex} 0%, ${darkerCenterColor} 100%); color: ${textColor}; padding: 12px 28px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: clamp(12px, 3vw, 14px); box-shadow: 0 4px 12px rgba(30,60,114,0.3); transition: all 0.3s ease;">📥 Download QR Code</a>
+                      </div>
+                      <div style="background: linear-gradient(135deg, #48bb78 0%, #38a169 100%); color: #ffffff; padding: 20px; border-radius: 10px; margin: 30px 0 0 0; text-align: center;">
+                        <p style="font-size: 15px; font-weight: 600; margin: 0 0 5px 0;">Invitation Confirmed</p>
+                        <p style="font-size: 13px; margin: 0; opacity: 0.9;">This invitation is exclusively for you. Please keep your QR code secure.</p>
+                      </div>
+                    </div>
+                    <div style="background: #f7f8fc; padding: 25px 30px; text-align: center; border-top: 1px solid #e2e8f0;">
+                      <p style="font-size: 12px; color: #718096; margin: 0;">© 2025 <strong style="color: #4a5568;">Soft Invites</strong> • All rights reserved</p>
+                    </div>
+                  </div>
+                </div>
+              `;
 
               console.log(`📤 Sending email to: ${guest.email}`);
+              console.log(`📧 Email Lambda Function: ${process.env.EMAIL_LAMBDA_FUNCTION_NAME}`);
               
-              // Send email with or without attachment
-              await invokeLambda(
-                process.env.EMAIL_LAMBDA_FUNCTION_NAME!,
-                {
-                  to: guest.email,
-                  subject: `${eventDetails.name} Invitation`,
-                  htmlContent: emailContent,
-                  attachments: attachments
-                },
-                true
-              );
-
-              console.log(`✅ Email sent to ${guest.email}`);
+              const emailPayload: any = {
+                to: guest.email,
+                from: `${eventDetails.name} <info@softinvite.com>`,
+                subject: `Invitation to ${eventDetails}`,
+                htmlContent: emailContent
+              };
+              
+              if (eventDetails.iv) {
+                try {
+                  const imageResponse = await fetch(eventDetails.iv);
+                  if (imageResponse.ok) {
+                    const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
+                    emailPayload.attachments = [
+                      {
+                        filename: `${eventDetails.name.replace(/[^a-zA-Z0-9]/g, '_')}_invitation.jpg`,
+                        content: imageBuffer.toString('base64'),
+                        contentType: 'image/jpeg'
+                      }
+                    ];
+                    console.log("📧 Sending email with event IV attachment");
+                  }
+                } catch (attachmentError) {
+                  console.error("❌ Failed to download event IV for attachment:", attachmentError);
+                }
+              }
+              
+              console.log(`📧 Email payload:`, JSON.stringify(emailPayload, null, 2));
+              
+              try {
+                const emailResponse = await invokeLambda(
+                  process.env.EMAIL_LAMBDA_FUNCTION_NAME!,
+                  emailPayload,
+                  true
+                );
+                console.log(`📧 Email Lambda response:`, emailResponse);
+                console.log(`✅ Email sent to ${guest.email}`);
+              } catch (emailError) {
+                console.error(`❌ Email sending failed for ${guest.email}:`, emailError);
+                throw emailError;
+              }
             }
 
             return { ...savedGuest.toObject(), success: true };
@@ -315,59 +275,45 @@ export const handler = async (event: any) => {
 
     // 4. Send completion summary to admin
     console.log(`📊 Import Summary: ${successCount} successful, ${failedCount} failed`);
-    
-    // await invokeLambda(process.env.EMAIL_LAMBDA_FUNCTION_NAME!, {
-    //   to: userEmail,
-    //   subject: "Guest Import Completed",
-    //   htmlContent: `
-    //     <h3>Guest Import Completed</h3>
-    //     <p>Event: <strong>${eventDetails.name}</strong></p>
-    //     <p>Total Guests Processed: ${results.length}</p>
-    //     <p>Successful: ${successCount}</p>
-    //     <p>Failed: ${failedCount}</p>
-    //     <p>Failed Guest: ${failed}</p>
-    //     ${failedCount > 0 ? '<p style="color: #d63031;">Check the logs for details on failed imports.</p>' : ''}
-    //   `,
-    // }, true);
 
     await invokeLambda(process.env.EMAIL_LAMBDA_FUNCTION_NAME!, {
-  to: userEmail,
-  subject: "Guest Import Completed",
-  htmlContent: `
-    <h3>Guest Import Completed</h3>
-    <p>Event: <strong>${eventDetails.name}</strong></p>
-    <p>Total Guests Processed: ${results.length}</p>
-    <p>Successful: ${successCount}</p>
-    <p>Failed: ${failedCount}</p>
-    
-    ${failedCount > 0 ? `
-      <h4>Failed Guests:</h4>
-      <table border="1" cellpadding="8" cellspacing="0" style="border-collapse: collapse; width: 100%;">
-        <thead style="background-color: #f2f2f2;">
-          <tr>
-            <th>Full Name</th>
-            <th>Table No</th>
-            <th>Email</th>
-            <th>Phone</th>
-            <th>Others</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${failed.map(guest => `
-            <tr>
-              <td>${guest.fullname || 'N/A'}</td>
-              <td>${guest.TableNo || 'N/A'}</td>
-              <td>${guest.email || 'N/A'}</td>
-              <td>${guest.phone || 'N/A'}</td>
-              <td>${guest.others || 'N/A'}</td>
-            </tr>
-          `).join('')}
-        </tbody>
-      </table>
-      <p style="color: #d63031; margin-top: 10px;">Check the logs for details on failed imports.</p>
-    ` : ''}
-  `,
-}, true);
+      to: userEmail,
+      subject: "Guest Import Completed",
+      htmlContent: `
+        <h3>Guest Import Completed</h3>
+        <p>Event: <strong>${eventDetails.name}</strong></p>
+        <p>Total Guests Processed: ${results.length}</p>
+        <p>Successful: ${successCount}</p>
+        <p>Failed: ${failedCount}</p>
+        
+        ${failedCount > 0 ? `
+          <h4>Failed Guests:</h4>
+          <table border="1" cellpadding="8" cellspacing="0" style="border-collapse: collapse; width: 100%;">
+            <thead style="background-color: #f2f2f2;">
+              <tr>
+                <th>Full Name</th>
+                <th>Table No</th>
+                <th>Email</th>
+                <th>Phone</th>
+                <th>Others</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${failed.map(guest => `
+                <tr>
+                  <td>${guest.fullname || 'N/A'}</td>
+                  <td>${guest.TableNo || 'N/A'}</td>
+                  <td>${guest.email || 'N/A'}</td>
+                  <td>${guest.phone || 'N/A'}</td>
+                  <td>${guest.others || 'N/A'}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+          <p style="color: #d63031; margin-top: 10px;">Check the logs for details on failed imports.</p>
+        ` : ''}
+      `,
+    }, true);
 
     // 5. ✅ Cleanup CSV
     try {
@@ -386,7 +332,6 @@ export const handler = async (event: any) => {
         failed: failedCount,
         eventName: eventDetails.name,
         FailedGuests: failed,
-        
       }),
     };
   } catch (error: any) {

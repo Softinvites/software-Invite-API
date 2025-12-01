@@ -19,6 +19,8 @@ interface GuestDocument extends Document {
   createdAt: Date;
   updatedAt: Date;
   checkedIn: boolean;
+  checkedInAt?: Date;
+  checkedInBy?: string;
 }
 
 const GuestSchema = new Schema<GuestDocument>(
@@ -41,6 +43,8 @@ const GuestSchema = new Schema<GuestDocument>(
       default: "pending",
     },
     checkedIn: { type: Boolean, default: false },
+    checkedInAt: { type: Date, default: null },
+    checkedInBy: { type: String, default: null },
     imported: { type: Boolean, default: false },
   },
   { timestamps: true }

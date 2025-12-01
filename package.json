@@ -57,6 +57,8 @@
     "@aws-sdk/credential-provider-node": "^3.873.0",
     "@aws-sdk/s3-request-presigner": "^3.907.0",
     "@resvg/resvg-js": "^2.6.2",
+    "@sentry/node": "^7.120.4",
+    "@sentry/profiling-node": "^7.100.0",
     "@smithy/core": "^3.9.0",
     "archiver": "^7.0.1",
     "bcryptjs": "^2.4.3",

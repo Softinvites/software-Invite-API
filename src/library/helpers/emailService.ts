@@ -6,6 +6,7 @@ export const sendEmail = async (
   to: string,
   subject: string,
   htmlContent: string,
+  from?: string,
   attachments?: Array<{
     filename: string;
     content: Buffer;
@@ -31,7 +32,7 @@ export const sendEmail = async (
     console.log("Starting Lambda invocation with params:", {
       functionName: process.env.EMAIL_LAMBDA_FUNCTION_NAME,
       payload: {
-        from: process.env.EMAIL_FROM,
+        from: from || process.env.EMAIL_FROM,
         to,
         subject,
         htmlContent: htmlContent.substring(0, 100) + "..." // Log first 100 chars
@@ -39,7 +40,7 @@ export const sendEmail = async (
     });
 
     const result = await invokeLambda(process.env.EMAIL_LAMBDA_FUNCTION_NAME!, {
-      from: process.env.EMAIL_FROM,
+      from: from || process.env.EMAIL_FROM,
       to,
       subject,
       htmlContent,

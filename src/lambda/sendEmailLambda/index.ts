@@ -12,7 +12,8 @@ interface EmailEvent {
   from?: string;
   attachments?: Array<{
     filename: string;
-    s3Key: string;
+    s3Key?: string;
+    content?: string;
     contentType: string;
   }>;
 }
@@ -28,22 +29,31 @@ export const handler = async (event: EmailEvent) => {
 
     const attachments = await Promise.all(
       (event.attachments || []).map(async (file) => {
-        const response = await s3.send(new GetObjectCommand({
-          Bucket: process.env.S3_BUCKET,
-          Key: file.s3Key,
-        }));
+        let content: string;
+        
+        if (file.content) {
+          // Direct base64 content provided
+          content = file.content;
+        } else if (file.s3Key) {
+          // S3 attachment - fetch from S3
+          const response = await s3.send(new GetObjectCommand({
+            Bucket: process.env.S3_BUCKET,
+            Key: file.s3Key,
+          }));
 
-        if (!response.Body) {
-          throw new Error(`Unable to read S3 object for ${file.filename}`);
+          if (!response.Body) {
+            throw new Error(`Unable to read S3 object for ${file.filename}`);
+          }
+
+          const byteArray = await response.Body.transformToByteArray();
+          content = Buffer.from(byteArray).toString("base64");
+        } else {
+          throw new Error(`Attachment ${file.filename} must have either 'content' or 's3Key'`);
         }
-
-        // ✅ Ensure Body is converted to base64 safely
-        const byteArray = await response.Body.transformToByteArray();
-        const base64 = Buffer.from(byteArray).toString("base64");
 
         return {
           filename: file.filename,
-          content: base64,
+          content,
           contentType: file.contentType,
         };
       })

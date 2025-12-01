@@ -20,6 +20,7 @@ router.get("/download-all-qrcode/:eventId", auth_1.default, guestController_1.do
 router.post("/batch-qrcode-download/:eventId/timestamp", auth_1.default, guestController_1.downloadBatchQRCodes);
 // routhers others can access temporarily
 router.post("/scan-qrcode", combinedAuth_1.combinedAuth, guestController_1.scanQRCode);
+router.put("/checkin/:id", combinedAuth_1.combinedAuth, guestController_1.checkInGuest);
 router.get("/events-guest/:eventId", combinedAuth_1.combinedAuth, guestController_1.getGuestsByEvent);
 router.get("/single-guest/:id", combinedAuth_1.combinedAuth, guestController_1.getGuestById);
 //other routes

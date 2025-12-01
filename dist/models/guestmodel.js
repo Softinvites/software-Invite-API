@@ -21,6 +21,8 @@ const GuestSchema = new mongoose_1.Schema({
         default: "pending",
     },
     checkedIn: { type: Boolean, default: false },
+    checkedInAt: { type: Date, default: null },
+    checkedInBy: { type: String, default: null },
     imported: { type: Boolean, default: false },
 }, { timestamps: true });
 exports.Guest = (0, mongoose_1.model)("Guest", GuestSchema);

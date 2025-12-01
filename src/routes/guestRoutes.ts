@@ -18,7 +18,8 @@ import {
   downloadEmailQRCode,
   restoreGuestsAndRegenerateQRCodes,
   testDatabase,
-  checkQRCodeStatus
+  checkQRCodeStatus,
+  checkInGuest
 } from "../controllers/guestController";
 import auth from "../library/middlewares/auth";
 import { combinedAuth } from "../library/middlewares/combinedAuth";
@@ -47,6 +48,7 @@ router.post("/batch-qrcode-download/:eventId/timestamp", auth, downloadBatchQRCo
 
 // routhers others can access temporarily
 router.post("/scan-qrcode", combinedAuth, scanQRCode);
+router.put("/checkin/:id", combinedAuth, checkInGuest);
 router.get("/events-guest/:eventId", combinedAuth, getGuestsByEvent);
 router.get("/single-guest/:id", combinedAuth, getGuestById);
 

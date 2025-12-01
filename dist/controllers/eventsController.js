@@ -420,7 +420,16 @@ const updateEvent = async (req, res) => {
 exports.updateEvent = updateEvent;
 const getAllEvents = async (req, res) => {
     try {
+        // Update event statuses before fetching
         const events = await eventmodel_1.Event.find({});
+        // Update eventStatus for each event
+        for (const event of events) {
+            const currentStatus = event.getEventStatus();
+            if (event.eventStatus !== currentStatus) {
+                event.eventStatus = currentStatus;
+                await event.save();
+            }
+        }
         if (events.length == 0) {
             res.status(404).json({ message: "No events found" });
             return;
@@ -440,6 +449,13 @@ const getEventById = async (req, res) => {
         const event = await eventmodel_1.Event.findById(id);
         if (!event) {
             res.status(404).json({ message: "Event not found" });
+            return;
+        }
+        // Update event status
+        const currentStatus = event.getEventStatus();
+        if (event.eventStatus !== currentStatus) {
+            event.eventStatus = currentStatus;
+            await event.save();
         }
         res.status(200).json({ message: "Event successfully fetched", event });
     }
