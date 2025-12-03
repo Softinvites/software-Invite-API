@@ -1,5 +1,4 @@
 import { Request, Response } from "express";
-import * as Sentry from "@sentry/node";
 import { Guest } from "../models/guestmodel";
 import { Event } from "../models/eventmodel";
 import { invokeLambda } from '../utils/lambdaUtils';
@@ -235,7 +234,7 @@ await savedGuest.save();
 
               <!-- Footer -->
               <div style="background: #f7f8fc; padding: 25px 30px; text-align: center; border-top: 1px solid #e2e8f0;">
-                <p style="font-size: 12px; color: #718096; margin: 0;">© 2025 <strong style="color: #4a5568;">soft Invites</strong> • All rights reserved</p>
+                <p style="font-size: 12px; color: #718096; margin: 0;">© 2025 <strong style="color: #4a5568;">SoftInvites</strong> • All rights reserved</p>
               </div>
             </div>
           </div>
@@ -299,10 +298,6 @@ await savedGuest.save();
       guest: savedGuest,
     });
   } catch (error) {
-    Sentry.captureException(error, {
-      tags: { section: 'guest', action: 'add' },
-      extra: { eventId: req.body.eventId }
-    });
     console.error("Error in addGuest:", error);
     res.status(500).json({
       message: "Error creating guest",
@@ -652,7 +647,7 @@ export const updateGuest = async (req: Request, res: Response): Promise<void> =>
 
               <!-- Footer -->
               <div style="background: #f7f8fc; padding: 25px 30px; text-align: center; border-top: 1px solid #e2e8f0;">
-                <p style="font-size: 12px; color: #718096; margin: 0;">© 2025 <strong style="color: #4a5568;">Soft Invites</strong> • All rights reserved</p>
+                <p style="font-size: 12px; color: #718096; margin: 0;">© 2025 <strong style="color: #4a5568;">SoftInvites</strong> • All rights reserved</p>
               </div>
             </div>
           </div>
@@ -1230,6 +1225,56 @@ export const deleteGuestsByEventAndTimestamp = async (
   } catch (error) {
     console.error("Error deleting guests by event + timestamp:", error);
     res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+export const deleteSelectedGuests = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const { guestIds } = req.body;
+
+    if (!guestIds || !Array.isArray(guestIds) || guestIds.length === 0) {
+      res.status(400).json({ message: "Guest IDs array is required" });
+      return;
+    }
+
+    const guests = await Guest.find({ _id: { $in: guestIds } });
+    
+    if (!guests.length) {
+      res.status(404).json({ message: "No guests found with provided IDs" });
+      return;
+    }
+
+    const deletionPromises = guests.map(async (guest) => {
+      if (guest.qrCode) {
+        try {
+          const key = new URL(guest.qrCode).pathname.slice(1);
+          await deleteFromS3(key);
+        } catch (err) {
+          console.error(`Failed to delete QR for ${guest.fullname}:`, err);
+        }
+      }
+    });
+
+    await Promise.allSettled(deletionPromises);
+    
+    const deleteResult = await Guest.deleteMany({ _id: { $in: guestIds } });
+
+    await lambdaClient.send(new InvokeCommand({
+      FunctionName: process.env.BACKUP_LAMBDA!,
+      InvocationType: 'Event',
+      Payload: Buffer.from(JSON.stringify({}))
+    }));
+
+    res.status(200).json({
+      message: `Successfully deleted ${deleteResult.deletedCount} guests`,
+      deletedCount: deleteResult.deletedCount
+    });
+  } catch (error) {
+    console.error("Error deleting selected guests:", error);
+    res.status(500).json({ message: "Error deleting selected guests" });
   }
 };
 

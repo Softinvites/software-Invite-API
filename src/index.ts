@@ -1,4 +1,3 @@
-import "./sentry";
 import serverless from "serverless-http";
 import createError, { HttpError } from "http-errors";
 import express, { Request, Response, NextFunction } from "express";
@@ -6,7 +5,6 @@ import cookieParser from "cookie-parser";
 import logger from "morgan";
 import cors, { CorsOptions }  from "cors";
 import dotenv from "dotenv";
-import * as Sentry from "@sentry/node";
 import AdminRouter from "./routes/adminRoutes";
 import EventRouter from "./routes/eventsRoutes";
 import GuestRouter from "./routes/guestRoutes";
@@ -40,10 +38,6 @@ const corsOptions: CorsOptions = {
 
 app.use(cors(corsOptions))
 
-// --- Sentry middleware ---
-app.use(Sentry.Handlers.requestHandler());
-app.use(Sentry.Handlers.tracingHandler());
-
 // --- Middleware ---
 app.use(logger("dev"));
 app.use(express.json());
@@ -56,12 +50,8 @@ app.use("/admin", AdminRouter);
 app.use("/events", EventRouter);
 app.use("/guest", GuestRouter);
 
-// --- Sentry error handler ---
-app.use(Sentry.Handlers.errorHandler());
-
 // --- Error handler ---
 app.use((err: HttpError, req: Request, res: Response, next: NextFunction) => {
-  Sentry.captureException(err);
   console.error(err);
   const status = err.status || 500;
   const response = {

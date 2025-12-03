@@ -11,6 +11,7 @@ import {
   deleteGuestById,
   deleteGuestsByEvent,
   deleteGuestsByEventAndTimestamp,
+  deleteSelectedGuests,
   scanQRCode,
   generateAnalytics,
   generateEventAnalytics,
@@ -61,6 +62,7 @@ router.delete(
   auth,
   deleteGuestsByEventAndTimestamp
 );
+router.delete("/delete-selected", auth, deleteSelectedGuests);
 router.get("/get-analytics/", auth, generateAnalytics);
 router.get("/event-analytics/:eventId", combinedAuth, generateEventAnalytics);
 router.post("/generate-temp-link/:eventId", auth, generateTempLink);
