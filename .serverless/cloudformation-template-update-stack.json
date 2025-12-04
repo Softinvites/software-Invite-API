@@ -176,7 +176,7 @@
           "S3Bucket": {
             "Ref": "ServerlessDeploymentBucket"
           },
-          "S3Key": "serverless/softinvites-backend/dev/1764759634458-2025-12-03T11:00:34.458Z/app.zip"
+          "S3Key": "serverless/softinvites-backend/dev/1764840306837-2025-12-04T09:25:06.837Z/app.zip"
         },
         "Handler": "dist/index.handler",
         "Runtime": "nodejs20.x",
@@ -227,7 +227,7 @@
           "S3Bucket": {
             "Ref": "ServerlessDeploymentBucket"
           },
-          "S3Key": "serverless/softinvites-backend/dev/1764759634458-2025-12-03T11:00:34.458Z/backup.zip"
+          "S3Key": "serverless/softinvites-backend/dev/1764840306837-2025-12-04T09:25:06.837Z/backup.zip"
         },
         "Handler": "dist/backup.handler",
         "Runtime": "nodejs20.x",
