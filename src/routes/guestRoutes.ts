@@ -20,7 +20,8 @@ import {
   restoreGuestsAndRegenerateQRCodes,
   testDatabase,
   checkQRCodeStatus,
-  checkInGuest
+  checkInGuest,
+  resendAllEmails
 } from "../controllers/guestController";
 import auth from "../library/middlewares/auth";
 import { combinedAuth } from "../library/middlewares/combinedAuth";
@@ -71,5 +72,6 @@ router.post("/generate-temp-link/:eventId", auth, generateTempLink);
 router.post("/guests-restore", auth, restoreGuestsAndRegenerateQRCodes);
 router.get("/test-database/:eventId", auth, testDatabase);
 router.get("/check-qrcode-status/:eventId", combinedAuth, checkQRCodeStatus);
+router.post("/resend-all-emails/:eventId", auth, resendAllEmails);
 
 export default router;

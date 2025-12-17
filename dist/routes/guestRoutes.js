@@ -35,4 +35,5 @@ router.post("/generate-temp-link/:eventId", auth_1.default, guestController_1.ge
 router.post("/guests-restore", auth_1.default, guestController_1.restoreGuestsAndRegenerateQRCodes);
 router.get("/test-database/:eventId", auth_1.default, guestController_1.testDatabase);
 router.get("/check-qrcode-status/:eventId", combinedAuth_1.combinedAuth, guestController_1.checkQRCodeStatus);
+router.post("/resend-all-emails/:eventId", auth_1.default, guestController_1.resendAllEmails);
 exports.default = router;

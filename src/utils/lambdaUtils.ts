@@ -1,31 +1,34 @@
 import { InvokeCommand, InvocationType } from "@aws-sdk/client-lambda";
-import { lambda } from "./awsConfig";
+import { LambdaClient } from "@aws-sdk/client-lambda";
 
-export const invokeLambda = async (
-  functionName: string,
-  payload: any,
-  asyncInvoke = false
-): Promise<any> => {
-  console.log("🚀 Invoking Lambda:", { functionName, payload, asyncInvoke });
+const lambda = new LambdaClient({
+  region: process.env.AWS_REGION || "us-east-2",
+});
 
-  const command = new InvokeCommand({
-    // FunctionName: "softinvites-backend-dev-app",
-    FunctionName: functionName, 
-    InvocationType: asyncInvoke ? "Event" as InvocationType : "RequestResponse" as InvocationType,
+export const invokeLambda = async (functionName: string, payload: any, asyncInvoke: boolean = false ) => {
+  const params = {
+    FunctionName: functionName,
+    InvocationType: asyncInvoke ? InvocationType.Event : InvocationType.RequestResponse,
     Payload: Buffer.from(JSON.stringify(payload)),
-  });
+  };
 
+  const command = new InvokeCommand(params);
   const response = await lambda.send(command);
 
-  if (asyncInvoke) return { statusCode: 202, body: "{}" };
+  if (!response.Payload) {
+    return {};
+  }
 
-  const responsePayload = response.Payload
-    ? new TextDecoder().decode(response.Payload)
-    : "{}";
+  const responseStr = Buffer.from(response.Payload).toString().trim();
 
-  console.log("✅ Lambda response:", responsePayload);
-  return JSON.parse(responsePayload);
+  if (!responseStr) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(responseStr);
+  } catch (err) {
+    console.error("Failed to parse Lambda response:", responseStr);
+    throw err;
+  }
 };
-
-
-

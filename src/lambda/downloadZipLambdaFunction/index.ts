@@ -2,15 +2,31 @@ import AWS from "aws-sdk";
 import archiver from "archiver";
 import { PassThrough } from "stream";
 import sharp from "sharp";
-import { generateQrSvg } from "./generateQrSvg.js"; 
-import { rgbToHex } from "./colorUtils.js"; 
 
 const s3 = new AWS.S3();
 
-function safeName(str: string) {
-  return str ? str.replace(/[^a-zA-Z0-9._-]/g, "_") : "unknown";
+/**
+ * safeName
+ */
+function safeName(str?: string) {
+  return str ? String(str).replace(/[^a-zA-Z0-9._-]/g, "_") : "unknown";
 }
 
+/**
+ * streamToBuffer
+ */
+async function streamToBuffer(stream: any): Promise<Buffer> {
+  return new Promise<Buffer>((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    stream.on("data", (chunk: Buffer) => chunks.push(chunk));
+    stream.on("end", () => resolve(Buffer.concat(chunks)));
+    stream.on("error", (err: any) => reject(err));
+  });
+}
+
+/**
+ * ZIP LAMBDA HANDLER
+ */
 export const handler = async (event: any) => {
   try {
     const bucket = process.env.S3_BUCKET;
@@ -24,103 +40,149 @@ export const handler = async (event: any) => {
       };
     }
 
+    const CONCURRENCY_LIMIT = Math.max(1, parseInt(process.env.CONCURRENCY_LIMIT || "10", 10));
+    const makePublic = (process.env.S3_UPLOAD_PUBLIC || "false").toLowerCase() === "true";
+
     const archive = archiver("zip", { zlib: { level: 9 } });
     const zipStream = new PassThrough();
     archive.pipe(zipStream);
 
+    const zipKey = `qr_zips/event_${eventId}_${Date.now()}.zip`;
+
+    const uploadParams: any = {
+      Bucket: bucket,
+      Key: zipKey,
+      Body: zipStream,
+      ContentType: "application/zip",
+    };
+    if (makePublic) uploadParams.ACL = "public-read";
+
+    const uploadPromise = s3.upload(uploadParams).promise();
+
+    const streamErrorPromise = new Promise<void>((_, reject) => {
+      archive.on("error", reject);
+      zipStream.on("error", reject);
+    });
+
     const addedFiles: string[] = [];
     const missingFiles: any[] = [];
 
-    // 🚀 Process QR codes in parallel
-    await Promise.all(
-      qrItems.map(async (item, index) => {
-        try {
-          const { guestId, guestName, tableNo, others, qrCodeBgColor,qrCodeCenterColor, qrCodeEdgeColor} = item;
+    for (let i = 0; i < qrItems.length; i += CONCURRENCY_LIMIT) {
+      const slice = qrItems.slice(i, i + CONCURRENCY_LIMIT);
 
-          // ✅ Use correct DB color variables + convert RGB → HEX
-          const bgColorHex = rgbToHex(qrCodeBgColor);
-          const centerColorHex = rgbToHex(qrCodeCenterColor);
-          const edgeColorHex = rgbToHex(qrCodeEdgeColor);
+      await Promise.all(
+        slice.map(async (item, idx) => {
+          const localIndex = i + idx;
 
-          // 1. Generate QR SVG with gradient
-          const svg = generateQrSvg(
-            guestId || `guest_${index}`,
-            bgColorHex,
-            centerColorHex,
-            edgeColorHex
-          );
+          try {
+            let { key, guestId, guestName, tableNo, others } = item;
 
-          // 2. Convert SVG → PNG
-          const buffer = await sharp(Buffer.from(svg))
-            .png()
-            .toBuffer();
+            if (!guestId) {
+              missingFiles.push({ item, error: "Missing guestId" });
+              return;
+            }
 
-          // 3. Safe filename
-          const filename = `qr-${safeName(guestName)}_${safeName(
-            tableNo
-          )}_${safeName(others)}_${guestId || index}.png`;
+            // ✅ 1. Always decode URL-encoded keys (%20 etc)
+            if (key) {
+              key = decodeURIComponent(key);
+            }
 
-          archive.append(buffer, { name: filename });
-          addedFiles.push(filename);
-        } catch (err) {
-          console.error("❌ Failed to process QR item:", item, err);
-          missingFiles.push(item);
-        }
-      })
-    );
+            // ✅ 2. Fallback to the PNG path if SVG is missing
+            const fallbackPngKey = `qr_codes/png/${eventId}/${guestId}.png`;
 
-    await archive.finalize();
+            let s3Obj;
 
-    // Collect ZIP buffer
-    const chunks: Buffer[] = [];
-    for await (const chunk of zipStream) {
-      chunks.push(chunk);
+            try {
+              if (key) {
+                s3Obj = await s3.getObject({ Bucket: bucket, Key: key }).promise();
+              }
+            } catch {
+              // ✅ Fallback to PNG if SVG is missing
+              try {
+                s3Obj = await s3.getObject({ Bucket: bucket, Key: fallbackPngKey }).promise();
+                key = fallbackPngKey;
+              } catch (fallbackErr) {
+                missingFiles.push({
+                  item,
+                  error: "Neither SVG nor PNG exists in S3",
+                  tried: [key, fallbackPngKey],
+                });
+                return;
+              }
+            }
+
+            if (!s3Obj || !s3Obj.Body) {
+              missingFiles.push({ item, error: "Empty S3 object body" });
+              return;
+            }
+
+            const bodyBuffer: Buffer = Buffer.isBuffer(s3Obj.Body)
+              ? s3Obj.Body
+              : await streamToBuffer(s3Obj.Body);
+
+            // ✅ If it's already PNG, don’t reconvert
+            const isPng = key.endsWith(".png");
+
+            const pngBuffer = isPng
+              ? bodyBuffer
+              : await sharp(bodyBuffer).png().toBuffer();
+
+            const filename = `qr-${safeName(guestName)}_${safeName(
+              tableNo
+            )}_${safeName(others)}_${guestId || localIndex}.png`;
+
+            archive.append(pngBuffer, { name: filename });
+            addedFiles.push(filename);
+          } catch (err) {
+            console.error("❌ Failed to process QR item:", item, err);
+            missingFiles.push({
+              item,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        })
+      );
     }
-    const zipBuffer = Buffer.concat(chunks);
+
+    const finalizePromise = archive.finalize();
+
+    await Promise.race([
+      Promise.all([uploadPromise, finalizePromise]),
+      streamErrorPromise,
+    ]);
+
+    await uploadPromise;
 
     if (addedFiles.length === 0) {
       return {
         statusCode: 400,
         body: JSON.stringify({
-          message: "No QR codes processed, ZIP not created",
+          message: "No QR codes processed",
           missingFiles,
           eventId,
         }),
       };
     }
 
-    // 🚀 Upload ZIP to S3
-    const zipKey = `qr_zips/event_${eventId}_${Date.now()}.zip`;
-    await s3
-      .putObject({
-        Bucket: bucket,
-        Key: zipKey,
-        Body: zipBuffer,
-        ContentType: "application/zip",
-      })
-      .promise();
-
-    // 🚀 Public S3 URL
     const zipUrl = `https://${bucket}.s3.${process.env.AWS_REGION}.amazonaws.com/${zipKey}`;
-    console.log(`✅ ZIP uploaded: ${zipUrl}`);
 
     return {
       statusCode: 200,
       body: JSON.stringify({
-        zipUrl,
+        zipDownloadLink: zipUrl,
         eventId,
         generatedAt: new Date().toISOString(),
         numberOfFiles: addedFiles.length,
-        addedFiles,
         missingFiles,
       }),
     };
   } catch (err: unknown) {
-    console.error("❌ Error in Lambda:", err);
-    const message = err instanceof Error ? err.message : "Internal Server Error";
+    console.error("❌ Error in ZIP Lambda:", err);
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: message }),
+      body: JSON.stringify({
+        error: err instanceof Error ? err.message : "Internal Server Error",
+      }),
     };
   }
 };

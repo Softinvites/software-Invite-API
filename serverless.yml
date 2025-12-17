@@ -50,6 +50,7 @@ provider:
     ZIP_LAMBDA_FUNCTION_NAME: ${env:ZIP_LAMBDA_FUNCTION_NAME, 'downloadZipLambdaFunction'}
     SINGLE_QR_LAMBDA_FUNCTION_NAME: ${env:SINGLE_QR_LAMBDA_FUNCTION_NAME, 'downloadLambdaFunction'}
     EMAIL_LAMBDA_FUNCTION_NAME: ${env:EMAIL_LAMBDA_FUNCTION_NAME, 'sendEmailLambdaFunction'}
+    RESEND_EMAILS_LAMBDA_FUNCTION_NAME: ${env:RESEND_EMAILS_LAMBDA_FUNCTION_NAME, 'resendEmailsLambdaFunction'}
     PNG_CONVERT_LAMBDA: ${env:PNG_CONVERT_LAMBDA, 'pngConvertLambda'}
     FRONTEND_URL: ${env:FRONTEND_URL, 'https://www.softinvite.com'}
     BACKUP_BUCKET: ${env:BACKUP_BUCKET, 'softinvites-backups'}

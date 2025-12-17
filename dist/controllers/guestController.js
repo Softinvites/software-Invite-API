@@ -26,7 +26,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.checkQRCodeStatus = exports.testDatabase = exports.restoreGuestsAndRegenerateQRCodes = exports.generateTempLink = exports.generateEventAnalytics = exports.generateAnalytics = exports.scanQRCode = exports.deleteSelectedGuests = exports.deleteGuestsByEventAndTimestamp = exports.deleteGuestsByEvent = exports.deleteGuestById = exports.getGuestById = exports.getGuestsByEvent = exports.downloadEmailQRCode = exports.downloadBatchQRCodes = exports.downloadAllQRCodes = exports.downloadQRCode = exports.checkInGuest = exports.updateGuest = exports.importGuests = exports.addGuest = void 0;
+exports.resendAllEmails = exports.checkQRCodeStatus = exports.testDatabase = exports.restoreGuestsAndRegenerateQRCodes = exports.generateTempLink = exports.generateEventAnalytics = exports.generateAnalytics = exports.scanQRCode = exports.deleteSelectedGuests = exports.deleteGuestsByEventAndTimestamp = exports.deleteGuestsByEvent = exports.deleteGuestById = exports.getGuestById = exports.getGuestsByEvent = exports.downloadEmailQRCode = exports.downloadBatchQRCodes = exports.downloadAllQRCodes = exports.downloadQRCode = exports.checkInGuest = exports.updateGuest = exports.importGuests = exports.addGuest = void 0;
 const guestmodel_1 = require("../models/guestmodel");
 const eventmodel_1 = require("../models/eventmodel");
 const lambdaUtils_1 = require("../utils/lambdaUtils");
@@ -196,7 +196,7 @@ const addGuest = async (req, res) => {
 
                 <!-- QR Code Section -->
                 <div style="text-align: center; background: linear-gradient(135deg, #f8faff 0%, #e8f2ff 100%); padding: 30px 15px; border-radius: 12px; border: 1px solid #e2e8f0;">
-                  <h2 style="color: ${centerColorHex}; font-size: clamp(18px, 4vw, 22px); font-weight: 600; margin: 0 0 25px 0;">🎟️ Your Digital Pass</h2>
+                  <h2 style="color: ${centerColorHex}; font-size: clamp(18px, 4vw, 22px); font-weight: 600; margin: 0 0 25px 0;">Your Digital Pass</h2>
                   
                   <div style="background: #ffffff; padding: clamp(30px, 6vw, 50px); border-radius: 12px; display: inline-block; box-shadow: 0 4px 16px rgba(30,60,114,0.1); border: 1px solid #e2e8f0;">
                     ${finalQrUrl ? `
@@ -255,7 +255,7 @@ const addGuest = async (req, res) => {
                     }
                 }
                 // Send email with event IV attachment
-                await (0, emailService_1.sendEmail)(email, `Invitation to ${eventName}`, emailContent, `${eventName} <info@softinvite.com>`, attachments.length > 0 ? attachments : undefined);
+                await (0, emailService_1.sendEmail)(email, `Invitation to ${eventName}`, emailContent, `SoftInvites <info@softinvite.com>`, attachments.length > 0 ? attachments : undefined);
                 // console.log(`✅ Email sent to ${email}`);
             }
             catch (emailError) {
@@ -550,7 +550,7 @@ const updateGuest = async (req, res) => {
 
                 <!-- QR Code Section -->
                 <div style="text-align: center; background: linear-gradient(135deg, #f8faff 0%, #e8f2ff 100%); padding: 30px 15px; border-radius: 12px; border: 1px solid #e2e8f0;">
-                  <h2 style="color: ${centerColorHex}; font-size: clamp(18px, 4vw, 22px); font-weight: 600; margin: 0 0 25px 0;">🎟️ Your Digital Pass</h2>
+                  <h2 style="color: ${centerColorHex}; font-size: clamp(18px, 4vw, 22px); font-weight: 600; margin: 0 0 25px 0;">Your Digital Pass</h2>
                   
                   <div style="background: #ffffff; padding: clamp(30px, 6vw, 50px); border-radius: 12px; display: inline-block; box-shadow: 0 4px 16px rgba(30,60,114,0.1); border: 1px solid #e2e8f0;">
                     ${finalQrUrl ? `
@@ -611,7 +611,7 @@ const updateGuest = async (req, res) => {
                     }
                 }
                 // Send email with event IV attachment
-                await (0, emailService_1.sendEmail)(guest.email, `Invitation to ${eventName}`, emailContent, `${eventName} <info@softinvite.com>`, attachments.length > 0 ? attachments : undefined);
+                await (0, emailService_1.sendEmail)(guest.email, `Invitation to ${eventName}`, emailContent, `SoftInvites <info@softinvite.com>`, attachments.length > 0 ? attachments : undefined);
                 emailSent = true;
                 // console.log(`✅ Email sent to ${guest.email}`);
             }
@@ -1613,3 +1613,40 @@ const checkQRCodeStatus = async (req, res) => {
     }
 };
 exports.checkQRCodeStatus = checkQRCodeStatus;
+const resendAllEmails = async (req, res) => {
+    try {
+        const { eventId } = req.params;
+        if (!eventId) {
+            res.status(400).json({ message: "Event ID is required" });
+            return;
+        }
+        const event = await eventmodel_1.Event.findById(eventId);
+        if (!event) {
+            res.status(404).json({ message: "Event not found" });
+            return;
+        }
+        const guestsWithEmail = await guestmodel_1.Guest.countDocuments({
+            eventId,
+            email: { $exists: true, $ne: "" }
+        });
+        if (guestsWithEmail === 0) {
+            res.status(404).json({ message: "No guests with email addresses found" });
+            return;
+        }
+        // Trigger resend emails Lambda asynchronously
+        await (0, lambdaUtils_1.invokeLambda)(process.env.RESEND_EMAILS_LAMBDA_FUNCTION_NAME, { eventId }, true);
+        res.status(202).json({
+            message: `Email resend job started for ${guestsWithEmail} guests. Admin will receive notification when complete.`,
+            eventName: event.name,
+            guestsWithEmail
+        });
+    }
+    catch (error) {
+        console.error("❌ Error starting resend emails job:", error);
+        res.status(500).json({
+            message: "Error starting resend emails job",
+            error: error instanceof Error ? error.message : "Unknown error",
+        });
+    }
+};
+exports.resendAllEmails = resendAllEmails;

@@ -1,5 +1,15 @@
 import QRCode from "qrcode-svg";
 
+/**
+ * generateQrSvg
+ * Produces a QR SVG string with an injected radial gradient and background rect.
+ *
+ * @param guestId - string encoded inside the QR
+ * @param bgColor - background color (hex or color string)
+ * @param centerColor - center gradient color
+ * @param edgeColor - edge gradient color
+ * @returns SVG string
+ */
 export const generateQrSvg = (
   guestId: string,
   bgColor: string,
@@ -7,39 +17,59 @@ export const generateQrSvg = (
   edgeColor: string
 ): string => {
   const qr = new QRCode({
-    content: guestId,
+    content: String(guestId),
     padding: 10,
     width: 512,
     height: 512,
-    color: edgeColor, // default path color (we'll override with gradient)
-    background: bgColor,
+    color: edgeColor || "#000000",
+    background: bgColor || "#ffffff",
     xmlDeclaration: false,
   });
 
   let svg = qr.svg();
 
-  // Inject radial gradient definition
-  svg = svg.replace(
-    /(<svg[^>]*>)/,
-    `$1<defs>
+  // Ensure we have a safe set of colors (fallback)
+  const safeBg = bgColor || "#ffffff";
+  const safeCenter = centerColor || safeBg;
+  const safeEdge = edgeColor || safeCenter;
+
+  // Inject or extend <defs> with radial gradient id="grad1"
+  if (/<defs[^>]*>/.test(svg)) {
+    svg = svg.replace(
+      /<defs([^>]*)>/,
+      `<defs$1>
         <radialGradient id="grad1" cx="50%" cy="50%" r="50%" fx="50%" fy="50%">
-          <stop offset="0%" stop-color="${centerColor}" stop-opacity="1"/>
-          <stop offset="100%" stop-color="${edgeColor}" stop-opacity="1"/>
+          <stop offset="0%" stop-color="${safeCenter}" stop-opacity="1"/>
+          <stop offset="100%" stop-color="${safeEdge}" stop-opacity="1"/>
+        </radialGradient>`
+    );
+  } else {
+    svg = svg.replace(
+      /(<svg[^>]*>)/,
+      `$1<defs>
+        <radialGradient id="grad1" cx="50%" cy="50%" r="50%" fx="50%" fy="50%">
+          <stop offset="0%" stop-color="${safeCenter}" stop-opacity="1"/>
+          <stop offset="100%" stop-color="${safeEdge}" stop-opacity="1"/>
         </radialGradient>
       </defs>`
-  );
+    );
+  }
 
-  // Ensure the background rect uses the bgColor
-  svg = svg.replace(
-    /<rect([^>]*?)fill="[^"]*"/,
-    `<rect$1fill="${bgColor}"`
-  );
+  // Ensure background rect uses bgColor (or add one)
+  if (/<rect[^>]*>/i.test(svg)) {
+    svg = svg.replace(/<rect([^>]*)>/i, (match, attrs) => {
+      if (/fill=/.test(attrs)) {
+        return `<rect${attrs.replace(/fill="[^"]*"/i, `fill="${safeBg}"`)}>`;
+      }
+      return `<rect${attrs} fill="${safeBg}">`;
+    });
+  } else {
+    svg = svg.replace(/(<svg[^>]*>)/i, `$1<rect width="100%" height="100%" fill="${safeBg}" />`);
+  }
 
-  // Replace all path fills with gradient
-  svg = svg.replace(
-    /<path([^>]*?)fill="[^"]*"/g,
-    `<path$1fill="url(#grad1)"`
-  );
+  // Replace QR module path fills with gradient reference (best-effort)
+  svg = svg.replace(/(<path[^>]*?)fill="[^"]*"/g, `$1fill="url(#grad1)"`);
 
   return svg;
 };
+export default generateQrSvg;

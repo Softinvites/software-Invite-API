@@ -8,6 +8,7 @@ import dotenv from "dotenv";
 import AdminRouter from "./routes/adminRoutes";
 import EventRouter from "./routes/eventsRoutes";
 import GuestRouter from "./routes/guestRoutes";
+import WhatsAppRouter from "./routes/whatsappRoutes";
 import { dbConnect } from "./library/middlewares/dbConnect";
 
 
@@ -49,6 +50,7 @@ app.use(dbConnect); // ensures DB connection before any route
 app.use("/admin", AdminRouter);
 app.use("/events", EventRouter);
 app.use("/guest", GuestRouter);
+app.use("/whatsapp", WhatsAppRouter);
 
 // --- Error handler ---
 app.use((err: HttpError, req: Request, res: Response, next: NextFunction) => {
