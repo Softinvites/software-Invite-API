@@ -97,16 +97,48 @@ export const handler = async (event) => {
                         missingFiles.push({ item, error: "Empty S3 object body" });
                         return;
                     }
-                    const bodyBuffer = Buffer.isBuffer(s3Obj.Body)
-                        ? s3Obj.Body
-                        : await streamToBuffer(s3Obj.Body);
-                    // ✅ If it's already PNG, don’t reconvert
-                    const isPng = key.endsWith(".png");
-                    const pngBuffer = isPng
-                        ? bodyBuffer
-                        : await sharp(bodyBuffer).png().toBuffer();
+                    // Create a readable stream for the S3 object body (it may already be a stream)
+                    const s3BodyStream = (() => {
+                        if (Buffer.isBuffer(s3Obj.Body)) {
+                            const passthrough = new PassThrough();
+                            passthrough.end(s3Obj.Body);
+                            return passthrough;
+                        }
+                        return s3Obj.Body;
+                    })();
+                    const isPng = Boolean(key && key.toLowerCase().endsWith(".png"));
                     const filename = `qr-${safeName(guestName)}_${safeName(tableNo)}_${safeName(others)}_${guestId || localIndex}.png`;
-                    archive.append(pngBuffer, { name: filename });
+                    // Create a passthrough stream that will be appended to the archive.
+                    const outStream = new PassThrough();
+                    // If it's already PNG, pipe directly to the zip stream; otherwise, convert via sharp stream.
+                    if (isPng) {
+                        // Pipe S3 body -> outStream
+                        s3BodyStream.pipe(outStream).on("error", (pipeErr) => {
+                            console.error("Stream pipe error (png):", pipeErr);
+                            outStream.destroy(pipeErr);
+                        });
+                    }
+                    else {
+                        // Pipe S3 body -> sharp -> outStream
+                        try {
+                            const transformer = sharp().png();
+                            s3BodyStream.pipe(transformer).on("error", (tErr) => {
+                                console.error("Sharp transform error:", tErr);
+                                outStream.destroy(tErr);
+                            });
+                            transformer.pipe(outStream).on("error", (pipeErr) => {
+                                console.error("Stream pipe error (svg->png):", pipeErr);
+                                outStream.destroy(pipeErr);
+                            });
+                        }
+                        catch (convErr) {
+                            console.error("Conversion setup failed:", convErr);
+                            missingFiles.push({ item, error: String(convErr) });
+                            return;
+                        }
+                    }
+                    // Append the output stream to the archive (archiver will stream it out)
+                    archive.append(outStream, { name: filename });
                     addedFiles.push(filename);
                 }
                 catch (err) {

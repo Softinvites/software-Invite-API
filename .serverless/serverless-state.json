@@ -249,7 +249,7 @@
                 "S3Bucket": {
                   "Ref": "ServerlessDeploymentBucket"
                 },
-                "S3Key": "serverless/softinvites-backend/dev/1765543799550-2025-12-12T12:49:59.550Z/app.zip"
+                "S3Key": "serverless/softinvites-backend/dev/1769695821664-2026-01-29T14:10:21.664Z/app.zip"
               },
               "Handler": "dist/index.handler",
               "Runtime": "nodejs20.x",
@@ -301,7 +301,7 @@
                 "S3Bucket": {
                   "Ref": "ServerlessDeploymentBucket"
                 },
-                "S3Key": "serverless/softinvites-backend/dev/1765543799550-2025-12-12T12:49:59.550Z/backup.zip"
+                "S3Key": "serverless/softinvites-backend/dev/1769695821664-2026-01-29T14:10:21.664Z/backup.zip"
               },
               "Handler": "dist/backup.handler",
               "Runtime": "nodejs20.x",
@@ -344,25 +344,25 @@
               "BackupLogGroup"
             ]
           },
-          "BackupLambdaVersionX92X3eGmsMGb2qSWWE7BwfZarJGbDNUSPuGZ7wNcYA": {
+          "BackupLambdaVersionKOWEr5A7GxOHJLPpzcYJDsc8tW5SgBMx5lk9REx1qs": {
             "Type": "AWS::Lambda::Version",
             "DeletionPolicy": "Retain",
             "Properties": {
               "FunctionName": {
                 "Ref": "BackupLambdaFunction"
               },
-              "CodeSha256": "gvRrBPwf7OatwKQhnCZNh3WTMmH7UpZ5dWd6HovBPdw=",
+              "CodeSha256": "WU2tWIeAUJtfqw8DCvkfXkq64HmrF+gy8MAnQquvLrg=",
               "Description": "Event-driven MongoDB backup to S3"
             }
           },
-          "AppLambdaVersion2ALWuLM5N07ql0s6UiTxLEEBQoyh6c1tuhOLdwqL7Q": {
+          "AppLambdaVersionAio3HrFv52GfjApC4Es7i9JjwIdknXmqKm5c7YlwBQ": {
             "Type": "AWS::Lambda::Version",
             "DeletionPolicy": "Retain",
             "Properties": {
               "FunctionName": {
                 "Ref": "AppLambdaFunction"
               },
-              "CodeSha256": "aOWAHZROL/VQ9geH6icz9sxr8er/pFEDlZlDZEwfXgE="
+              "CodeSha256": "4MGhRlSxAjApKDcgpXFDikH1mp2RyzY6Fr8ZBuIxpc8="
             }
           },
           "HttpApi": {
@@ -493,7 +493,7 @@
           "BackupLambdaFunctionQualifiedArn": {
             "Description": "Current Lambda function version",
             "Value": {
-              "Ref": "BackupLambdaVersionX92X3eGmsMGb2qSWWE7BwfZarJGbDNUSPuGZ7wNcYA"
+              "Ref": "BackupLambdaVersionKOWEr5A7GxOHJLPpzcYJDsc8tW5SgBMx5lk9REx1qs"
             },
             "Export": {
               "Name": "sls-softinvites-backend-dev-BackupLambdaFunctionQualifiedArn"
@@ -502,7 +502,7 @@
           "AppLambdaFunctionQualifiedArn": {
             "Description": "Current Lambda function version",
             "Value": {
-              "Ref": "AppLambdaVersion2ALWuLM5N07ql0s6UiTxLEEBQoyh6c1tuhOLdwqL7Q"
+              "Ref": "AppLambdaVersionAio3HrFv52GfjApC4Es7i9JjwIdknXmqKm5c7YlwBQ"
             },
             "Export": {
               "Name": "sls-softinvites-backend-dev-AppLambdaFunctionQualifiedArn"
@@ -684,7 +684,7 @@
         "memory": 1024,
         "runtime": "nodejs20.x",
         "vpc": {},
-        "versionLogicalId": "AppLambdaVersion2ALWuLM5N07ql0s6UiTxLEEBQoyh6c1tuhOLdwqL7Q"
+        "versionLogicalId": "AppLambdaVersionAio3HrFv52GfjApC4Es7i9JjwIdknXmqKm5c7YlwBQ"
       },
       "backup": {
         "handler": "dist/backup.handler",
@@ -703,7 +703,7 @@
         "memory": 512,
         "runtime": "nodejs20.x",
         "vpc": {},
-        "versionLogicalId": "BackupLambdaVersionX92X3eGmsMGb2qSWWE7BwfZarJGbDNUSPuGZ7wNcYA"
+        "versionLogicalId": "BackupLambdaVersionKOWEr5A7GxOHJLPpzcYJDsc8tW5SgBMx5lk9REx1qs"
       }
     },
     "configValidationMode": "error",
@@ -741,7 +741,7 @@
   },
   "package": {
     "individually": true,
-    "artifactDirectoryName": "serverless/softinvites-backend/dev/1765543799550-2025-12-12T12:49:59.550Z",
+    "artifactDirectoryName": "serverless/softinvites-backend/dev/1769695821664-2026-01-29T14:10:21.664Z",
     "artifact": ""
   }
 }

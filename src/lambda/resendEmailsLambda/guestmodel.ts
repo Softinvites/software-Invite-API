@@ -9,6 +9,7 @@ interface GuestDocument extends Document {
   message:string;
   others:string;
   qrCode: string;
+  pngUrl?: string;
   qrCodeData: string;
   qrCodeBgColor: string;
   qrCodeCenterColor: string;
@@ -30,6 +31,7 @@ const GuestSchema = new Schema<GuestDocument>(
     message: { type: String, required: true },
     others: { type: String, required: false },
     qrCode: { type: String, required: false },
+    pngUrl: { type: String, required: false },
     qrCodeData: { type: String, required: false },
     qrCodeBgColor: { type: String, default: "255,255,255" }, 
     qrCodeCenterColor: { type: String, default: "0,0,0" }, 

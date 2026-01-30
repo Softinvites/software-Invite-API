@@ -15,6 +15,9 @@ const adminRoutes_1 = __importDefault(require("./routes/adminRoutes"));
 const eventsRoutes_1 = __importDefault(require("./routes/eventsRoutes"));
 const guestRoutes_1 = __importDefault(require("./routes/guestRoutes"));
 const whatsappRoutes_1 = __importDefault(require("./routes/whatsappRoutes"));
+const webhookRoutes_1 = __importDefault(require("./routes/webhookRoutes"));
+const rsvpRoutes_1 = __importDefault(require("./routes/rsvpRoutes"));
+const rsvpAdminRoutes_1 = __importDefault(require("./routes/rsvpAdminRoutes"));
 const dbConnect_1 = require("./library/middlewares/dbConnect");
 dotenv_1.default.config();
 const app = (0, express_1.default)();
@@ -42,15 +45,23 @@ const corsOptions = {
 app.use((0, cors_1.default)(corsOptions));
 // --- Middleware ---
 app.use((0, morgan_1.default)("dev"));
-app.use(express_1.default.json());
+// Capture raw request body for webhook signature verification
+app.use(express_1.default.json({
+    verify: (req, _res, buf) => {
+        req.rawBody = buf;
+    },
+}));
 app.use(express_1.default.urlencoded({ extended: true }));
 app.use((0, cookie_parser_1.default)());
 app.use(dbConnect_1.dbConnect); // ensures DB connection before any route
 // --- Routes ---
 app.use("/admin", adminRoutes_1.default);
 app.use("/events", eventsRoutes_1.default);
+app.use("/events", rsvpAdminRoutes_1.default);
 app.use("/guest", guestRoutes_1.default);
 app.use("/whatsapp", whatsappRoutes_1.default);
+app.use("/webhook", webhookRoutes_1.default);
+app.use("/rsvp", rsvpRoutes_1.default);
 // --- Error handler ---
 app.use((err, req, res, next) => {
     console.error(err);

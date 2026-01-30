@@ -1,32 +1,108 @@
 import { Request, Response } from "express";
 import { Guest } from "../models/guestmodel";
 import { Event } from "../models/eventmodel";
-import { invokeLambda } from '../utils/lambdaUtils';
-import { uploadToS3, deleteFromS3 } from '../utils/s3Utils';
+import { invokeLambda } from "../utils/lambdaUtils";
+import { uploadToS3, deleteFromS3 } from "../utils/s3Utils";
 import { createGuestSchema, updateGuestSchema, option } from "../utils/utils";
 import { sendEmail } from "../library/helpers/emailService";
 import { rgbToHex } from "../utils/colorUtils";
 import jwt from "jsonwebtoken";
 import mongoose, { Types } from "mongoose";
 import sanitizeHtml from "sanitize-html";
-import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
-import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
+import { LambdaClient, InvokeCommand } from "@aws-sdk/client-lambda";
+import {
+  S3Client,
+  GetObjectCommand,
+  PutObjectCommand,
+} from "@aws-sdk/client-s3";
+import sharp from "sharp";
+import fetch from "node-fetch";
 
 const s3 = new S3Client({ region: process.env.AWS_REGION || "us-east-2" });
- 
 
 const lambdaClient = new LambdaClient({ region: process.env.AWS_REGION });
+
+const normalizeName = (value?: string) =>
+  (value || "").trim().replace(/\s+/g, " ").toLowerCase();
+
+// Helper: convert SVG (string or URL) to PNG, upload to S3, and return the public URL
+async function generateAndUploadPng(
+  guestId: string,
+  eventId: string,
+  svgString?: string,
+  svgUrl?: string,
+): Promise<string | null> {
+  try {
+    let svgBuffer: Buffer | null = null;
+    if (svgString) {
+      svgBuffer = Buffer.from(svgString);
+    } else if (svgUrl) {
+      // If the svgUrl is an S3 URL, try to fetch from S3 directly
+      try {
+        const url = new URL(svgUrl);
+        if (url.hostname.includes(".s3.")) {
+          const key = decodeURIComponent(url.pathname).replace(/^\//, "");
+          const res = await s3.send(
+            new GetObjectCommand({ Bucket: process.env.S3_BUCKET!, Key: key }),
+          );
+          // Node SDK v3: res.Body can be read via transformToByteArray in Node 18 runtime
+          // @ts-ignore
+          svgBuffer = Buffer.from(await res.Body.transformToByteArray());
+        } else {
+          const resp = await fetch(svgUrl);
+          if (!resp.ok) throw new Error("Failed to fetch SVG");
+          svgBuffer = Buffer.from(await resp.arrayBuffer());
+        }
+      } catch (e) {
+        // Last resort: try fetch
+        const resp = await fetch(svgUrl);
+        if (!resp.ok) throw new Error("Failed to fetch SVG");
+        svgBuffer = Buffer.from(await resp.arrayBuffer());
+      }
+    }
+
+    if (!svgBuffer) return null;
+
+    const pngBuffer = await sharp(svgBuffer, { density: 300 })
+      .png()
+      .flatten({ background: "#ffffff" })
+      .toBuffer();
+
+    const key = `qr_codes/png/${eventId}/${guestId}.png`;
+    await s3.send(
+      new PutObjectCommand({
+        Bucket: process.env.S3_BUCKET!,
+        Key: key,
+        Body: pngBuffer,
+        ContentType: "image/png",
+      }),
+    );
+
+    return `https://${process.env.S3_BUCKET}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`;
+  } catch (err) {
+    console.error("generateAndUploadPng error:", err);
+    return null;
+  }
+}
 
 // Helper function to adjust color brightness
 const adjustColorBrightness = (hex: string, percent: number): string => {
   const num = parseInt(hex.replace("#", ""), 16);
   const amt = Math.round(2.55 * percent);
   const R = (num >> 16) + amt;
-  const G = (num >> 8 & 0x00FF) + amt;
-  const B = (num & 0x0000FF) + amt;
-  return "#" + (0x1000000 + (R < 255 ? R < 1 ? 0 : R : 255) * 0x10000 +
-    (G < 255 ? G < 1 ? 0 : G : 255) * 0x100 +
-    (B < 255 ? B < 1 ? 0 : B : 255)).toString(16).slice(1);
+  const G = ((num >> 8) & 0x00ff) + amt;
+  const B = (num & 0x0000ff) + amt;
+  return (
+    "#" +
+    (
+      0x1000000 +
+      (R < 255 ? (R < 1 ? 0 : R) : 255) * 0x10000 +
+      (G < 255 ? (G < 1 ? 0 : G) : 255) * 0x100 +
+      (B < 255 ? (B < 1 ? 0 : B) : 255)
+    )
+      .toString(16)
+      .slice(1)
+  );
 };
 
 export const addGuest = async (req: Request, res: Response): Promise<void> => {
@@ -61,10 +137,26 @@ export const addGuest = async (req: Request, res: Response): Promise<void> => {
     const eventName = event.name;
     const eventDate = event.date;
     const iv = event.iv;
-    
+
+    // Block duplicate names within the same event (case/space insensitive)
+    const normalizedFullname = normalizeName(fullname);
+    const existingGuest = await Guest.findOne({
+      eventId,
+      normalizedFullname,
+    });
+    if (existingGuest) {
+      res
+        .status(400)
+        .json({
+          message: "A guest with this name already exists for the event",
+        });
+      return;
+    }
+
     // --- Create Guest (no QR yet) ---
     const newGuest = new Guest({
-      fullname,
+      fullname: fullname.trim().replace(/\s+/g, " "),
+      normalizedFullname,
       message,
       qrCodeBgColor,
       qrCodeCenterColor,
@@ -79,55 +171,58 @@ export const addGuest = async (req: Request, res: Response): Promise<void> => {
     const savedGuest = await newGuest.save();
 
     // --- Call Lambda to generate QR ---
-const lambdaPayload = {
-  guestId: savedGuest._id.toString(),
-  fullname,
-  qrCodeBgColor,
-  qrCodeCenterColor,
-  qrCodeEdgeColor,
-  eventId,
-  TableNo,
-  others,
-};
+    const lambdaPayload = {
+      guestId: savedGuest._id.toString(),
+      fullname,
+      qrCodeBgColor,
+      qrCodeCenterColor,
+      qrCodeEdgeColor,
+      eventId,
+      TableNo,
+      others,
+    };
 
-// console.log("📤 Sending to Lambda:", lambdaPayload);
+    // console.log("📤 Sending to Lambda:", lambdaPayload);
 
-let qrSvg, qrCodeUrl;
+    let qrSvg, qrCodeUrl;
 
-try {
-  const lambdaResponse = await invokeLambda(process.env.QR_LAMBDA_FUNCTION_NAME!, lambdaPayload);
-  // Parse the nested response structure
-  let parsedBody;
-  if (lambdaResponse.body) {
-    if (typeof lambdaResponse.body === 'string') {
-      try {
-        parsedBody = JSON.parse(lambdaResponse.body);
-      } catch (parseError) {
-        console.error("❌ Failed to parse Lambda response body:", parseError);
-        parsedBody = {};
+    try {
+      const lambdaResponse = await invokeLambda(
+        process.env.QR_LAMBDA_FUNCTION_NAME!,
+        lambdaPayload,
+      );
+      // Parse the nested response structure
+      let parsedBody;
+      if (lambdaResponse.body) {
+        if (typeof lambdaResponse.body === "string") {
+          try {
+            parsedBody = JSON.parse(lambdaResponse.body);
+          } catch (parseError) {
+            console.error(
+              "❌ Failed to parse Lambda response body:",
+              parseError,
+            );
+            parsedBody = {};
+          }
+        } else {
+          parsedBody = lambdaResponse.body;
+        }
+      } else {
+        parsedBody = lambdaResponse;
       }
-    } else {
-      parsedBody = lambdaResponse.body;
+
+      // Extract QR data from parsed body
+      qrSvg = parsedBody?.qrSvg;
+      qrCodeUrl = parsedBody?.qrCodeUrl;
+    } catch (lambdaError) {
+      console.error("❌ Lambda invocation failed:", lambdaError);
+      qrSvg = "";
+      qrCodeUrl = "";
     }
-  } else {
-    parsedBody = lambdaResponse;
-  }
-  
-  
-  // Extract QR data from parsed body
-  qrSvg = parsedBody?.qrSvg;
-  qrCodeUrl = parsedBody?.qrCodeUrl;
 
-  
-} catch (lambdaError) {
-  console.error("❌ Lambda invocation failed:", lambdaError);
-  qrSvg = "";
-  qrCodeUrl = "";
-}
-
-// Update guest with QR data
-savedGuest.qrCode = qrCodeUrl || qrSvg || "";
-await savedGuest.save();
+    // Update guest with QR data
+    savedGuest.qrCode = qrCodeUrl || qrSvg || "";
+    await savedGuest.save();
 
     // --- Save QR info to DB ---
     savedGuest.qrCodeData = savedGuest._id.toString();
@@ -138,36 +233,49 @@ await savedGuest.save();
     if (email) {
       try {
         const sanitizedMessage = sanitizeHtml(message, {
-          allowedTags: ["p", "b", "i", "strong", "em", "ul", "li", "br", "h1", "h2"],
+          allowedTags: [
+            "p",
+            "b",
+            "i",
+            "strong",
+            "em",
+            "ul",
+            "li",
+            "br",
+            "h1",
+            "h2",
+          ],
           allowedAttributes: {},
         });
 
-        // Convert SVG to PNG for email compatibility using pngConvertLambda
+        // Convert SVG -> PNG locally and upload to S3, then use that PNG URL in emails
         let pngQrCodeUrl = "";
-        if (qrCodeUrl) {
+        if (qrCodeUrl || qrSvg) {
           try {
-            const lambdaResponse = await invokeLambda(process.env.PNG_CONVERT_LAMBDA!, {
-              guestId: savedGuest._id.toString(),
-              eventId: eventId
-            });
-            
-            const parsedBody = typeof lambdaResponse.body === 'string' 
-              ? JSON.parse(lambdaResponse.body) 
-              : lambdaResponse.body;
-            
-            pngQrCodeUrl = parsedBody?.pngUrl || "";
+            const uploaded = await generateAndUploadPng(
+              savedGuest._id.toString(),
+              eventId,
+              qrSvg,
+              qrCodeUrl,
+            );
+            if (uploaded) {
+              await Guest.findByIdAndUpdate(savedGuest._id, {
+                pngUrl: uploaded,
+              });
+              pngQrCodeUrl = uploaded;
+            }
           } catch (pngError) {
-            console.error("❌ PNG conversion failed:", pngError);
+            console.error("❌ PNG generation/upload failed:", pngError);
           }
         }
-        
-        const finalQrUrl = pngQrCodeUrl || qrCodeUrl;
+
+        const finalQrUrl = pngQrCodeUrl || qrCodeUrl || qrSvg;
         const downloadUrl = `https://292x833w13.execute-api.us-east-2.amazonaws.com/guest/download-emailcode/${savedGuest._id.toString()}`;
 
         // Get QR center color for header and determine text color
         const centerColorHex = rgbToHex(qrCodeCenterColor || "0,0,0");
         const darkerCenterColor = adjustColorBrightness(centerColorHex, -20);
-        
+
         // Simple text color logic: white for dark colors, black for light colors
         const num = parseInt(centerColorHex.replace("#", ""), 16);
         const r = (num >> 16) & 255;
@@ -175,7 +283,7 @@ await savedGuest.save();
         const b = num & 255;
         const brightness = (r * 299 + g * 587 + b * 114) / 1000;
         const textColor = brightness > 180 ? "#000000" : "#ffffff";
-        
+
         // Create beautiful, mature invitation email design
         const emailContent = `
           <div style="font-family: 'Segoe UI', 'Arial', sans-serif; background: #f7f8fc; padding: 20px 10px; margin: 0; line-height: 1.6;">
@@ -205,16 +313,20 @@ await savedGuest.save();
                   <h2 style="color: ${centerColorHex}; font-size: clamp(18px, 4vw, 22px); font-weight: 600; margin: 0 0 25px 0;">Your Digital Pass</h2>
                   
                   <div style="background: #ffffff; padding: clamp(30px, 6vw, 50px); border-radius: 12px; display: inline-block; box-shadow: 0 4px 16px rgba(30,60,114,0.1); border: 1px solid #e2e8f0;">
-                    ${finalQrUrl ? `
+                    ${
+                      finalQrUrl
+                        ? `
                       <img src="${finalQrUrl}" 
                            alt="Your Event QR Code" 
                            width="300" height="300"
                            style="display: block; border-radius: 8px; max-width: 100%; height: auto;" />
-                    ` : `
+                    `
+                        : `
                       <div style="width: 300px; height: 300px; background: #f7f8fc; border-radius: 8px; display: flex; align-items: center; justify-content: center; border: 2px dashed #cbd5e0; max-width: 100%;">
                         <p style="color: #718096; margin: 0; font-size: 14px; text-align: center;">Loading QR Code...</p>
                       </div>
-                    `}
+                    `
+                    }
                   </div>
                   
                   <p style="color: #718096; font-size: clamp(12px, 3vw, 14px); margin: 20px 0 25px 0;">Present this code at the event entrance for quick check-in</p>
@@ -241,39 +353,46 @@ await savedGuest.save();
 `;
 
         // console.log("📤 Sending email to:", email);
-        
+
         // Prepare attachments array
         const attachments = [];
-        
+
         // Add event IV as attachment if it exists
         if (iv) {
           try {
             // Download the image from URL to get Buffer
             const imageResponse = await fetch(iv);
             if (imageResponse.ok) {
-              const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
+              const imageBuffer = Buffer.from(
+                await imageResponse.arrayBuffer(),
+              );
               attachments.push({
-                filename: `${eventName.replace(/[^a-zA-Z0-9]/g, '_')}_invitation.jpg`,
+                filename: `${eventName.replace(
+                  /[^a-zA-Z0-9]/g,
+                  "_",
+                )}_invitation.jpg`,
                 content: imageBuffer,
-                contentType: 'image/jpeg'
+                contentType: "image/jpeg",
               });
             }
           } catch (attachmentError) {
-            console.error("❌ Failed to download event IV for attachment:", attachmentError);
+            console.error(
+              "❌ Failed to download event IV for attachment:",
+              attachmentError,
+            );
           }
         }
-        
+
         // Send email with event IV attachment
         await sendEmail(
-          email, 
+          email,
           `Invitation to ${eventName}`,
           emailContent,
           `SoftInvites <info@softinvite.com>`,
-          attachments.length > 0 ? attachments : undefined
+          attachments.length > 0 ? attachments : undefined,
         );
 
         // console.log(`✅ Email sent to ${email}`);
-
       } catch (emailError) {
         console.error("Failed to send email:", emailError);
       }
@@ -286,7 +405,7 @@ await savedGuest.save();
           FunctionName: process.env.BACKUP_LAMBDA!,
           InvocationType: "Event",
           Payload: Buffer.from(JSON.stringify({})),
-        })
+        }),
       );
     } catch (backupError) {
       console.error("Backup Lambda failed:", backupError);
@@ -305,7 +424,10 @@ await savedGuest.save();
   }
 };
 
-export const importGuests = async (req: Request, res: Response): Promise<void> => {
+export const importGuests = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
   try {
     if (!req.file) {
       res.status(400).json({ message: "No file uploaded" });
@@ -314,7 +436,7 @@ export const importGuests = async (req: Request, res: Response): Promise<void> =
 
     const eventId = req.body.eventId;
     const userEmail = req.body.userEmail || "softinvites@gmail.com";
-    
+
     if (!eventId) {
       res.status(400).json({ message: "Missing event ID" });
       return;
@@ -322,26 +444,30 @@ export const importGuests = async (req: Request, res: Response): Promise<void> =
 
     // Upload file to S3
     const fileKey = `uploads/${Date.now()}_${req.file.originalname}`;
-    const fileUrl = await uploadToS3(req.file.buffer, fileKey, req.file.mimetype);
+    const fileUrl = await uploadToS3(
+      req.file.buffer,
+      fileKey,
+      req.file.mimetype,
+    );
 
-    await new Promise(resolve => setTimeout(resolve, 3000));
+    await new Promise((resolve) => setTimeout(resolve, 3000));
 
     // Trigger import Lambda asynchronously
     await invokeLambda(
       process.env.IMPORT_LAMBDA_FUNCTION_NAME!,
-      { 
-        fileUrl, 
-        eventId, 
-        userEmail 
-      }, 
-      true 
+      {
+        fileUrl,
+        eventId,
+        userEmail,
+      },
+      true,
     );
 
     res.status(202).json({
-      message: "Import job is running. You will receive an email when processing completes.",
-      fileUrl
+      message:
+        "Import job is running. You will receive an email when processing completes.",
+      fileUrl,
     });
-
   } catch (error) {
     console.error("Error starting import job:", error);
     res.status(500).json({
@@ -351,7 +477,10 @@ export const importGuests = async (req: Request, res: Response): Promise<void> =
   }
 };
 
-export const updateGuest = async (req: Request, res: Response): Promise<void> => {
+export const updateGuest = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
   try {
     // Handle both JSON string and already-parsed object
     const body = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
@@ -387,7 +516,6 @@ export const updateGuest = async (req: Request, res: Response): Promise<void> =>
       return;
     }
 
-
     // --- Check Event Existence ---
     const event = await Event.findById(eventId || guest.eventId);
     if (!event) {
@@ -398,26 +526,60 @@ export const updateGuest = async (req: Request, res: Response): Promise<void> =>
     const eventName = event.name;
     const eventDate = event.date;
     const iv = event.iv;
+    const targetEventId = (eventId as any) || guest.eventId;
+
+    // Prevent duplicate names within the same event when updating
+    if (fullname !== undefined) {
+      const cleanedName = String(fullname).trim().replace(/\s+/g, " ");
+      const normalizedFullname = normalizeName(cleanedName);
+      const duplicate = await Guest.findOne({
+        eventId: targetEventId,
+        normalizedFullname,
+        _id: { $ne: guest._id },
+      });
+      if (duplicate) {
+        res
+          .status(400)
+          .json({
+            message: "A guest with this name already exists for the event",
+          });
+        return;
+      }
+      guest.fullname = cleanedName;
+      guest.normalizedFullname = normalizedFullname;
+    }
 
     // Store original values for comparison
     const originalEmail = guest.email;
     const emailChanged = email !== undefined && email !== originalEmail;
 
     // Check if QR colors changed (only if provided in request)
-    const qrColorsChanged = (
+    const qrColorsChanged =
       (qrCodeBgColor !== undefined && qrCodeBgColor !== guest.qrCodeBgColor) ||
-      (qrCodeCenterColor !== undefined && qrCodeCenterColor !== guest.qrCodeCenterColor) ||
-      (qrCodeEdgeColor !== undefined && qrCodeEdgeColor !== guest.qrCodeEdgeColor)
-    );
+      (qrCodeCenterColor !== undefined &&
+        qrCodeCenterColor !== guest.qrCodeCenterColor) ||
+      (qrCodeEdgeColor !== undefined &&
+        qrCodeEdgeColor !== guest.qrCodeEdgeColor);
 
     // Update guest fields only if provided (proper optional field handling)
-    if (fullname !== undefined) guest.fullname = fullname;
+    if (eventId !== undefined) guest.eventId = eventId;
     if (TableNo !== undefined) guest.TableNo = TableNo;
     if (email !== undefined) guest.email = email;
     if (phone !== undefined) guest.phone = phone;
     if (message !== undefined) {
       guest.message = sanitizeHtml(message, {
-        allowedTags: ["p", "b", "i", "strong", "em", "ul", "li", "br", "h1", "h2"],
+        allowedTags: [
+          "p",
+          "b",
+          "i",
+          "strong",
+          "em",
+          "ul",
+          "li",
+          "br",
+          "h1",
+          "h2",
+        ],
         allowedAttributes: {},
       });
     }
@@ -429,12 +591,14 @@ export const updateGuest = async (req: Request, res: Response): Promise<void> =>
     // --- REGENERATE QR CODE IF MISSING ---
     if (!guest.qrCode) {
       // console.log("🔄 QR code missing in database, generating now...");
-      
+
       // Set colors if provided, otherwise use existing or defaults
       if (qrCodeBgColor !== undefined) guest.qrCodeBgColor = qrCodeBgColor;
-      if (qrCodeCenterColor !== undefined) guest.qrCodeCenterColor = qrCodeCenterColor;
-      if (qrCodeEdgeColor !== undefined) guest.qrCodeEdgeColor = qrCodeEdgeColor;
-      
+      if (qrCodeCenterColor !== undefined)
+        guest.qrCodeCenterColor = qrCodeCenterColor;
+      if (qrCodeEdgeColor !== undefined)
+        guest.qrCodeEdgeColor = qrCodeEdgeColor;
+
       // Ensure we have colors (use existing or defaults)
       guest.qrCodeBgColor = guest.qrCodeBgColor || "#FFFFFF";
       guest.qrCodeCenterColor = guest.qrCodeCenterColor || "#000000";
@@ -455,17 +619,23 @@ export const updateGuest = async (req: Request, res: Response): Promise<void> =>
 
       let qrSvg, lambdaResponse;
       try {
-        lambdaResponse = await invokeLambda(process.env.QR_LAMBDA_FUNCTION_NAME!, lambdaPayload);
+        lambdaResponse = await invokeLambda(
+          process.env.QR_LAMBDA_FUNCTION_NAME!,
+          lambdaPayload,
+        );
         // console.log("✅ Lambda Response for missing QR:", JSON.stringify(lambdaResponse, null, 2));
-        
+
         // Parse the nested response structure (same as addGuest)
         let parsedBody;
         if (lambdaResponse.body) {
-          if (typeof lambdaResponse.body === 'string') {
+          if (typeof lambdaResponse.body === "string") {
             try {
               parsedBody = JSON.parse(lambdaResponse.body);
             } catch (parseError) {
-              console.error("❌ Failed to parse Lambda response body:", parseError);
+              console.error(
+                "❌ Failed to parse Lambda response body:",
+                parseError,
+              );
               parsedBody = {};
             }
           } else {
@@ -474,15 +644,13 @@ export const updateGuest = async (req: Request, res: Response): Promise<void> =>
         } else {
           parsedBody = lambdaResponse;
         }
-        
+
         // console.log("🔍 Parsed Lambda Body:", parsedBody);
-        
+
         // Extract QR data from parsed body (same as addGuest)
         qrSvg = parsedBody?.qrSvg;
         qrCodeUrl = parsedBody?.qrCodeUrl;
-        
 
-        
         if (qrCodeUrl) {
           guest.qrCode = qrCodeUrl;
           guest.qrCodeData = guest._id.toString();
@@ -492,20 +660,43 @@ export const updateGuest = async (req: Request, res: Response): Promise<void> =>
           console.error("❌ QR code generation failed - no URL returned");
         }
       } catch (lambdaError) {
-        console.error("❌ Lambda invocation failed for missing QR:", lambdaError);
+        console.error(
+          "❌ Lambda invocation failed for missing QR:",
+          lambdaError,
+        );
       }
-    } 
+    }
     // Update QR colors only if changed and provided
     else if (qrColorsChanged) {
       if (qrCodeBgColor !== undefined) guest.qrCodeBgColor = qrCodeBgColor;
-      if (qrCodeCenterColor !== undefined) guest.qrCodeCenterColor = qrCodeCenterColor;
-      if (qrCodeEdgeColor !== undefined) guest.qrCodeEdgeColor = qrCodeEdgeColor;
-      
+      if (qrCodeCenterColor !== undefined)
+        guest.qrCodeCenterColor = qrCodeCenterColor;
+      if (qrCodeEdgeColor !== undefined)
+        guest.qrCodeEdgeColor = qrCodeEdgeColor;
+
       // console.log("🎨 QR colors updated but QR code NOT regenerated (same guest ID)");
     }
 
     await guest.save();
     // console.log("💾 Guest data saved to database");
+
+    // If we regenerated the QR, also generate and persist the PNG version
+    if (qrCodeRegenerated) {
+      try {
+        const uploaded = await generateAndUploadPng(
+          guest._id.toString(),
+          (guest.eventId || eventId) as any,
+          undefined,
+          guest.qrCode,
+        );
+        if (uploaded) {
+          guest.pngUrl = uploaded;
+          await guest.save();
+        }
+      } catch (e) {
+        console.error("Failed to generate PNG for regenerated QR:", e);
+      }
+    }
 
     // Use QR code URL (either existing or newly generated)
     qrCodeUrl = guest.qrCode;
@@ -516,14 +707,23 @@ export const updateGuest = async (req: Request, res: Response): Promise<void> =>
     if (emailChanged && guest.email) {
       try {
         const sanitizedMessage = sanitizeHtml(guest.message, {
-          allowedTags: ["p", "b", "i", "strong", "em", "ul", "li", "br", "h1", "h2"],
+          allowedTags: [
+            "p",
+            "b",
+            "i",
+            "strong",
+            "em",
+            "ul",
+            "li",
+            "br",
+            "h1",
+            "h2",
+          ],
           allowedAttributes: {},
         });
 
-
-
         let qrImgTag;
-        
+
         // Use S3 URL directly in email (updated to match addGuest)
         if (qrCodeUrl) {
           qrImgTag = `
@@ -552,32 +752,15 @@ export const updateGuest = async (req: Request, res: Response): Promise<void> =>
           // console.error("❌ No QR code URL available for email");
         }
 
-        // Convert SVG to PNG for email compatibility using pngConvertLambda
-        let pngQrCodeUrl = "";
-        if (qrCodeUrl) {
-          try {
-            const lambdaResponse = await invokeLambda(process.env.PNG_CONVERT_LAMBDA!, {
-              guestId: guest._id.toString(),
-              eventId: eventId || guest.eventId
-            });
-            
-            const parsedBody = typeof lambdaResponse.body === 'string' 
-              ? JSON.parse(lambdaResponse.body) 
-              : lambdaResponse.body;
-            
-            pngQrCodeUrl = parsedBody?.pngUrl || "";
-          } catch (pngError) {
-            console.error("❌ PNG conversion failed:", pngError);
-          }
-        }
-        
+        // Prefer pre-generated PNG URL; otherwise use the SVG URL
+        const pngQrCodeUrl = guest.pngUrl || "";
         const finalQrUrl = pngQrCodeUrl || qrCodeUrl;
         const downloadUrl = `https://292x833w13.execute-api.us-east-2.amazonaws.com/guest/download-emailcode/${guest._id.toString()}`;
 
         // Get QR center color for header and determine text color
         const centerColorHex = rgbToHex(guest.qrCodeCenterColor || "0,0,0");
         const darkerCenterColor = adjustColorBrightness(centerColorHex, -20);
-        
+
         // Simple text color logic: white for dark colors, black for light colors
         const num = parseInt(centerColorHex.replace("#", ""), 16);
         const r = (num >> 16) & 255;
@@ -585,7 +768,7 @@ export const updateGuest = async (req: Request, res: Response): Promise<void> =>
         const b = num & 255;
         const brightness = (r * 299 + g * 587 + b * 114) / 1000;
         const textColor = brightness > 180 ? "#000000" : "#ffffff";
-        
+
         // Create beautiful, mature invitation email design
         const emailContent = `
           <div style="font-family: 'Segoe UI', 'Arial', sans-serif; background: #f7f8fc; padding: 20px 10px; margin: 0; line-height: 1.6;">
@@ -603,7 +786,9 @@ export const updateGuest = async (req: Request, res: Response): Promise<void> =>
                 <!-- Personal Greeting -->
                 <div style="margin-bottom: 30px;">
                   <div style="background: #f8faff; padding: 20px; border-radius: 8px;">
-                    <p style="font-size: clamp(16px, 4vw, 18px); margin: 0 0 12px 0; font-weight: 600; color: ${darkerCenterColor};">Dear ${guest.fullname},</p>
+                    <p style="font-size: clamp(16px, 4vw, 18px); margin: 0 0 12px 0; font-weight: 600; color: ${darkerCenterColor};">Dear ${
+                      guest.fullname
+                    },</p>
                     <div style="font-size: clamp(14px, 3.5vw, 16px); color: #4a5568; line-height: 1.7;">
                       ${sanitizedMessage}
                     </div>
@@ -615,18 +800,22 @@ export const updateGuest = async (req: Request, res: Response): Promise<void> =>
                   <h2 style="color: ${centerColorHex}; font-size: clamp(18px, 4vw, 22px); font-weight: 600; margin: 0 0 25px 0;">Your Digital Pass</h2>
                   
                   <div style="background: #ffffff; padding: clamp(30px, 6vw, 50px); border-radius: 12px; display: inline-block; box-shadow: 0 4px 16px rgba(30,60,114,0.1); border: 1px solid #e2e8f0;">
-                    ${finalQrUrl ? `
+                    ${
+                      finalQrUrl
+                        ? `
                       <a href="${downloadUrl}">
                         <img src="${finalQrUrl}" 
                              alt="Your Event QR Code" 
                              width="300" height="300"
                              style="display: block; border-radius: 8px; max-width: 100%; height: auto; cursor: pointer;" />
                       </a>
-                    ` : `
+                    `
+                        : `
                       <div style="width: 300px; height: 300px; background: #f7f8fc; border-radius: 8px; display: flex; align-items: center; justify-content: center; border: 2px dashed #cbd5e0; max-width: 100%;">
                         <p style="color: #718096; margin: 0; font-size: 14px; text-align: center;">Loading QR Code...</p>
                       </div>
-                    `}
+                    `
+                    }
                   </div>
                   
                   <p style="color: #718096; font-size: clamp(12px, 3vw, 14px); margin: 20px 0 25px 0;">Present this code at the event entrance for quick check-in</p>
@@ -653,40 +842,47 @@ export const updateGuest = async (req: Request, res: Response): Promise<void> =>
         `;
 
         // console.log("📤 Sending email to:", guest.email);
-        
+
         // Prepare attachments array
         const attachments = [];
-        
+
         // Add event IV as attachment if it exists
         if (iv) {
           try {
             // Download the image from URL to get Buffer
             const imageResponse = await fetch(iv);
             if (imageResponse.ok) {
-              const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
+              const imageBuffer = Buffer.from(
+                await imageResponse.arrayBuffer(),
+              );
               attachments.push({
-                filename: `${eventName.replace(/[^a-zA-Z0-9]/g, '_')}_invitation.jpg`,
+                filename: `${eventName.replace(
+                  /[^a-zA-Z0-9]/g,
+                  "_",
+                )}_invitation.jpg`,
                 content: imageBuffer,
-                contentType: 'image/jpeg'
+                contentType: "image/jpeg",
               });
             }
           } catch (attachmentError) {
-            console.error("❌ Failed to download event IV for attachment:", attachmentError);
+            console.error(
+              "❌ Failed to download event IV for attachment:",
+              attachmentError,
+            );
           }
         }
-        
+
         // Send email with event IV attachment
         await sendEmail(
-          guest.email, 
+          guest.email,
           `Invitation to ${eventName}`,
           emailContent,
           `SoftInvites <info@softinvite.com>`,
-          attachments.length > 0 ? attachments : undefined
+          attachments.length > 0 ? attachments : undefined,
         );
 
         emailSent = true;
         // console.log(`✅ Email sent to ${guest.email}`);
-
       } catch (emailError) {
         console.error("❌ Failed to send email:", emailError);
       }
@@ -699,22 +895,21 @@ export const updateGuest = async (req: Request, res: Response): Promise<void> =>
           FunctionName: process.env.BACKUP_LAMBDA!,
           InvocationType: "Event",
           Payload: Buffer.from(JSON.stringify({})),
-        })
+        }),
       );
     } catch (backupError) {
       console.error("❌ Backup Lambda failed:", backupError);
     }
 
     res.status(200).json({
-      message: qrCodeRegenerated 
-        ? "Guest updated successfully and QR code regenerated" 
+      message: qrCodeRegenerated
+        ? "Guest updated successfully and QR code regenerated"
         : "Guest updated successfully",
       guest,
       emailSent: emailSent,
       qrCodeAvailable: !!qrCodeUrl,
-      qrCodeRegenerated: qrCodeRegenerated
+      qrCodeRegenerated: qrCodeRegenerated,
     });
-
   } catch (error) {
     console.error("❌ Error in updateGuest:", error);
     res.status(500).json({
@@ -725,7 +920,10 @@ export const updateGuest = async (req: Request, res: Response): Promise<void> =>
 };
 
 // New endpoint for QR scanner with timestamp
-export const checkInGuest = async (req: Request, res: Response): Promise<void> => {
+export const checkInGuest = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
   try {
     const { id } = req.params;
     const { checkedInBy } = req.body;
@@ -756,8 +954,8 @@ export const checkInGuest = async (req: Request, res: Response): Promise<void> =
         checkedIn: guest.checkedIn,
         checkedInAt: guest.checkedInAt,
         checkedInBy: guest.checkedInBy,
-        status: guest.status
-      }
+        status: guest.status,
+      },
     });
   } catch (error) {
     console.error("❌ Error in checkInGuest:", error);
@@ -768,32 +966,27 @@ export const checkInGuest = async (req: Request, res: Response): Promise<void> =
   }
 };
 
-export const downloadQRCode = async (req: Request, res: Response): Promise<void> => {
+export const downloadQRCode = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
   try {
     const { id } = req.params;
     const guest = await Guest.findById(id);
-    
+
     if (!guest) {
       res.status(404).json({ message: "Guest not found" });
       return;
     }
 
     try {
-      const lambdaResponse = await invokeLambda(process.env.PNG_CONVERT_LAMBDA!, {
-        guestId: guest._id.toString(),
-        eventId: guest.eventId.toString()
-      });
-      
-      const parsedBody = typeof lambdaResponse.body === 'string' 
-        ? JSON.parse(lambdaResponse.body) 
-        : lambdaResponse.body;
-      
-      const pngUrl = parsedBody?.pngUrl;
-      
-      if (pngUrl) {
-        res.setHeader('Content-Disposition', `attachment; filename="qr-${guest.fullname || 'guest'}.png"`);
-        res.setHeader('Content-Type', 'image/png');
-        res.redirect(pngUrl);
+      if (guest.pngUrl) {
+        res.setHeader(
+          "Content-Disposition",
+          `attachment; filename="qr-${guest.fullname || "guest"}.png"`,
+        );
+        res.setHeader("Content-Type", "image/png");
+        res.redirect(guest.pngUrl);
         return;
       }
     } catch (pngError) {
@@ -808,14 +1001,17 @@ export const downloadQRCode = async (req: Request, res: Response): Promise<void>
     res.status(404).json({ message: "QR code not available" });
   } catch (error) {
     console.error("❌ Error in downloadQRCode:", error);
-    res.status(500).json({ 
+    res.status(500).json({
       message: "Error downloading QR code",
-      error: error instanceof Error ? error.message : 'Unknown error'
+      error: error instanceof Error ? error.message : "Unknown error",
     });
   }
 };
 
-export const downloadAllQRCodes = async (req: Request, res: Response): Promise<void> => {
+export const downloadAllQRCodes = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
   try {
     const { eventId } = req.params;
 
@@ -826,51 +1022,55 @@ export const downloadAllQRCodes = async (req: Request, res: Response): Promise<v
       return;
     }
 
-const qrItems = guests
-  .map((guest) => {
-    try {
-      if (!guest.qrCode || typeof guest.qrCode !== "string") return null;
+    const qrItems = guests
+      .map((guest) => {
+        try {
+          if (!guest.qrCode || typeof guest.qrCode !== "string") return null;
 
-      const url = new URL(guest.qrCode);
-      const path = url.pathname.startsWith("/") ? url.pathname.slice(1) : url.pathname;
+          const url = new URL(guest.qrCode);
+          const path = url.pathname.startsWith("/")
+            ? url.pathname.slice(1)
+            : url.pathname;
 
-      if (!path.endsWith(".svg")) return null;
+          if (!path.endsWith(".svg")) return null;
 
-      return {
-        key: path,
-        guestId: guest._id.toString(),        
-        guestName: guest.fullname || "Guest",
-        tableNo: guest.TableNo || "NoTable",
-        others: guest.others || "-",        
-        qrCodeBgColor: guest.qrCodeBgColor || "255,255,255",  
-        qrCodeCenterColor: guest.qrCodeCenterColor || "0,0,0",
-        qrCodeEdgeColor: guest.qrCodeEdgeColor || "0,0,0",
-      };
-    } catch {
-      return null;
-    }
-  })
-  .filter(Boolean) as {
-    key: string;
-    guestId: string;
-    guestName: string;
-    tableNo: string;
-    others: string;
-    qrCodeBgColor: string;
-    qrCodeCenterColor: string;
-    qrCodeEdgeColor: string;
-  }[];
-
+          return {
+            key: path,
+            guestId: guest._id.toString(),
+            guestName: guest.fullname || "Guest",
+            tableNo: guest.TableNo || "NoTable",
+            others: guest.others || "-",
+            qrCodeBgColor: guest.qrCodeBgColor || "255,255,255",
+            qrCodeCenterColor: guest.qrCodeCenterColor || "0,0,0",
+            qrCodeEdgeColor: guest.qrCodeEdgeColor || "0,0,0",
+          };
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean) as {
+      key: string;
+      guestId: string;
+      guestName: string;
+      tableNo: string;
+      others: string;
+      qrCodeBgColor: string;
+      qrCodeCenterColor: string;
+      qrCodeEdgeColor: string;
+    }[];
 
     if (!qrItems.length) {
       res.status(400).json({ message: "No valid QR code paths found" });
       return;
     }
 
-    const lambdaResponse = await invokeLambda(process.env.ZIP_LAMBDA_FUNCTION_NAME!, {
-      qrItems,
-      eventId,
-    });
+    const lambdaResponse = await invokeLambda(
+      process.env.ZIP_LAMBDA_FUNCTION_NAME!,
+      {
+        qrItems,
+        eventId,
+      },
+    );
 
     const statusCode = lambdaResponse?.statusCode || 500;
 
@@ -881,7 +1081,12 @@ const qrItems = guests
       parsedBody = { error: "Failed to parse Lambda response" };
     }
 
-    if (statusCode !== 200 || !parsedBody.zipUrl) {
+    const zipUrl =
+      parsedBody.zipUrl ||
+      parsedBody.zipDownloadLink ||
+      parsedBody.zipDownloadLink;
+
+    if (statusCode !== 200 || !zipUrl) {
       res.status(statusCode).json({
         message: "Lambda failed to create ZIP archive",
         error: parsedBody?.error || "Unknown Lambda error",
@@ -891,7 +1096,7 @@ const qrItems = guests
     }
 
     res.status(200).json({
-      zipDownloadLink: parsedBody.zipUrl,
+      zipDownloadLink: zipUrl,
       generatedAt: parsedBody.generatedAt,
       eventId: parsedBody.eventId,
       numberOfFiles: parsedBody.numberOfFiles,
@@ -908,12 +1113,11 @@ const qrItems = guests
 
 export const downloadBatchQRCodes = async (
   req: Request,
-  res: Response
+  res: Response,
 ): Promise<void> => {
   try {
     const { eventId } = req.params;
     const { start, end } = req.body;
-
 
     const startDate = start ? new Date(start as string) : new Date(0);
     const endDate = end ? new Date(end as string) : new Date();
@@ -955,27 +1159,32 @@ export const downloadBatchQRCodes = async (
         }
       })
       .filter(Boolean) as {
-        key: string;
-        guestId: string;
-        guestName: string;
-        tableNo: string;
-        others: string;
-        qrCodeBgColor: string;
-        qrCodeCenterColor: string;
-        qrCodeEdgeColor: string;
-      }[];
+      key: string;
+      guestId: string;
+      guestName: string;
+      tableNo: string;
+      others: string;
+      qrCodeBgColor: string;
+      qrCodeCenterColor: string;
+      qrCodeEdgeColor: string;
+    }[];
 
     if (!qrItems.length) {
-      res.status(400).json({ message: "No valid QR code paths found in the given range" });
+      res
+        .status(400)
+        .json({ message: "No valid QR code paths found in the given range" });
       return;
     }
 
-    const lambdaResponse = await invokeLambda(process.env.ZIP_LAMBDA_FUNCTION_NAME!, {
-      qrItems,
-      eventId,
-      startDate: startDate.toISOString(),
-      endDate: endDate.toISOString(),
-    });
+    const lambdaResponse = await invokeLambda(
+      process.env.ZIP_LAMBDA_FUNCTION_NAME!,
+      {
+        qrItems,
+        eventId,
+        startDate: startDate.toISOString(),
+        endDate: endDate.toISOString(),
+      },
+    );
 
     const statusCode = lambdaResponse?.statusCode || 500;
 
@@ -986,7 +1195,12 @@ export const downloadBatchQRCodes = async (
       parsedBody = { error: "Failed to parse Lambda response" };
     }
 
-    if (statusCode !== 200 || !parsedBody.zipUrl) {
+    const zipUrl =
+      parsedBody.zipUrl ||
+      parsedBody.zipDownloadLink ||
+      parsedBody.zipDownloadLink;
+
+    if (statusCode !== 200 || !zipUrl) {
       res.status(statusCode).json({
         message: "Lambda failed to create ZIP archive",
         error: parsedBody?.error || "Unknown Lambda error",
@@ -996,13 +1210,12 @@ export const downloadBatchQRCodes = async (
     }
 
     res.status(200).json({
-      zipDownloadLink: parsedBody.zipUrl,
+      zipDownloadLink: zipUrl,
       generatedAt: parsedBody.generatedAt,
       eventId: parsedBody.eventId,
       numberOfFiles: parsedBody.numberOfFiles,
       missingFiles: parsedBody.missingFiles || [],
     });
-
   } catch (error) {
     console.error("Error in downloadBatchQRCodes:", error);
     res.status(500).json({
@@ -1014,33 +1227,25 @@ export const downloadBatchQRCodes = async (
 
 export const downloadEmailQRCode = async (
   req: Request,
-  res: Response
+  res: Response,
 ): Promise<void> => {
   try {
     const { id } = req.params;
     const guest = await Guest.findById(id);
-    
+
     if (!guest) {
       res.status(404).json({ message: "Guest not found" });
       return;
     }
 
     try {
-      const lambdaResponse = await invokeLambda(process.env.PNG_CONVERT_LAMBDA!, {
-        guestId: guest._id.toString(),
-        eventId: guest.eventId.toString()
-      });
-      
-      const parsedBody = typeof lambdaResponse.body === 'string' 
-        ? JSON.parse(lambdaResponse.body) 
-        : lambdaResponse.body;
-      
-      const pngUrl = parsedBody?.pngUrl;
-      
-      if (pngUrl) {
-        res.setHeader('Content-Disposition', `attachment; filename="qr-${guest.fullname || 'guest'}.png"`);
-        res.setHeader('Content-Type', 'image/png');
-        res.redirect(pngUrl);
+      if (guest.pngUrl) {
+        res.setHeader(
+          "Content-Disposition",
+          `attachment; filename="qr-${guest.fullname || "guest"}.png"`,
+        );
+        res.setHeader("Content-Type", "image/png");
+        res.redirect(guest.pngUrl);
         return;
       }
     } catch (pngError) {
@@ -1055,16 +1260,16 @@ export const downloadEmailQRCode = async (
     res.status(404).json({ message: "QR code not available" });
   } catch (error) {
     console.error("❌ Error in downloadEmailQRCode:", error);
-    res.status(500).json({ 
+    res.status(500).json({
       message: "Error downloading QR code",
-      error: error instanceof Error ? error.message : 'Unknown error'
+      error: error instanceof Error ? error.message : "Unknown error",
     });
   }
 };
 
 export const getGuestsByEvent = async (
   req: Request,
-  res: Response
+  res: Response,
 ): Promise<void> => {
   try {
     const { eventId } = req.params;
@@ -1085,7 +1290,7 @@ export const getGuestsByEvent = async (
 
 export const getGuestById = async (
   req: Request,
-  res: Response
+  res: Response,
 ): Promise<void> => {
   try {
     const { id } = req.params;
@@ -1101,7 +1306,10 @@ export const getGuestById = async (
   }
 };
 
-export const deleteGuestById = async (req: Request, res: Response): Promise<void> => {
+export const deleteGuestById = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
   try {
     const { id } = req.params;
     const guest = await Guest.findById(id);
@@ -1127,7 +1335,7 @@ export const deleteGuestById = async (req: Request, res: Response): Promise<void
 
 export const deleteGuestsByEvent = async (
   req: Request,
-  res: Response
+  res: Response,
 ): Promise<void> => {
   try {
     const { eventId } = req.params;
@@ -1152,15 +1360,17 @@ export const deleteGuestsByEvent = async (
     await Promise.allSettled(deletionPromises);
     await Guest.deleteMany({ eventId });
 
-    await lambdaClient.send(new InvokeCommand({
-      FunctionName: process.env.BACKUP_LAMBDA!,
-      InvocationType: 'Event',
-      Payload: Buffer.from(JSON.stringify({}))
-    }));
+    await lambdaClient.send(
+      new InvokeCommand({
+        FunctionName: process.env.BACKUP_LAMBDA!,
+        InvocationType: "Event",
+        Payload: Buffer.from(JSON.stringify({})),
+      }),
+    );
 
-    res.status(200).json({ 
+    res.status(200).json({
       message: "All guests and their QR codes deleted successfully",
-      deletedCount: guests.length
+      deletedCount: guests.length,
     });
   } catch (error) {
     console.error("Error deleting guests:", error);
@@ -1170,7 +1380,7 @@ export const deleteGuestsByEvent = async (
 
 export const deleteGuestsByEventAndTimestamp = async (
   req: Request,
-  res: Response
+  res: Response,
 ): Promise<void> => {
   try {
     const { eventId } = req.params;
@@ -1190,7 +1400,9 @@ export const deleteGuestsByEventAndTimestamp = async (
     }
 
     if (!start || !end) {
-      res.status(400).json({ message: "start and end query params are required" });
+      res
+        .status(400)
+        .json({ message: "start and end query params are required" });
       return;
     }
 
@@ -1209,17 +1421,19 @@ export const deleteGuestsByEventAndTimestamp = async (
 
     const deleteResult = await Guest.deleteMany({
       eventId,
-      createdAt: { $gte: startDate, $lte: endDate }
+      createdAt: { $gte: startDate, $lte: endDate },
     });
 
-    await lambdaClient.send(new InvokeCommand({
-      FunctionName: process.env.BACKUP_LAMBDA!,
-      InvocationType: 'Event',
-      Payload: Buffer.from(JSON.stringify({}))
-    }));
-    
+    await lambdaClient.send(
+      new InvokeCommand({
+        FunctionName: process.env.BACKUP_LAMBDA!,
+        InvocationType: "Event",
+        Payload: Buffer.from(JSON.stringify({})),
+      }),
+    );
+
     res.status(200).json({
-      message: `Deleted ${deleteResult.deletedCount} guests for event ${eventId}`
+      message: `Deleted ${deleteResult.deletedCount} guests for event ${eventId}`,
     });
   } catch (error) {
     console.error("Error deleting guests by event + timestamp:", error);
@@ -1229,7 +1443,7 @@ export const deleteGuestsByEventAndTimestamp = async (
 
 export const deleteSelectedGuests = async (
   req: Request,
-  res: Response
+  res: Response,
 ): Promise<void> => {
   try {
     const { guestIds } = req.body;
@@ -1239,8 +1453,10 @@ export const deleteSelectedGuests = async (
       return;
     }
 
-    const guests = await Guest.find({ _id: { $in: guestIds } });
-    
+    const guests = await Guest.find({
+      _id: { $in: guestIds },
+    });
+
     if (!guests.length) {
       res.status(404).json({ message: "No guests found with provided IDs" });
       return;
@@ -1258,18 +1474,22 @@ export const deleteSelectedGuests = async (
     });
 
     await Promise.allSettled(deletionPromises);
-    
-    const deleteResult = await Guest.deleteMany({ _id: { $in: guestIds } });
 
-    await lambdaClient.send(new InvokeCommand({
-      FunctionName: process.env.BACKUP_LAMBDA!,
-      InvocationType: 'Event',
-      Payload: Buffer.from(JSON.stringify({}))
-    }));
+    const deleteResult = await Guest.deleteMany({
+      _id: { $in: guestIds },
+    });
+
+    await lambdaClient.send(
+      new InvokeCommand({
+        FunctionName: process.env.BACKUP_LAMBDA!,
+        InvocationType: "Event",
+        Payload: Buffer.from(JSON.stringify({})),
+      }),
+    );
 
     res.status(200).json({
       message: `Successfully deleted ${deleteResult.deletedCount} guests`,
-      deletedCount: deleteResult.deletedCount
+      deletedCount: deleteResult.deletedCount,
     });
   } catch (error) {
     console.error("Error deleting selected guests:", error);
@@ -1279,7 +1499,7 @@ export const deleteSelectedGuests = async (
 
 export const scanQRCode = async (
   req: Request,
-  res: Response
+  res: Response,
 ): Promise<void> => {
   try {
     const { qrData } = req.body;
@@ -1308,52 +1528,61 @@ export const scanQRCode = async (
       return;
     }
 
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      const token = authHeader.split(' ')[1];
+    if (authHeader && authHeader.startsWith("Bearer ")) {
+      const token = authHeader.split(" ")[1];
       try {
-        const decodedToken = jwt.verify(token, process.env.JWT_SECRET as string) as any;
+        const decodedToken = jwt.verify(
+          token,
+          process.env.JWT_SECRET as string,
+        ) as any;
         const authorizedEventId = decodedToken.eventId;
-        
-        if (authorizedEventId && guest.eventId.toString() !== authorizedEventId) {
-          res.status(403).json({ 
+
+        if (
+          authorizedEventId &&
+          guest.eventId.toString() !== authorizedEventId
+        ) {
+          res.status(403).json({
             message: "This guest belongs to a different event",
             guestEvent: guest.eventId.toString(),
-            scannerEvent: authorizedEventId
+            scannerEvent: authorizedEventId,
           });
           return;
         }
       } catch (tokenError) {
-        console.warn("Invalid token provided, continuing without event validation:", tokenError);
+        console.warn(
+          "Invalid token provided, continuing without event validation:",
+          tokenError,
+        );
       }
     }
 
     const currentStatus = event.getEventStatus();
     if (currentStatus === "expired") {
-      res.status(410).json({ 
+      res.status(410).json({
         message: "Event has expired. Check-in is no longer available.",
         eventDate: event.date,
-        eventStatus: "expired"
+        eventStatus: "expired",
       });
       return;
     }
 
     if (!event.isActive) {
-      res.status(403).json({ 
+      res.status(403).json({
         message: "Event is not active",
-        eventStatus: "inactive"
+        eventStatus: "inactive",
       });
       return;
     }
 
     if (guest.checkedIn) {
-      res.status(200).json({ 
-        message: "Guest already checked in", 
+      res.status(200).json({
+        message: "Guest already checked in",
         guest: {
           fullname: guest.fullname,
           TableNo: guest.TableNo,
           others: guest.others,
-          checkedInAt: guest.checkedInAt || guest.updatedAt
-        }
+          checkedInAt: guest.checkedInAt || guest.updatedAt,
+        },
       });
       return;
     }
@@ -1371,16 +1600,15 @@ export const scanQRCode = async (
         others: guest.others,
         checkedIn: guest.checkedIn,
         checkedInAt: guest.checkedInAt,
-        status: guest.status
+        status: guest.status,
       },
       event: {
         name: event.name,
         date: event.date,
-        location: event.location
+        location: event.location,
       },
-      success: true
+      success: true,
     });
-
   } catch (error) {
     console.error("🚨 Error during check-in:", error);
     res.status(500).json({ message: "Server error during check-in" });
@@ -1389,15 +1617,18 @@ export const scanQRCode = async (
 
 export const generateAnalytics = async (
   req: Request,
-  res: Response
+  res: Response,
 ): Promise<void> => {
   try {
     const totalEvents = await Event.countDocuments();
     const totalGuests = await Guest.countDocuments();
-    const checkedInGuests = await Guest.countDocuments({ checkedIn: true });
+    const checkedInGuests = await Guest.countDocuments({
+      checkedIn: true,
+    });
     const unusedCodes = totalGuests - checkedInGuests;
 
     const guestStatusBreakdownRaw = await Guest.aggregate([
+      { $match: {} },
       {
         $group: {
           _id: "$status",
@@ -1411,6 +1642,7 @@ export const generateAnalytics = async (
     }));
 
     const checkInTrendRaw = await Guest.aggregate([
+      { $match: {} },
       {
         $match: {
           checkedIn: true,
@@ -1451,7 +1683,7 @@ export const generateAnalytics = async (
 
 export const generateEventAnalytics = async (
   req: Request,
-  res: Response
+  res: Response,
 ): Promise<void> => {
   try {
     const { eventId } = req.params;
@@ -1543,7 +1775,7 @@ export const generateEventAnalytics = async (
 
 export const generateTempLink = async (
   req: Request,
-  res: Response
+  res: Response,
 ): Promise<void> => {
   try {
     const { eventId } = req.params;
@@ -1557,7 +1789,7 @@ export const generateTempLink = async (
     const token = jwt.sign(
       { eventId: eventId, role: "temp", type: "checkin" },
       process.env.JWT_SECRET as string,
-      { expiresIn: "72h" }
+      { expiresIn: "72h" },
     );
 
     const tempLink = `${process.env.FRONTEND_URL}/guest?token=${token}`;
@@ -1568,8 +1800,10 @@ export const generateTempLink = async (
   }
 };
 
-
-export const restoreGuestsAndRegenerateQRCodes = async (req: Request, res: Response) => {
+export const restoreGuestsAndRegenerateQRCodes = async (
+  req: Request,
+  res: Response,
+) => {
   try {
     const { key, eventId } = req.body;
 
@@ -1579,7 +1813,7 @@ export const restoreGuestsAndRegenerateQRCodes = async (req: Request, res: Respo
       });
     }
 
-    console.time('CompleteRestoreProcess');
+    console.time("CompleteRestoreProcess");
 
     const getObjectCommand = new GetObjectCommand({
       Bucket: process.env.BACKUP_BUCKET || "softinvites-backups",
@@ -1593,7 +1827,7 @@ export const restoreGuestsAndRegenerateQRCodes = async (req: Request, res: Respo
 
     const jsonData = await streamToString(s3Response.Body);
     const allGuests = JSON.parse(jsonData) as any[];
-    const eventGuests = allGuests.filter(g => g.eventId === eventId);
+    const eventGuests = allGuests.filter((g) => g.eventId === eventId);
 
     if (eventGuests.length === 0) {
       return res.status(404).json({
@@ -1601,11 +1835,13 @@ export const restoreGuestsAndRegenerateQRCodes = async (req: Request, res: Respo
       });
     }
 
-    const existingGuests = await Guest.find({ eventId: new Types.ObjectId(eventId) }).lean();
-    const existingIds = new Set(existingGuests.map(g => String(g._id)));
+    const existingGuests = await Guest.find({
+      eventId: new Types.ObjectId(eventId),
+    }).lean();
+    const existingIds = new Set(existingGuests.map((g) => String(g._id)));
 
     const guestsToInsert = eventGuests
-      .map(guest => {
+      .map((guest) => {
         if (guest._id && existingIds.has(String(guest._id))) {
           return null;
         }
@@ -1614,7 +1850,7 @@ export const restoreGuestsAndRegenerateQRCodes = async (req: Request, res: Respo
         const qrCodeCenterColor = guest.qrCodeCenterColor || "0,0,0";
         const qrCodeEdgeColor = guest.qrCodeEdgeColor || "125,14,43";
 
-        const newGuest = { 
+        const newGuest = {
           _id: guest._id ? new Types.ObjectId(guest._id) : new Types.ObjectId(),
           ...guest,
           fullname: guest.fullname || "Unknown Guest",
@@ -1630,58 +1866,63 @@ export const restoreGuestsAndRegenerateQRCodes = async (req: Request, res: Respo
           qrCode: "",
           qrCodeData: guest._id ? String(guest._id) : "",
           qrCodeBgColor: qrCodeBgColor,
-          qrCodeCenterColor: qrCodeCenterColor, 
+          qrCodeCenterColor: qrCodeCenterColor,
           qrCodeEdgeColor: qrCodeEdgeColor,
           createdAt: guest.createdAt ? new Date(guest.createdAt) : new Date(),
-          updatedAt: guest.updatedAt ? new Date(guest.updatedAt) : new Date()
+          updatedAt: guest.updatedAt ? new Date(guest.updatedAt) : new Date(),
         };
-        
+
         delete newGuest.__v;
         return newGuest;
       })
-      .filter(guest => guest !== null);
+      .filter((guest) => guest !== null);
 
     if (guestsToInsert.length === 0) {
-      const existingGuestsForQR = await Guest.find({ eventId: new Types.ObjectId(eventId) });
+      const existingGuestsForQR = await Guest.find({
+        eventId: new Types.ObjectId(eventId),
+      });
       const qrResults = await regenerateQRCodes(existingGuestsForQR);
-      
-      console.timeEnd('CompleteRestoreProcess');
-      
+
+      console.timeEnd("CompleteRestoreProcess");
+
       return res.status(200).json({
         message: `All ${eventGuests.length} guests for event ${eventId} already exist. QR codes regenerated for existing guests.`,
         restoredCount: 0,
         eventId,
-        totalFound: eventGuests.length
+        totalFound: eventGuests.length,
       });
     }
 
     let insertedGuests = [];
     try {
-      insertedGuests = await Guest.insertMany(guestsToInsert, { ordered: false });
+      insertedGuests = await Guest.insertMany(guestsToInsert, {
+        ordered: false,
+      });
     } catch (insertError: any) {
-      console.error('❌ Database insert failed:', insertError);
+      console.error("❌ Database insert failed:", insertError);
       throw insertError;
     }
 
-    const allGuestsForQR = await Guest.find({ eventId: new Types.ObjectId(eventId) });
+    const allGuestsForQR = await Guest.find({
+      eventId: new Types.ObjectId(eventId),
+    });
     const qrResults = await regenerateQRCodes(allGuestsForQR);
 
-    console.timeEnd('CompleteRestoreProcess');
+    console.timeEnd("CompleteRestoreProcess");
 
     res.status(200).json({
       message: `✅ Complete restore process finished for event ${eventId}`,
       restoredCount: insertedGuests.length,
       qrRegeneration: qrResults,
       eventId,
-      totalGuestsInEvent: allGuestsForQR.length
+      totalGuestsInEvent: allGuestsForQR.length,
     });
-
   } catch (error: any) {
-    console.timeEnd('CompleteRestoreProcess');
+    console.timeEnd("CompleteRestoreProcess");
     console.error("❌ Error in complete restore process:", error);
     res.status(500).json({
       message: "Internal server error during complete restore process.",
-      error: error.message
+      error: error.message,
     });
   }
 };
@@ -1689,33 +1930,37 @@ export const restoreGuestsAndRegenerateQRCodes = async (req: Request, res: Respo
 const regenerateQRCodes = async (guests: any[]) => {
   let regeneratedCount = 0;
   let failedCount = 0;
-  
+
   for (const guest of guests) {
     try {
       const lambdaPayload = {
         guestId: guest._id.toString(),
         fullname: guest.fullname,
         qrCodeBgColor: guest.qrCodeBgColor || "255,255,255",
-        qrCodeCenterColor: guest.qrCodeCenterColor || "0,0,0", 
+        qrCodeCenterColor: guest.qrCodeCenterColor || "0,0,0",
         qrCodeEdgeColor: guest.qrCodeEdgeColor || "125,14,43",
         eventId: guest.eventId.toString(),
         TableNo: guest.TableNo || "-",
         others: guest.others || "",
       };
 
-      const lambdaResponse = await invokeLambda(process.env.QR_LAMBDA_FUNCTION_NAME!, lambdaPayload);
-      
+      const lambdaResponse = await invokeLambda(
+        process.env.QR_LAMBDA_FUNCTION_NAME!,
+        lambdaPayload,
+      );
+
       let parsedBody;
       if (lambdaResponse.body) {
-        parsedBody = typeof lambdaResponse.body === 'string' 
-          ? JSON.parse(lambdaResponse.body) 
-          : lambdaResponse.body;
+        parsedBody =
+          typeof lambdaResponse.body === "string"
+            ? JSON.parse(lambdaResponse.body)
+            : lambdaResponse.body;
       } else {
         parsedBody = lambdaResponse;
       }
-      
+
       const qrCodeUrl = parsedBody?.qrCodeUrl;
-      
+
       if (!qrCodeUrl) {
         throw new Error("No QR code URL returned from Lambda");
       }
@@ -1726,13 +1971,12 @@ const regenerateQRCodes = async (guests: any[]) => {
           $set: {
             qrCode: qrCodeUrl,
             qrCodeData: guest._id.toString(),
-            updatedAt: new Date()
-          }
-        }
+            updatedAt: new Date(),
+          },
+        },
       );
-      
+
       regeneratedCount++;
-      
     } catch (error: any) {
       failedCount++;
       console.error(`❌ Failed QR generation for ${guest.fullname}:`, error);
@@ -1742,30 +1986,32 @@ const regenerateQRCodes = async (guests: any[]) => {
   return {
     regeneratedCount,
     failedCount,
-    totalProcessed: guests.length
+    totalProcessed: guests.length,
   };
 };
 
 const streamToString = (stream: any): Promise<string> => {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
-    stream.on('data', (chunk: Buffer) => chunks.push(chunk));
-    stream.on('error', reject);
-    stream.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    stream.on("data", (chunk: Buffer) => chunks.push(chunk));
+    stream.on("error", reject);
+    stream.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
   });
 };
 
 export const testDatabase = async (req: Request, res: Response) => {
   try {
     const { eventId } = req.params;
-    
-    const existingGuests = await Guest.find({ eventId: new Types.ObjectId(eventId) }).lean();
-    
+
+    const existingGuests = await Guest.find({
+      eventId: new Types.ObjectId(eventId),
+    }).lean();
+
     const testGuestData = {
       fullname: "Test Guest " + Date.now(),
       eventId: new Types.ObjectId(eventId),
       TableNo: "-",
-      email: "test@example.com", 
+      email: "test@example.com",
       phone: "-",
       message: "Test message",
       others: "",
@@ -1775,25 +2021,24 @@ export const testDatabase = async (req: Request, res: Response) => {
       qrCode: "",
       qrCodeData: "",
       qrCodeBgColor: "255,255,255",
-      qrCodeCenterColor: "0,0,0", 
-      qrCodeEdgeColor: "0,0,0"
+      qrCodeCenterColor: "0,0,0",
+      qrCodeEdgeColor: "0,0,0",
     };
-    
+
     const testGuest = await Guest.create(testGuestData);
     const verifiedGuest = await Guest.findById(testGuest._id);
-    
+
     res.status(200).json({
       message: "Database test successful",
       readCount: existingGuests.length,
       writeVerified: !!verifiedGuest,
-      testGuestId: testGuest._id
+      testGuestId: testGuest._id,
     });
-    
   } catch (error: any) {
     console.error("❌ Database test failed:", error);
     res.status(500).json({
       message: "Database test failed",
-      error: error.message
+      error: error.message,
     });
   }
 };
@@ -1801,61 +2046,65 @@ export const testDatabase = async (req: Request, res: Response) => {
 export const checkQRCodeStatus = async (req: Request, res: Response) => {
   try {
     const { eventId } = req.params;
-    
-    const guests = await Guest.find({ eventId: new Types.ObjectId(eventId) })
-      .select('fullname qrCode qrCodeData')
+
+    const guests = await Guest.find({
+      eventId: new Types.ObjectId(eventId),
+    })
+      .select("fullname qrCode qrCodeData")
       .lean();
-    
+
     const results = [];
-    
+
     for (const guest of guests) {
-      let status = 'unknown';
+      let status = "unknown";
       let accessible = false;
-      
+
       if (guest.qrCode) {
         try {
-          const response = await fetch(guest.qrCode, { method: 'HEAD' });
+          const response = await fetch(guest.qrCode, { method: "HEAD" });
           accessible = response.ok;
-          status = accessible ? 'accessible' : 'inaccessible';
+          status = accessible ? "accessible" : "inaccessible";
         } catch (error) {
-          status = 'error';
+          status = "error";
           accessible = false;
         }
       } else {
-        status = 'missing';
+        status = "missing";
         accessible = false;
       }
-      
+
       results.push({
         guestId: guest._id.toString(),
         fullname: guest.fullname,
         qrCode: guest.qrCode,
         status,
-        accessible
+        accessible,
       });
     }
 
-    const accessibleCount = results.filter(r => r.accessible).length;
-    const inaccessibleCount = results.filter(r => !r.accessible).length;
-    
+    const accessibleCount = results.filter((r) => r.accessible).length;
+    const inaccessibleCount = results.filter((r) => !r.accessible).length;
+
     res.status(200).json({
       message: `QR Code Status for event ${eventId}`,
       totalGuests: guests.length,
       accessible: accessibleCount,
       inaccessible: inaccessibleCount,
-      results: results.slice(0, 10)
+      results: results.slice(0, 10),
     });
-
   } catch (error: any) {
     console.error("❌ Error checking QR codes:", error);
     res.status(500).json({
       message: "Internal server error",
-      error: error.message
+      error: error.message,
     });
   }
 };
 
-export const resendAllEmails = async (req: Request, res: Response): Promise<void> => {
+export const resendAllEmails = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
   try {
     const { eventId } = req.params;
 
@@ -1870,9 +2119,9 @@ export const resendAllEmails = async (req: Request, res: Response): Promise<void
       return;
     }
 
-    const guestsWithEmail = await Guest.countDocuments({ 
-      eventId, 
-      email: { $exists: true, $ne: "" } 
+    const guestsWithEmail = await Guest.countDocuments({
+      eventId,
+      email: { $exists: true, $ne: "" },
     });
 
     if (guestsWithEmail === 0) {
@@ -1884,15 +2133,14 @@ export const resendAllEmails = async (req: Request, res: Response): Promise<void
     await invokeLambda(
       process.env.RESEND_EMAILS_LAMBDA_FUNCTION_NAME!,
       { eventId },
-      true
+      true,
     );
 
     res.status(202).json({
       message: `Email resend job started for ${guestsWithEmail} guests. Admin will receive notification when complete.`,
       eventName: event.name,
-      guestsWithEmail
+      guestsWithEmail,
     });
-
   } catch (error) {
     console.error("❌ Error starting resend emails job:", error);
     res.status(500).json({

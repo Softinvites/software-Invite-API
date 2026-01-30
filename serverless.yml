@@ -121,4 +121,4 @@ custom:
       platform: node
       concurrency: 10
       external:
-        - sharp 
+        - sharp

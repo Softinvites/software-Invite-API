@@ -3,14 +3,16 @@ import createError, { HttpError } from "http-errors";
 import express, { Request, Response, NextFunction } from "express";
 import cookieParser from "cookie-parser";
 import logger from "morgan";
-import cors, { CorsOptions }  from "cors";
+import cors, { CorsOptions } from "cors";
 import dotenv from "dotenv";
 import AdminRouter from "./routes/adminRoutes";
 import EventRouter from "./routes/eventsRoutes";
 import GuestRouter from "./routes/guestRoutes";
 import WhatsAppRouter from "./routes/whatsappRoutes";
+import WebhookRouter from "./routes/webhookRoutes";
+import RsvpRouter from "./routes/rsvpRoutes";
+import RsvpAdminRouter from "./routes/rsvpAdminRoutes";
 import { dbConnect } from "./library/middlewares/dbConnect";
-
 
 dotenv.config();
 const app = express();
@@ -37,11 +39,18 @@ const corsOptions: CorsOptions = {
   credentials: true,
 };
 
-app.use(cors(corsOptions))
+app.use(cors(corsOptions));
 
 // --- Middleware ---
 app.use(logger("dev"));
-app.use(express.json());
+// Capture raw request body for webhook signature verification
+app.use(
+  express.json({
+    verify: (req: any, _res: any, buf: Buffer) => {
+      req.rawBody = buf;
+    },
+  }),
+);
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 app.use(dbConnect); // ensures DB connection before any route
@@ -49,8 +58,11 @@ app.use(dbConnect); // ensures DB connection before any route
 // --- Routes ---
 app.use("/admin", AdminRouter);
 app.use("/events", EventRouter);
+app.use("/events", RsvpAdminRouter);
 app.use("/guest", GuestRouter);
 app.use("/whatsapp", WhatsAppRouter);
+app.use("/webhook", WebhookRouter);
+app.use("/rsvp", RsvpRouter);
 
 // --- Error handler ---
 app.use((err: HttpError, req: Request, res: Response, next: NextFunction) => {

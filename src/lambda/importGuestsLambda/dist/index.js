@@ -16,13 +16,16 @@ const { QR_LAMBDA_FUNCTION_NAME, PNG_CONVERT_LAMBDA, EMAIL_LAMBDA_FUNCTION_NAME,
 async function prepareEmailAttachments(compressedIVUrl, eventName) {
     if (!compressedIVUrl)
         return [];
-    const s3Key = compressedIVUrl.split('.amazonaws.com/')[1];
+    const s3Key = compressedIVUrl.split(".amazonaws.com/")[1];
     if (!s3Key)
         return [];
-    return [{
-            filename: `${eventName.replace(/[^a-zA-Z0-9-_]/g, '_')}_invitation.jpg`,
-            s3Key: s3Key
-        }];
+    return [
+        {
+            filename: `${eventName.replace(/[^a-zA-Z0-9-_]/g, "_")}_invitation.jpg`,
+            s3Key: s3Key,
+            contentType: "image/jpeg",
+        },
+    ];
 }
 // Function to compress and upload IV to S3 once
 async function prepareIVAttachment(eventId, eventName, originalIVUrl) {
@@ -33,36 +36,44 @@ async function prepareIVAttachment(eventId, eventName, originalIVUrl) {
         const imageBuffer = Buffer.from(await response.arrayBuffer());
         // Compress image using Sharp
         const compressedBuffer = await sharp(imageBuffer)
-            .resize(800, 600, { fit: 'inside', withoutEnlargement: true })
+            .resize(800, 600, { fit: "inside", withoutEnlargement: true })
             .jpeg({ quality: 60 })
             .toBuffer();
         const compressedKey = `events/${eventId}/compressed_iv_${Date.now()}.jpg`;
         await s3.send(new PutObjectCommand({
-            Bucket: 'softinvites-assets',
+            Bucket: "softinvites-assets",
             Key: compressedKey,
             Body: compressedBuffer,
-            ContentType: 'image/jpeg'
+            ContentType: "image/jpeg",
         }));
         return `https://softinvites-assets.s3.us-east-2.amazonaws.com/${compressedKey}`;
     }
     catch (error) {
-        console.error('IV compression failed:', error);
+        console.error("IV compression failed:", error);
         return originalIVUrl;
     }
 }
 /* ------------------------------ */
 /* 🔁 SAFE INVOKE WITH RETRIES */
 /* ------------------------------ */
-async function safeInvoke(functionName, payload, retries = 3) {
+async function safeInvoke(functionName, payload, asyncInvoke = false, retries = 5) {
     for (let i = 0; i < retries; i++) {
         try {
-            return await invokeLambda(functionName, payload, true);
+            return await invokeLambda(functionName, payload, asyncInvoke);
         }
         catch (err) {
-            console.error(`Invoke failed (${i + 1}/${retries}) → ${functionName}`, err);
-            if (i === retries - 1)
+            const attempt = i + 1;
+            console.error(`Invoke failed (${attempt}/${retries}) → ${functionName}`, err?.message || err);
+            if (attempt >= retries) {
+                // final attempt failed, rethrow
                 throw err;
-            await new Promise((r) => setTimeout(r, 1000 * (i + 1)));
+            }
+            // Exponential backoff with jitter (ms)
+            const baseDelay = Math.min(30000, Math.pow(2, attempt) * 1000); // cap at 30s
+            const jitter = Math.floor(Math.random() * 300);
+            const delay = baseDelay + jitter;
+            console.warn(`Backing off for ${delay}ms before retrying ${functionName} (attempt ${attempt + 1})`);
+            await new Promise((r) => setTimeout(r, delay));
         }
     }
 }
@@ -105,7 +116,8 @@ export const handler = async (event) => {
         /* ------------------------------ */
         /* ✅ 2. PROCESS IN BATCHES */
         /* ------------------------------ */
-        const BATCH_SIZE = 25;
+        // Lower batch size to reduce concurrent Lambda invokes and avoid rate throttling
+        const BATCH_SIZE = 10;
         const results = [];
         for (let i = 0; i < guests.length; i += BATCH_SIZE) {
             const batch = guests.slice(i, i + BATCH_SIZE);
@@ -113,7 +125,12 @@ export const handler = async (event) => {
                 try {
                     // Skip empty rows
                     if (!guestData.fullname || !guestData.fullname.trim()) {
-                        return { ...guestData, success: false, error: "Empty fullname - row skipped", skipped: true };
+                        return {
+                            ...guestData,
+                            success: false,
+                            error: "Empty fullname - row skipped",
+                            skipped: true,
+                        };
                     }
                     const guest = await Guest.create({
                         ...guestData,
@@ -133,7 +150,22 @@ export const handler = async (event) => {
                         TableNo: guest.TableNo,
                         others: guest.others,
                     });
-                    const qrCodeUrl = qrResult?.qrCodeUrl;
+                    // Handle nested lambda response body (could be { statusCode, body: "{...}" })
+                    let parsedQrResult = {};
+                    try {
+                        parsedQrResult = qrResult?.body
+                            ? typeof qrResult.body === "string"
+                                ? JSON.parse(qrResult.body)
+                                : qrResult.body
+                            : qrResult || {};
+                    }
+                    catch (parseErr) {
+                        console.warn("Failed to parse QR lambda response body:", parseErr, qrResult);
+                        parsedQrResult = qrResult || {};
+                    }
+                    const qrCodeUrl = parsedQrResult?.qrCodeUrl ||
+                        parsedQrResult?.qrUrl ||
+                        parsedQrResult?.url;
                     /* ------------------------------ */
                     /* ✅ 4. CONVERT SVG → PNG */
                     /* ------------------------------ */
@@ -142,12 +174,15 @@ export const handler = async (event) => {
                         eventId,
                         filename: fullnameSafe, // ✅ NAME USED FOR DOWNLOAD
                     });
-                    const pngUrl = pngResult?.pngUrl;
                     /* ------------------------------ */
                     /* ✅ 5. UPDATE GUEST WITH QR DATA */
                     /* ------------------------------ */
+                    // If we didn't get a qrCodeUrl, log details for debugging
+                    if (!qrCodeUrl) {
+                        console.warn("No QR code URL returned for guest", guest._id.toString(), { parsedQrResult, qrResult });
+                    }
                     await Guest.findByIdAndUpdate(guest._id, {
-                        qrCode: qrCodeUrl,
+                        qrCode: qrCodeUrl || "",
                         qrCodeData: guest._id.toString(),
                     });
                     /* ------------------------------ */
@@ -168,9 +203,14 @@ export const handler = async (event) => {
                             finalQrUrl: downloadUrl,
                             downloadUrl: downloadUrl,
                         }),
-                        attachments: attachments
-                    });
-                    return { guestId: guest._id, success: true, fullname: guest.fullname, email: guest.email };
+                        attachments: attachments,
+                    }, true);
+                    return {
+                        guestId: guest._id,
+                        success: true,
+                        fullname: guest.fullname,
+                        email: guest.email,
+                    };
                 }
                 catch (err) {
                     console.error("❌ Guest processing error:", guestData, err);
@@ -178,7 +218,7 @@ export const handler = async (event) => {
                         ...guestData,
                         success: false,
                         error: err.message || String(err),
-                        email: guestData.email || null
+                        email: guestData.email || null,
                     };
                 }
             }));
@@ -187,7 +227,9 @@ export const handler = async (event) => {
         /* ------------------------------ */
         /* ✅ PROCESS RESULTS & SEND ADMIN EMAIL */
         /* ------------------------------ */
-        const fulfilled = results.filter(r => r.status === "fulfilled").map((r) => r.value);
+        const fulfilled = results
+            .filter((r) => r.status === "fulfilled")
+            .map((r) => r.value);
         const successCount = fulfilled.filter((g) => g.success).length;
         const failedCount = fulfilled.filter((g) => !g.success).length;
         const failed = fulfilled.filter((g) => !g.success);
@@ -201,7 +243,7 @@ export const handler = async (event) => {
           <div style="background: #f8faff; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
             <h3 style="color: #4a5568; margin-top: 0;">Event Details</h3>
             <p><strong>Event Name:</strong> ${eventDoc.name}</p>
-            <p><strong>Event Date:</strong> ${eventDoc.date || 'Not specified'}</p>
+            <p><strong>Event Date:</strong> ${eventDoc.date || "Not specified"}</p>
             <p><strong>Processed At:</strong> ${new Date().toLocaleString()}</p>
           </div>
           
@@ -227,7 +269,8 @@ export const handler = async (event) => {
             </div>
           </div>
           
-          ${failedCount > 0 ? `
+          ${failedCount > 0
+            ? `
             <div style="margin-bottom: 20px;">
               <h3 style="color: #e53e3e; margin-bottom: 15px;">❌ Failed Guests (${failedCount})</h3>
               <div style="max-height: 300px; overflow-y: auto;">
@@ -240,25 +283,31 @@ export const handler = async (event) => {
                     </tr>
                   </thead>
                   <tbody>
-                    ${failed.slice(0, 50).map(guest => `
+                    ${failed
+                .slice(0, 50)
+                .map((guest) => `
                       <tr>
-                        <td style="padding: 8px; border-bottom: 1px solid #e2e8f0;">${guest.fullname || 'N/A'}</td>
-                        <td style="padding: 8px; border-bottom: 1px solid #e2e8f0;">${guest.email || 'N/A'}</td>
-                        <td style="padding: 8px; border-bottom: 1px solid #e2e8f0; color: #e53e3e;">${guest.error || 'Unknown error'}</td>
+                        <td style="padding: 8px; border-bottom: 1px solid #e2e8f0;">${guest.fullname || "N/A"}</td>
+                        <td style="padding: 8px; border-bottom: 1px solid #e2e8f0;">${guest.email || "N/A"}</td>
+                        <td style="padding: 8px; border-bottom: 1px solid #e2e8f0; color: #e53e3e;">${guest.error || "Unknown error"}</td>
                       </tr>
-                    `).join('')}
-                    ${failed.length > 50 ? `
+                    `)
+                .join("")}
+                    ${failed.length > 50
+                ? `
                       <tr>
                         <td colspan="3" style="padding: 8px; text-align: center; color: #718096;">
                           ... and ${failed.length - 50} more failed records
                         </td>
                       </tr>
-                    ` : ''}
+                    `
+                : ""}
                   </tbody>
                 </table>
               </div>
             </div>
-          ` : ''}
+          `
+            : ""}
           
           <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e2e8f0; text-align: center; color: #718096; font-size: 12px;">
             <p>Import completed by SoftInvites System</p>
@@ -272,8 +321,8 @@ export const handler = async (event) => {
             from: `SoftInvites System <info@softinvite.com>`,
             subject: `Guest Import Complete: ${eventDoc.name}`,
             htmlContent: adminEmailHtml,
-            attachments: adminAttachments
-        });
+            attachments: adminAttachments,
+        }, true);
         console.log("✅ Import Completed Successfully");
         return {
             statusCode: 200,

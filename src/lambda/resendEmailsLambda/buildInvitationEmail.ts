@@ -8,7 +8,6 @@ export const buildInvitationEmail = ({
   eventDate,
   qrCodeCenterColor,
   finalQrUrl,
-  downloadUrl,
 }: {
   fullname: string;
   message: string;
@@ -16,7 +15,6 @@ export const buildInvitationEmail = ({
   eventDate: string;
   qrCodeCenterColor: string;
   finalQrUrl: string;
-  downloadUrl: string;
 }) => {
   const sanitizedMessage = sanitizeHtml(message || "", {
     allowedTags: ["p", "b", "i", "strong", "em", "ul", "li", "br", "h1", "h2"],
@@ -79,22 +77,17 @@ export const buildInvitationEmail = ({
           <div style="text-align: center; background: linear-gradient(135deg, #f8faff 0%, #e8f2ff 100%); padding: 30px 15px; border-radius: 12px; border: 1px solid #e2e8f0;">
             <h2 style="color: ${centerColorHex}; font-size: clamp(18px, 4vw, 22px); font-weight: 600; margin: 0 0 25px 0;">Your Digital Pass</h2>
             
-            <div style="background: #ffffff; padding: clamp(30px, 6vw, 50px); border-radius: 12px; display: inline-block; box-shadow: 0 4px 16px rgba(30,60,114,0.1); border: 1px solid #e2e8f0;">
-              ${downloadUrl ? `
-                <img src="${downloadUrl}" 
-                     alt="Your Event QR Code" 
-                     width="300" height="300"
-                     style="display: block; border-radius: 8px; max-width: 100%; height: auto;" />
-              ` : `
-                <div style="width: 300px; height: 300px; background: #f7f8fc; border-radius: 8px; display: flex; align-items: center; justify-content: center; border: 2px dashed #cbd5e0; max-width: 100%;">
-                  <p style="color: #718096; margin: 0; font-size: 14px; text-align: center;">Loading QR Code...</p>
-                </div>
-              `}
-            </div>
+              <div style="background: #ffffff; padding: clamp(30px, 6vw, 50px); border-radius: 12px; display: inline-block; box-shadow: 0 4px 16px rgba(30,60,114,0.1); border: 1px solid #e2e8f0;">
+                <img src="${finalQrUrl}" 
+                    alt="Your Event QR Code" 
+                    width="300" height="300"
+                    style="display: block; border-radius: 8px; max-width: 100%; height: auto;" />
+              </div>    
+
             
             <p style="color: #718096; font-size: clamp(12px, 3vw, 14px); margin: 20px 0 25px 0;">Present this code at the event entrance for quick check-in</p>
             
-            <a href="${downloadUrl}" 
+            <a href="${finalQrUrl}" 
                style="display: inline-block; background: linear-gradient(135deg, ${centerColorHex} 0%, ${darkerCenterColor} 100%); color: ${textColor}; padding: 12px 28px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: clamp(12px, 3vw, 14px); box-shadow: 0 4px 12px rgba(30,60,114,0.3); transition: all 0.3s ease;">
                Download QR Code
             </a>
@@ -115,3 +108,7 @@ export const buildInvitationEmail = ({
     </div>
   `;
 };
+
+
+
+

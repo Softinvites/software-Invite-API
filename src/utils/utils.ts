@@ -97,3 +97,9 @@ export const updateGuestSchema = Joi.object({
   qrCodeCenterColor: Joi.string().allow('').optional(),
   qrCodeEdgeColor: Joi.string().allow('').optional(),
 });
+
+export const createRsvpGuestSchema = Joi.object({
+  fullname: Joi.string().required(),
+  email: Joi.string().email().optional().allow("", null),
+  phone: Joi.string().optional().allow("", null),
+});

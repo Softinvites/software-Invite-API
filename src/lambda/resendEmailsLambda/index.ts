@@ -16,18 +16,21 @@ export const handler = async (event: any) => {
     }
 
     await connectDB();
-    
+
     const eventDoc = await Event.findById(eventId);
     if (!eventDoc) {
       return { statusCode: 404, body: "Event not found" };
     }
 
-    const guests = await Guest.find({ eventId, email: { $exists: true, $ne: "" } });
+    const guests = await Guest.find({
+      eventId,
+      email: { $exists: true, $ne: "" },
+    });
     if (!guests.length) {
       return { statusCode: 404, body: "No guests with email found" };
     }
 
-    console.log(`📧 Found ${guests.length} guests with emails`);
+    console.log(`Found ${guests.length} guests with emails`);
 
     let successCount = 0;
     let failureCount = 0;
@@ -37,52 +40,47 @@ export const handler = async (event: any) => {
     const BATCH_SIZE = 5;
     for (let i = 0; i < guests.length; i += BATCH_SIZE) {
       const batch = guests.slice(i, i + BATCH_SIZE);
-      
+
       await Promise.allSettled(
         batch.map(async (guest) => {
           try {
-            // Convert SVG to PNG for email
-            let pngUrl = "";
-            if (guest.qrCode) {
-              try {
-                const pngResult: any = await invokeLambda(process.env.PNG_CONVERT_LAMBDA!, {
-                  guestId: guest._id.toString(),
-                  eventId: eventId
-                });
-                pngUrl = pngResult?.pngUrl || "";
-              } catch (pngError) {
-                console.error(`PNG conversion failed for ${guest.fullname}:`, pngError);
-              }
-            }
+            // Use pre-generated PNG URL if available; fall back to SVG URL
+            const pngUrl = (guest as any)?.pngUrl || "";
 
             const finalQrUrl = pngUrl || guest.qrCode;
-            const downloadUrl = `https://292x833w13.execute-api.us-east-2.amazonaws.com/guest/download-emailcode/${guest._id.toString()}`;
-
             // Prepare attachments array for IV (using S3 keys like import Lambda)
             const attachments = [];
             if (eventDoc.iv) {
               try {
                 // Check if it's an S3 URL and extract S3 key
-                if (eventDoc.iv.includes('.s3.')) {
+                if (eventDoc.iv.includes(".s3.")) {
                   const url = new URL(eventDoc.iv);
                   const s3Key = decodeURIComponent(url.pathname.slice(1));
-                  
+
                   attachments.push({
-                    filename: `${eventDoc.name.replace(/[^a-zA-Z0-9]/g, '_')}_invitation.jpg`,
+                    filename: `${eventDoc.name.replace(
+                      /[^a-zA-Z0-9]/g,
+                      "_"
+                    )}_invitation.jpg`,
                     s3Key: s3Key,
-                    contentType: 'image/jpeg'
+                    contentType: "image/jpeg",
                   });
-                  console.log(`📎 Using S3 key for attachment: ${s3Key}`);
+                  console.log(`Using S3 key for attachment: ${s3Key}`);
                 } else {
-                  console.warn('⚠️ IV URL is not an S3 URL, skipping attachment');
+                  console.warn(
+                    "⚠️ IV URL is not an S3 URL, skipping attachment"
+                  );
                 }
               } catch (attachmentError) {
-                console.error(`Failed to prepare IV attachment for ${guest.fullname}:`, attachmentError);
+                console.error(
+                  `Failed to prepare IV attachment for ${guest.fullname}:`,
+                  attachmentError
+                );
               }
             }
 
             // Send email using same template as addGuest/updateGuest
-            console.log(`📧 Sending email to ${guest.email}`);
+            console.log(`Sending email to ${guest.email}`);
             await invokeLambda(EMAIL_LAMBDA_FUNCTION_NAME!, {
               to: guest.email,
               from: `SoftInvites <info@softinvite.com>`,
@@ -94,14 +92,12 @@ export const handler = async (event: any) => {
                 eventDate: eventDoc.date || "",
                 qrCodeCenterColor: guest.qrCodeCenterColor,
                 finalQrUrl: finalQrUrl,
-                downloadUrl: downloadUrl,
               }),
-              attachments: attachments.length > 0 ? attachments : undefined
+              attachments: attachments.length > 0 ? attachments : undefined,
             });
-            console.log(`✅ Email sent to ${guest.email}`);
-            
+            console.log(`Email sent to ${guest.email}`);
             // Add delay to respect SES rate limit (5 emails per batch = ~10/sec)
-            await new Promise(resolve => setTimeout(resolve, 500));
+            await new Promise((resolve) => setTimeout(resolve, 500));
 
             successCount++;
             return { success: true, guest: guest.fullname };
@@ -110,7 +106,7 @@ export const handler = async (event: any) => {
             const failedGuest = {
               fullname: guest.fullname,
               email: guest.email,
-              error: error.message || String(error)
+              error: (error as any)?.message || String(error),
             };
             failed.push(failedGuest);
             console.error(`Failed to send email to ${guest.fullname}:`, error);
@@ -144,7 +140,9 @@ export const handler = async (event: any) => {
             <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; margin-bottom: 30px;">
               <div style="background: #48bb78; color: white; padding: 15px; border-radius: 8px; text-align: center;">
                 <h3 style="margin: 0 0 10px 0; font-size: 14px;">Total Guests</h3>
-                <p style="font-size: 32px; font-weight: bold; margin: 0;">${guests.length}</p>
+                <p style="font-size: 32px; font-weight: bold; margin: 0;">${
+                  guests.length
+                }</p>
               </div>
               
               <div style="background: #4299e1; color: white; padding: 15px; border-radius: 8px; text-align: center;">
@@ -158,7 +156,9 @@ export const handler = async (event: any) => {
               </div>  
             </div>
 
-             ${failureCount > 0 ? `
+             ${
+               failureCount > 0
+                 ? `
               <div style="margin-bottom: 20px;">
                 <h3 style="color: #e53e3e; margin-bottom: 15px;">❌ Failed Guests (${failureCount})</h3>
                 <div style="max-height: 300px; overflow-y: auto;">
@@ -171,32 +171,49 @@ export const handler = async (event: any) => {
                       </tr>
                     </thead>
                     <tbody>
-                      ${failed.slice(0, 50).map(guest => `
+                      ${failed
+                        .slice(0, 50)
+                        .map(
+                          (guest) => `
                         <tr>
-                          <td style="padding: 8px; border-bottom: 1px solid #e2e8f0;">${guest.fullname || 'N/A'}</td>
-                          <td style="padding: 8px; border-bottom: 1px solid #e2e8f0;">${guest.email || 'N/A'}</td>
-                          <td style="padding: 8px; border-bottom: 1px solid #e2e8f0; color: #e53e3e;">${guest.error || 'Unknown error'}</td>
+                          <td style="padding: 8px; border-bottom: 1px solid #e2e8f0;">${
+                            guest.fullname || "N/A"
+                          }</td>
+                          <td style="padding: 8px; border-bottom: 1px solid #e2e8f0;">${
+                            guest.email || "N/A"
+                          }</td>
+                          <td style="padding: 8px; border-bottom: 1px solid #e2e8f0; color: #e53e3e;">${
+                            guest.error || "Unknown error"
+                          }</td>
                         </tr>
-                      `).join('')}
-                      ${failed.length > 50 ? `
+                      `
+                        )
+                        .join("")}
+                      ${
+                        failed.length > 50
+                          ? `
                         <tr>
                           <td colspan="3" style="padding: 8px; text-align: center; color: #718096;">
                             ... and ${failed.length - 50} more failed records
                           </td>
                         </tr>
-                      ` : ''}
+                      `
+                          : ""
+                      }
                     </tbody>
                   </table>
                 </div>
               </div>
-            ` : ''}
+            `
+                 : ""
+             }
             
             <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e2e8f0; text-align: center; color: #718096; font-size: 12px;">
               <p>Email resend completed by Soft Invites System</p>
             </div>
           </div>
         </div>
-        `
+        `,
       });
     } catch (adminEmailError) {
       console.error("Failed to send admin notification:", adminEmailError);

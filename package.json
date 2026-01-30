@@ -29,7 +29,7 @@
     "@types/mongoose": "^5.11.97",
     "@types/morgan": "^1.9.9",
     "@types/multer": "^1.4.12",
-    "@types/node": "^22.18.0",
+    "@types/node": "^22.19.3",
     "@types/node-fetch": "^2.6.12",
     "@types/nodemailer": "^6.4.17",
     "@types/p-limit": "^2.2.0",
@@ -48,7 +48,7 @@
     "sharp": "^0.34.4",
     "ts-node": "^10.9.2",
     "tsc-watch": "^6.2.1",
-    "typescript": "^5.9.2"
+    "typescript": "^5.9.3"
   },
   "dependencies": {
     "@aws-sdk/client-lambda": "^3.879.0",
@@ -57,7 +57,6 @@
     "@aws-sdk/credential-provider-node": "^3.873.0",
     "@aws-sdk/s3-request-presigner": "^3.907.0",
     "@resvg/resvg-js": "^2.6.2",
-
     "@smithy/core": "^3.9.0",
     "archiver": "^7.0.1",
     "bcryptjs": "^2.4.3",
