@@ -15,23 +15,13 @@ var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (
 }) : function(o, v) {
     o["default"] = v;
 });
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -54,6 +44,13 @@ const node_fetch_1 = __importDefault(require("node-fetch"));
 const s3 = new client_s3_1.S3Client({ region: process.env.AWS_REGION || "us-east-2" });
 const lambdaClient = new client_lambda_1.LambdaClient({ region: process.env.AWS_REGION });
 const normalizeName = (value) => (value || "").trim().replace(/\s+/g, " ").toLowerCase();
+const buildPngUrl = (eventId, guestId) => {
+    const bucket = process.env.S3_BUCKET;
+    const region = process.env.AWS_REGION || "us-east-2";
+    if (!bucket || !eventId || !guestId)
+        return "";
+    return `https://${bucket}.s3.${region}.amazonaws.com/qr_codes/png/${eventId}/${guestId}.png`;
+};
 // Helper: convert SVG (string or URL) to PNG, upload to S3, and return the public URL
 async function generateAndUploadPng(guestId, eventId, svgString, svgUrl) {
     try {
@@ -93,6 +90,9 @@ async function generateAndUploadPng(guestId, eventId, svgString, svgUrl) {
             .png()
             .flatten({ background: "#ffffff" })
             .toBuffer();
+        if (!pngBuffer || pngBuffer.length === 0) {
+            throw new Error("Generated PNG buffer is empty");
+        }
         const key = `qr_codes/png/${eventId}/${guestId}.png`;
         await s3.send(new client_s3_1.PutObjectCommand({
             Bucket: process.env.S3_BUCKET,
@@ -214,11 +214,21 @@ const addGuest = async (req, res) => {
         }
         // Update guest with QR data
         savedGuest.qrCode = qrCodeUrl || qrSvg || "";
-        await savedGuest.save();
-        // --- Save QR info to DB ---
         savedGuest.qrCodeData = savedGuest._id.toString();
-        savedGuest.qrCode = qrCodeUrl || "";
         await savedGuest.save();
+        // Convert SVG -> PNG locally and upload to S3 (store pngUrl on guest)
+        if (qrCodeUrl || qrSvg) {
+            try {
+                const uploaded = await generateAndUploadPng(savedGuest._id.toString(), eventId, qrSvg, qrCodeUrl);
+                if (uploaded) {
+                    savedGuest.pngUrl = uploaded;
+                    await savedGuest.save();
+                }
+            }
+            catch (pngError) {
+                console.error("❌ PNG generation/upload failed:", pngError);
+            }
+        }
         // --- Email Sending ---
         if (email) {
             try {
@@ -237,24 +247,7 @@ const addGuest = async (req, res) => {
                     ],
                     allowedAttributes: {},
                 });
-                // Convert SVG -> PNG locally and upload to S3, then use that PNG URL in emails
-                let pngQrCodeUrl = "";
-                if (qrCodeUrl || qrSvg) {
-                    try {
-                        const uploaded = await generateAndUploadPng(savedGuest._id.toString(), eventId, qrSvg, qrCodeUrl);
-                        if (uploaded) {
-                            await guestmodel_1.Guest.findByIdAndUpdate(savedGuest._id, {
-                                pngUrl: uploaded,
-                            });
-                            pngQrCodeUrl = uploaded;
-                        }
-                    }
-                    catch (pngError) {
-                        console.error("❌ PNG generation/upload failed:", pngError);
-                    }
-                }
-                const finalQrUrl = pngQrCodeUrl || qrCodeUrl || qrSvg;
-                const downloadUrl = `https://292x833w13.execute-api.us-east-2.amazonaws.com/guest/download-emailcode/${savedGuest._id.toString()}`;
+                const finalQrUrl = savedGuest.pngUrl || "";
                 // Get QR center color for header and determine text color
                 const centerColorHex = (0, colorUtils_1.rgbToHex)(qrCodeCenterColor || "0,0,0");
                 const darkerCenterColor = adjustColorBrightness(centerColorHex, -20);
@@ -310,10 +303,14 @@ const addGuest = async (req, res) => {
                   
                   <p style="color: #718096; font-size: clamp(12px, 3vw, 14px); margin: 20px 0 25px 0;">Present this code at the event entrance for quick check-in</p>
                   
-                  <a href="${downloadUrl}" 
-                     style="display: inline-block; background: linear-gradient(135deg, ${centerColorHex} 0%, ${darkerCenterColor} 100%); color: ${textColor}; padding: 12px 28px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: clamp(12px, 3vw, 14px); box-shadow: 0 4px 12px rgba(30,60,114,0.3); transition: all 0.3s ease;">
-                     Download QR Code
-                  </a>
+                  ${finalQrUrl
+                    ? `
+                    <a href="${finalQrUrl}" 
+                       style="display: inline-block; background: linear-gradient(135deg, ${centerColorHex} 0%, ${darkerCenterColor} 100%); color: ${textColor}; padding: 12px 28px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: clamp(12px, 3vw, 14px); box-shadow: 0 4px 12px rgba(30,60,114,0.3); transition: all 0.3s ease;">
+                       Download QR Code
+                    </a>
+                  `
+                    : ""}
                 </div>
 
                 <!-- Important Notice -->
@@ -586,8 +583,8 @@ const updateGuest = async (req, res) => {
         }
         await guest.save();
         // console.log("💾 Guest data saved to database");
-        // If we regenerated the QR, also generate and persist the PNG version
-        if (qrCodeRegenerated) {
+        // Ensure PNG is generated and persisted whenever possible
+        if (!guest.pngUrl && guest.qrCode) {
             try {
                 const uploaded = await generateAndUploadPng(guest._id.toString(), (guest.eventId || eventId), undefined, guest.qrCode);
                 if (uploaded) {
@@ -596,7 +593,7 @@ const updateGuest = async (req, res) => {
                 }
             }
             catch (e) {
-                console.error("Failed to generate PNG for regenerated QR:", e);
+                console.error("Failed to generate PNG for QR:", e);
             }
         }
         // Use QR code URL (either existing or newly generated)
@@ -651,9 +648,7 @@ const updateGuest = async (req, res) => {
                     // console.error("❌ No QR code URL available for email");
                 }
                 // Prefer pre-generated PNG URL; otherwise use the SVG URL
-                const pngQrCodeUrl = guest.pngUrl || "";
-                const finalQrUrl = pngQrCodeUrl || qrCodeUrl;
-                const downloadUrl = `https://292x833w13.execute-api.us-east-2.amazonaws.com/guest/download-emailcode/${guest._id.toString()}`;
+                const finalQrUrl = guest.pngUrl || "";
                 // Get QR center color for header and determine text color
                 const centerColorHex = (0, colorUtils_1.rgbToHex)(guest.qrCodeCenterColor || "0,0,0");
                 const darkerCenterColor = adjustColorBrightness(centerColorHex, -20);
@@ -695,7 +690,7 @@ const updateGuest = async (req, res) => {
                   <div style="background: #ffffff; padding: clamp(30px, 6vw, 50px); border-radius: 12px; display: inline-block; box-shadow: 0 4px 16px rgba(30,60,114,0.1); border: 1px solid #e2e8f0;">
                     ${finalQrUrl
                     ? `
-                      <a href="${downloadUrl}">
+                      <a href="${finalQrUrl}">
                         <img src="${finalQrUrl}" 
                              alt="Your Event QR Code" 
                              width="300" height="300"
@@ -711,10 +706,14 @@ const updateGuest = async (req, res) => {
                   
                   <p style="color: #718096; font-size: clamp(12px, 3vw, 14px); margin: 20px 0 25px 0;">Present this code at the event entrance for quick check-in</p>
                   
-                  <a href="${downloadUrl}" 
-                     style="display: inline-block; background: linear-gradient(135deg, ${centerColorHex} 0%, ${darkerCenterColor} 100%); color: ${textColor}; padding: 12px 28px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: clamp(12px, 3vw, 14px); box-shadow: 0 4px 12px rgba(30,60,114,0.3); transition: all 0.3s ease;">
-                     Download QR Code
-                  </a>
+                  ${finalQrUrl
+                    ? `
+                    <a href="${finalQrUrl}" 
+                       style="display: inline-block; background: linear-gradient(135deg, ${centerColorHex} 0%, ${darkerCenterColor} 100%); color: ${textColor}; padding: 12px 28px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: clamp(12px, 3vw, 14px); box-shadow: 0 4px 12px rgba(30,60,114,0.3); transition: all 0.3s ease;">
+                       Download QR Code
+                    </a>
+                  `
+                    : ""}
                 </div>
 
                 <!-- Important Notice -->
@@ -840,22 +839,20 @@ const downloadQRCode = async (req, res) => {
             res.status(404).json({ message: "Guest not found" });
             return;
         }
-        try {
-            if (guest.pngUrl) {
-                res.setHeader("Content-Disposition", `attachment; filename="qr-${guest.fullname || "guest"}.png"`);
-                res.setHeader("Content-Type", "image/png");
-                res.redirect(guest.pngUrl);
-                return;
-            }
-        }
-        catch (pngError) {
-            console.error("❌ PNG conversion failed:", pngError);
-        }
-        if (guest.qrCode) {
-            res.redirect(guest.qrCode);
+        if (guest.pngUrl) {
+            res.setHeader("Content-Disposition", `attachment; filename=\"qr-${guest.fullname || "guest"}.png\"`);
+            res.setHeader("Content-Type", "image/png");
+            res.redirect(guest.pngUrl);
             return;
         }
-        res.status(404).json({ message: "QR code not available" });
+        const fallbackPngUrl = buildPngUrl(guest.eventId?.toString(), guest._id.toString());
+        if (fallbackPngUrl) {
+            res.setHeader("Content-Disposition", `attachment; filename=\"qr-${guest.fullname || "guest"}.png\"`);
+            res.setHeader("Content-Type", "image/png");
+            res.redirect(fallbackPngUrl);
+            return;
+        }
+        res.status(404).json({ message: "PNG QR code not available" });
     }
     catch (error) {
         console.error("❌ Error in downloadQRCode:", error);
@@ -874,37 +871,13 @@ const downloadAllQRCodes = async (req, res) => {
             res.status(404).json({ message: "No guests found" });
             return;
         }
-        const qrItems = guests
-            .map((guest) => {
-            try {
-                if (!guest.qrCode || typeof guest.qrCode !== "string")
-                    return null;
-                const url = new URL(guest.qrCode);
-                const path = url.pathname.startsWith("/")
-                    ? url.pathname.slice(1)
-                    : url.pathname;
-                if (!path.endsWith(".svg"))
-                    return null;
-                return {
-                    key: path,
-                    guestId: guest._id.toString(),
-                    guestName: guest.fullname || "Guest",
-                    tableNo: guest.TableNo || "NoTable",
-                    others: guest.others || "-",
-                    qrCodeBgColor: guest.qrCodeBgColor || "255,255,255",
-                    qrCodeCenterColor: guest.qrCodeCenterColor || "0,0,0",
-                    qrCodeEdgeColor: guest.qrCodeEdgeColor || "0,0,0",
-                };
-            }
-            catch {
-                return null;
-            }
-        })
-            .filter(Boolean);
-        if (!qrItems.length) {
-            res.status(400).json({ message: "No valid QR code paths found" });
-            return;
-        }
+        const qrItems = guests.map((guest) => ({
+            guestId: guest._id.toString(),
+            guestName: guest.fullname || "Guest",
+            tableNo: guest.TableNo || "NoTable",
+            others: guest.others || "-",
+            pngUrl: guest.pngUrl || buildPngUrl(eventId, guest._id.toString()) || "",
+        }));
         const lambdaResponse = await (0, lambdaUtils_1.invokeLambda)(process.env.ZIP_LAMBDA_FUNCTION_NAME, {
             qrItems,
             eventId,
@@ -923,7 +896,7 @@ const downloadAllQRCodes = async (req, res) => {
         if (statusCode !== 200 || !zipUrl) {
             res.status(statusCode).json({
                 message: "Lambda failed to create ZIP archive",
-                error: parsedBody?.error || "Unknown Lambda error",
+                error: parsedBody?.error || parsedBody?.message || "Unknown Lambda error",
                 missingFiles: parsedBody?.missingFiles || [],
             });
             return;
@@ -959,39 +932,13 @@ const downloadBatchQRCodes = async (req, res) => {
             res.status(404).json({ message: "No guests found for given date range" });
             return;
         }
-        const qrItems = guests
-            .map((guest) => {
-            try {
-                if (!guest.qrCode || typeof guest.qrCode !== "string")
-                    return null;
-                const url = new URL(guest.qrCode);
-                const path = url.pathname.startsWith("/")
-                    ? url.pathname.slice(1)
-                    : url.pathname;
-                if (!path.endsWith(".svg"))
-                    return null;
-                return {
-                    key: path,
-                    guestId: guest._id.toString(),
-                    guestName: guest.fullname || "Guest",
-                    tableNo: guest.TableNo || "NoTable",
-                    others: guest.others || "-",
-                    qrCodeBgColor: guest.qrCodeBgColor || "255,255,255",
-                    qrCodeCenterColor: guest.qrCodeCenterColor || "0,0,0",
-                    qrCodeEdgeColor: guest.qrCodeEdgeColor || "0,0,0",
-                };
-            }
-            catch {
-                return null;
-            }
-        })
-            .filter(Boolean);
-        if (!qrItems.length) {
-            res
-                .status(400)
-                .json({ message: "No valid QR code paths found in the given range" });
-            return;
-        }
+        const qrItems = guests.map((guest) => ({
+            guestId: guest._id.toString(),
+            guestName: guest.fullname || "Guest",
+            tableNo: guest.TableNo || "NoTable",
+            others: guest.others || "-",
+            pngUrl: guest.pngUrl || buildPngUrl(eventId, guest._id.toString()) || "",
+        }));
         const lambdaResponse = await (0, lambdaUtils_1.invokeLambda)(process.env.ZIP_LAMBDA_FUNCTION_NAME, {
             qrItems,
             eventId,
@@ -1012,7 +959,7 @@ const downloadBatchQRCodes = async (req, res) => {
         if (statusCode !== 200 || !zipUrl) {
             res.status(statusCode).json({
                 message: "Lambda failed to create ZIP archive",
-                error: parsedBody?.error || "Unknown Lambda error",
+                error: parsedBody?.error || parsedBody?.message || "Unknown Lambda error",
                 missingFiles: parsedBody?.missingFiles || [],
             });
             return;
@@ -1042,22 +989,20 @@ const downloadEmailQRCode = async (req, res) => {
             res.status(404).json({ message: "Guest not found" });
             return;
         }
-        try {
-            if (guest.pngUrl) {
-                res.setHeader("Content-Disposition", `attachment; filename="qr-${guest.fullname || "guest"}.png"`);
-                res.setHeader("Content-Type", "image/png");
-                res.redirect(guest.pngUrl);
-                return;
-            }
-        }
-        catch (pngError) {
-            console.error("❌ PNG conversion failed:", pngError);
-        }
-        if (guest.qrCode) {
-            res.redirect(guest.qrCode);
+        if (guest.pngUrl) {
+            res.setHeader("Content-Disposition", `attachment; filename=\"qr-${guest.fullname || "guest"}.png\"`);
+            res.setHeader("Content-Type", "image/png");
+            res.redirect(guest.pngUrl);
             return;
         }
-        res.status(404).json({ message: "QR code not available" });
+        const fallbackPngUrl = buildPngUrl(guest.eventId?.toString(), guest._id.toString());
+        if (fallbackPngUrl) {
+            res.setHeader("Content-Disposition", `attachment; filename=\"qr-${guest.fullname || "guest"}.png\"`);
+            res.setHeader("Content-Type", "image/png");
+            res.redirect(fallbackPngUrl);
+            return;
+        }
+        res.status(404).json({ message: "PNG QR code not available" });
     }
     catch (error) {
         console.error("❌ Error in downloadEmailQRCode:", error);

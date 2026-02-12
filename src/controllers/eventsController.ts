@@ -6,6 +6,17 @@ import { deleteFromS3, uploadToS3 } from "../utils/s3Utils";
 import { LambdaClient, InvokeCommand } from "@aws-sdk/client-lambda";
 const lambdaClient = new LambdaClient({ region: process.env.AWS_REGION });
 
+const parseMaybeJson = (value: any) => {
+  if (typeof value === "string") {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return value;
+    }
+  }
+  return value;
+};
+
 export const createEvent = async (
   req: Request,
   res: Response
@@ -19,11 +30,39 @@ export const createEvent = async (
       AWS_REGION: process.env.AWS_REGION,
     });
 
-    const { name, date, location, description } = req.body;
+    const {
+      name,
+      date,
+      location,
+      description,
+      rsvpMessage,
+      rsvpBgColor,
+      rsvpAccentColor,
+      servicePackage,
+      messageCycle,
+      channelConfig,
+      customMessageSequence,
+      rsvpDeadline,
+      eventEndDate,
+    } = req.body;
 
     // ✅ Validate event fields
     const validateEvent = createEventSchema.validate(
-      { name, date, location, description },
+      {
+        name,
+        date,
+        location,
+        description,
+        rsvpMessage,
+        rsvpBgColor,
+        rsvpAccentColor,
+        servicePackage,
+        messageCycle,
+        channelConfig,
+        customMessageSequence,
+        rsvpDeadline,
+        eventEndDate,
+      },
       option
     );
     if (validateEvent.error) {
@@ -56,6 +95,23 @@ export const createEvent = async (
       location,
       description,
       iv: ivImageUrl,
+      ...(rsvpMessage !== undefined ? { rsvpMessage } : {}),
+      ...(rsvpBgColor !== undefined ? { rsvpBgColor } : {}),
+      ...(rsvpAccentColor !== undefined ? { rsvpAccentColor } : {}),
+      ...(servicePackage !== undefined ? { servicePackage } : {}),
+      ...(messageCycle !== undefined ? { messageCycle } : {}),
+      ...(channelConfig !== undefined
+        ? { channelConfig: parseMaybeJson(channelConfig) }
+        : {}),
+      ...(customMessageSequence !== undefined
+        ? { customMessageSequence: parseMaybeJson(customMessageSequence) }
+        : {}),
+      ...(rsvpDeadline !== undefined
+        ? { rsvpDeadline: new Date(rsvpDeadline) }
+        : {}),
+      ...(eventEndDate !== undefined
+        ? { eventEndDate: new Date(eventEndDate) }
+        : {}),
     });
 
     console.log("✅ Event created successfully:", newEvent.id);
@@ -114,7 +170,22 @@ export const createEvent = async (
 
 export const updateEvent = async (req: Request, res: Response) => {
   try {
-    const { id, name, date, location, description } = req.body;
+    const {
+      id,
+      name,
+      date,
+      location,
+      description,
+      rsvpMessage,
+      rsvpBgColor,
+      rsvpAccentColor,
+      servicePackage,
+      messageCycle,
+      channelConfig,
+      customMessageSequence,
+      rsvpDeadline,
+      eventEndDate,
+    } = req.body;
 
     if (!id) {
       return res
@@ -133,6 +204,19 @@ export const updateEvent = async (req: Request, res: Response) => {
     if (date) updateData.date = date;
     if (location) updateData.location = location;
     if (description) updateData.description = description;
+    if (rsvpMessage !== undefined) updateData.rsvpMessage = rsvpMessage;
+    if (rsvpBgColor !== undefined) updateData.rsvpBgColor = rsvpBgColor;
+    if (rsvpAccentColor !== undefined) updateData.rsvpAccentColor = rsvpAccentColor;
+    if (servicePackage !== undefined) updateData.servicePackage = servicePackage;
+    if (messageCycle !== undefined) updateData.messageCycle = messageCycle;
+    if (channelConfig !== undefined)
+      updateData.channelConfig = parseMaybeJson(channelConfig);
+    if (customMessageSequence !== undefined)
+      updateData.customMessageSequence = parseMaybeJson(customMessageSequence);
+    if (rsvpDeadline !== undefined)
+      updateData.rsvpDeadline = new Date(rsvpDeadline);
+    if (eventEndDate !== undefined)
+      updateData.eventEndDate = new Date(eventEndDate);
 
     // Handle new IV upload (if provided via multipart/form-data)
     if (req.file && req.file.buffer) {
@@ -232,6 +316,75 @@ export const getEventById = async (req: Request, res: Response) => {
     res.status(200).json({ message: "Event successfully fetched", event });
   } catch (error) {
     res.status(500).json({ message: "Error fetching events" });
+  }
+};
+
+export const updateRsvpSettings = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { rsvpMessage, rsvpBgColor, rsvpAccentColor, rsvpDeadline, eventEndDate } = req.body;
+
+    if (!id) {
+      return res.status(400).json({ message: "Event ID is required" });
+    }
+
+    const updateData: any = {};
+    if (rsvpMessage !== undefined) updateData.rsvpMessage = rsvpMessage;
+    if (rsvpBgColor !== undefined) updateData.rsvpBgColor = rsvpBgColor;
+    if (rsvpAccentColor !== undefined) updateData.rsvpAccentColor = rsvpAccentColor;
+    if (rsvpDeadline !== undefined) updateData.rsvpDeadline = rsvpDeadline || null;
+    if (eventEndDate !== undefined) updateData.eventEndDate = eventEndDate || null;
+
+    const updatedEvent = await Event.findByIdAndUpdate(id, updateData, {
+      new: true,
+    });
+
+    if (!updatedEvent) {
+      return res.status(404).json({ message: "Event not found" });
+    }
+
+    return res.status(200).json({
+      message: "RSVP settings updated",
+      event: updatedEvent,
+    });
+  } catch (error) {
+    console.error("Error updating RSVP settings:", error);
+    return res.status(500).json({
+      message: "Error updating RSVP settings",
+      error: error instanceof Error ? error.message : error,
+    });
+  }
+};
+
+export const updateRsvpFormSettings = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { rsvpFormSettings } = req.body;
+
+    if (!id) {
+      return res.status(400).json({ message: "Event ID is required" });
+    }
+
+    const updatedEvent = await Event.findByIdAndUpdate(
+      id,
+      { rsvpFormSettings: rsvpFormSettings ?? null },
+      { new: true },
+    );
+
+    if (!updatedEvent) {
+      return res.status(404).json({ message: "Event not found" });
+    }
+
+    return res.status(200).json({
+      message: "RSVP form settings updated",
+      event: updatedEvent,
+    });
+  } catch (error) {
+    console.error("Error updating RSVP form settings:", error);
+    return res.status(500).json({
+      message: "Error updating RSVP form settings",
+      error: error instanceof Error ? error.message : error,
+    });
   }
 };
 

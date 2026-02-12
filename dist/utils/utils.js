@@ -61,7 +61,18 @@ exports.createEventSchema = joi_1.default.object({
     date: joi_1.default.string().required(),
     location: joi_1.default.string().required(),
     description: joi_1.default.string().required(),
-    iv: joi_1.default.string().base64().optional()
+    iv: joi_1.default.string().base64().optional(),
+    rsvpMessage: joi_1.default.string().allow("").optional(),
+    rsvpBgColor: joi_1.default.string().allow("").optional(),
+    rsvpAccentColor: joi_1.default.string().allow("").optional(),
+    servicePackage: joi_1.default.string()
+        .valid("invitation-only", "one-time-rsvp", "standard-rsvp", "full-rsvp")
+        .optional(),
+    messageCycle: joi_1.default.number().min(0).max(7).optional(),
+    channelConfig: joi_1.default.any().optional(),
+    customMessageSequence: joi_1.default.any().optional(),
+    rsvpDeadline: joi_1.default.any().optional(),
+    eventEndDate: joi_1.default.any().optional(),
 });
 exports.updateEventSchema = joi_1.default.object({
     name: joi_1.default.string().optional(),
@@ -69,6 +80,17 @@ exports.updateEventSchema = joi_1.default.object({
     location: joi_1.default.string().optional(),
     description: joi_1.default.string().optional(),
     iv: joi_1.default.string().base64().optional(),
+    rsvpMessage: joi_1.default.string().allow("").optional(),
+    rsvpBgColor: joi_1.default.string().allow("").optional(),
+    rsvpAccentColor: joi_1.default.string().allow("").optional(),
+    servicePackage: joi_1.default.string()
+        .valid("invitation-only", "one-time-rsvp", "standard-rsvp", "full-rsvp")
+        .optional(),
+    messageCycle: joi_1.default.number().min(0).max(7).optional(),
+    channelConfig: joi_1.default.any().optional(),
+    customMessageSequence: joi_1.default.any().optional(),
+    rsvpDeadline: joi_1.default.any().optional(),
+    eventEndDate: joi_1.default.any().optional(),
 });
 exports.createGuestSchema = joi_1.default.object({
     fullname: joi_1.default.string().required(),

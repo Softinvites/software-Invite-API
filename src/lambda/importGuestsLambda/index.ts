@@ -50,7 +50,7 @@ const {
 // Function to prepare email attachments with S3 keys
 async function prepareEmailAttachments(
   compressedIVUrl: string,
-  eventName: string
+  eventName: string,
 ) {
   if (!compressedIVUrl) return [];
 
@@ -70,7 +70,7 @@ async function prepareEmailAttachments(
 async function prepareIVAttachment(
   eventId: string,
   eventName: string,
-  originalIVUrl: string
+  originalIVUrl: string,
 ): Promise<string> {
   try {
     const response = await fetch(originalIVUrl);
@@ -93,7 +93,7 @@ async function prepareIVAttachment(
         Key: compressedKey,
         Body: compressedBuffer,
         ContentType: "image/jpeg",
-      })
+      }),
     );
 
     return `https://softinvites-assets.s3.us-east-2.amazonaws.com/${compressedKey}`;
@@ -110,7 +110,7 @@ async function safeInvoke(
   functionName: string,
   payload: any,
   asyncInvoke = false,
-  retries = 5
+  retries = 5,
 ) {
   for (let i = 0; i < retries; i++) {
     try {
@@ -119,7 +119,7 @@ async function safeInvoke(
       const attempt = i + 1;
       console.error(
         `Invoke failed (${attempt}/${retries}) → ${functionName}`,
-        err?.message || err
+        err?.message || err,
       );
 
       if (attempt >= retries) {
@@ -135,7 +135,7 @@ async function safeInvoke(
       console.warn(
         `Backing off for ${delay}ms before retrying ${functionName} (attempt ${
           attempt + 1
-        })`
+        })`,
       );
       await new Promise((r) => setTimeout(r, delay));
     }
@@ -170,7 +170,7 @@ export const handler = async (event: any) => {
         compressedIVUrl = await prepareIVAttachment(
           eventId,
           eventDoc.name,
-          eventDoc.iv
+          eventDoc.iv,
         );
         console.log("✅ Compressed IV URL ready:", compressedIVUrl);
       } catch (ivError) {
@@ -210,8 +210,15 @@ export const handler = async (event: any) => {
               };
             }
 
+            const cleanedFullname = String(guestData.fullname)
+              .trim()
+              .replace(/\s+/g, " ");
+            const normalizedFullname = cleanedFullname.toLowerCase();
+
             const guest = await Guest.create({
               ...guestData,
+              fullname: cleanedFullname,
+              normalizedFullname,
               eventId,
             });
 
@@ -243,7 +250,7 @@ export const handler = async (event: any) => {
               console.warn(
                 "Failed to parse QR lambda response body:",
                 parseErr,
-                qrResult
+                qrResult,
               );
               parsedQrResult = qrResult || {};
             }
@@ -270,7 +277,7 @@ export const handler = async (event: any) => {
                     // pass along either the SVG payload or the URL so the lambda can fetch/convert
                     svg: parsedQrResult?.qrSvg,
                     qrCodeUrl,
-                  }
+                  },
                 );
 
                 let parsedPngResult: any = {};
@@ -284,7 +291,7 @@ export const handler = async (event: any) => {
                   console.warn(
                     "Failed to parse PNG lambda response body:",
                     parseErr,
-                    pngLambdaResp
+                    pngLambdaResp,
                   );
                   parsedPngResult = pngLambdaResp || {};
                 }
@@ -293,7 +300,7 @@ export const handler = async (event: any) => {
               } catch (lambdaErr: any) {
                 console.warn(
                   "PNG lambda failed, will attempt local conversion:",
-                  (lambdaErr as any)?.message || lambdaErr
+                  (lambdaErr as any)?.message || lambdaErr,
                 );
               }
             }
@@ -309,12 +316,15 @@ export const handler = async (event: any) => {
                     // If svgSource is an S3 URL, fetch via S3
                     const url = new URL(svgSource);
                     if (url.hostname.includes(".s3.")) {
-                      const key = decodeURIComponent(url.pathname).replace(/^[\\/]/, "");
+                      const key = decodeURIComponent(url.pathname).replace(
+                        /^[\\/]/,
+                        "",
+                      );
                       const getRes = await s3.send(
                         new GetObjectCommand({
                           Bucket: process.env.S3_BUCKET!,
                           Key: key,
-                        })
+                        }),
                       );
 
                       try {
@@ -335,7 +345,7 @@ export const handler = async (event: any) => {
                     } catch (e) {
                       console.warn(
                         "Failed to fetch SVG for PNG conversion (local fallback):",
-                        e
+                        e,
                       );
                     }
                   }
@@ -346,6 +356,9 @@ export const handler = async (event: any) => {
                     .png()
                     .flatten({ background: "#ffffff" })
                     .toBuffer();
+                  if (!pngBuffer || pngBuffer.length === 0) {
+                    throw new Error("Generated PNG buffer is empty");
+                  }
 
                   const pngKey = `qr_codes/png/${eventId}/${guest._id.toString()}.png`;
                   await s3.send(
@@ -354,7 +367,7 @@ export const handler = async (event: any) => {
                       Key: pngKey,
                       Body: pngBuffer,
                       ContentType: "image/png",
-                    })
+                    }),
                   );
 
                   pngUrl = `https://${process.env.S3_BUCKET}.s3.${process.env.AWS_REGION}.amazonaws.com/${pngKey}`;
@@ -362,7 +375,7 @@ export const handler = async (event: any) => {
               } catch (e) {
                 console.warn(
                   "PNG conversion/upload failed in import lambda (local fallback):",
-                  e
+                  e,
                 );
               }
             }
@@ -375,7 +388,7 @@ export const handler = async (event: any) => {
               console.warn(
                 "No QR code URL returned for guest",
                 guest._id.toString(),
-                { parsedQrResult, qrResult }
+                { parsedQrResult, qrResult },
               );
             }
 
@@ -391,7 +404,7 @@ export const handler = async (event: any) => {
             const downloadUrl = `https://292x833w13.execute-api.us-east-2.amazonaws.com/guest/download-emailcode/${guest._id.toString()}`;
             const attachments = await prepareEmailAttachments(
               compressedIVUrl,
-              eventDoc.name
+              eventDoc.name,
             );
 
             await safeInvoke(
@@ -406,12 +419,12 @@ export const handler = async (event: any) => {
                   eventName: eventDoc.name,
                   eventDate: eventDoc.date || "",
                   qrCodeCenterColor: guest.qrCodeCenterColor,
-                  finalQrUrl: downloadUrl,
+                  finalQrUrl: pngUrl || "",
                   downloadUrl: downloadUrl,
                 }),
                 attachments: attachments,
               },
-              true
+              true,
             );
 
             return {
@@ -429,7 +442,7 @@ export const handler = async (event: any) => {
               email: guestData.email || null,
             };
           }
-        })
+        }),
       );
 
       results.push(...batchResults);
@@ -446,7 +459,7 @@ export const handler = async (event: any) => {
     const failed = fulfilled.filter((g) => !g.success);
 
     console.log(
-      `📊 Import Summary: ${successCount} successful, ${failedCount} failed`
+      `📊 Import Summary: ${successCount} successful, ${failedCount} failed`,
     );
     console.log(`📧 Sending admin summary email to: ${ADMIN_EMAIL}`);
 
@@ -518,7 +531,7 @@ export const handler = async (event: any) => {
                           guest.error || "Unknown error"
                         }</td>
                       </tr>
-                    `
+                    `,
                       )
                       .join("")}
                     ${
@@ -549,7 +562,7 @@ export const handler = async (event: any) => {
 
     const adminAttachments = await prepareEmailAttachments(
       compressedIVUrl,
-      eventDoc.name
+      eventDoc.name,
     );
 
     await safeInvoke(
@@ -561,7 +574,7 @@ export const handler = async (event: any) => {
         htmlContent: adminEmailHtml,
         attachments: adminAttachments,
       },
-      true
+      true,
     );
 
     console.log("✅ Import Completed Successfully");

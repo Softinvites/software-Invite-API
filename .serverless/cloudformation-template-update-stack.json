@@ -176,7 +176,7 @@
           "S3Bucket": {
             "Ref": "ServerlessDeploymentBucket"
           },
-          "S3Key": "serverless/softinvites-backend/dev/1769695821664-2026-01-29T14:10:21.664Z/app.zip"
+          "S3Key": "serverless/softinvites-backend/dev/1770743947299-2026-02-10T17:19:07.299Z/app.zip"
         },
         "Handler": "dist/index.handler",
         "Runtime": "nodejs20.x",
@@ -228,7 +228,7 @@
           "S3Bucket": {
             "Ref": "ServerlessDeploymentBucket"
           },
-          "S3Key": "serverless/softinvites-backend/dev/1769695821664-2026-01-29T14:10:21.664Z/backup.zip"
+          "S3Key": "serverless/softinvites-backend/dev/1770743947299-2026-02-10T17:19:07.299Z/backup.zip"
         },
         "Handler": "dist/backup.handler",
         "Runtime": "nodejs20.x",
@@ -271,25 +271,25 @@
         "BackupLogGroup"
       ]
     },
-    "BackupLambdaVersionKOWEr5A7GxOHJLPpzcYJDsc8tW5SgBMx5lk9REx1qs": {
+    "BackupLambdaVersion6ObMQF4TyYtLG7qXch4tdxF4oSLzpTfJgvR9hb44S3E": {
       "Type": "AWS::Lambda::Version",
       "DeletionPolicy": "Retain",
       "Properties": {
         "FunctionName": {
           "Ref": "BackupLambdaFunction"
         },
-        "CodeSha256": "WU2tWIeAUJtfqw8DCvkfXkq64HmrF+gy8MAnQquvLrg=",
+        "CodeSha256": "0D9qwsWQIXCoTkWaE4Wi40ZlMDWxo5BryZUmMag2f2g=",
         "Description": "Event-driven MongoDB backup to S3"
       }
     },
-    "AppLambdaVersionAio3HrFv52GfjApC4Es7i9JjwIdknXmqKm5c7YlwBQ": {
+    "AppLambdaVersionD7p0PywlbqTGZaqvabxLNU871lNlXTOx7kbpGi1GrU": {
       "Type": "AWS::Lambda::Version",
       "DeletionPolicy": "Retain",
       "Properties": {
         "FunctionName": {
           "Ref": "AppLambdaFunction"
         },
-        "CodeSha256": "4MGhRlSxAjApKDcgpXFDikH1mp2RyzY6Fr8ZBuIxpc8="
+        "CodeSha256": "lUQAmCWMPP6xMo51FB4HNicr43RR90RFi+LfVCdbNDc="
       }
     },
     "HttpApi": {
@@ -423,7 +423,7 @@
     "BackupLambdaFunctionQualifiedArn": {
       "Description": "Current Lambda function version",
       "Value": {
-        "Ref": "BackupLambdaVersionKOWEr5A7GxOHJLPpzcYJDsc8tW5SgBMx5lk9REx1qs"
+        "Ref": "BackupLambdaVersion6ObMQF4TyYtLG7qXch4tdxF4oSLzpTfJgvR9hb44S3E"
       },
       "Export": {
         "Name": "sls-softinvites-backend-dev-BackupLambdaFunctionQualifiedArn"
@@ -432,7 +432,7 @@
     "AppLambdaFunctionQualifiedArn": {
       "Description": "Current Lambda function version",
       "Value": {
-        "Ref": "AppLambdaVersionAio3HrFv52GfjApC4Es7i9JjwIdknXmqKm5c7YlwBQ"
+        "Ref": "AppLambdaVersionD7p0PywlbqTGZaqvabxLNU871lNlXTOx7kbpGi1GrU"
       },
       "Export": {
         "Name": "sls-softinvites-backend-dev-AppLambdaFunctionQualifiedArn"

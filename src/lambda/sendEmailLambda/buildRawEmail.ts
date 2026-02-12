@@ -11,6 +11,7 @@ export interface BuildRawEmailOptions {
   to: string;
   subject: string;
   htmlContent: string;
+  replyTo?: string;
   attachments?: Attachment[];
 }
 
@@ -21,6 +22,9 @@ export const buildRawEmail = (options: BuildRawEmailOptions): string => {
   msg.setSender(options.from);
   msg.setRecipient(options.to);
   msg.setSubject(options.subject);
+  if (options.replyTo) {
+    msg.setHeader('Reply-To', options.replyTo);
+  }
 
   // Add HTML content
   msg.addMessage({

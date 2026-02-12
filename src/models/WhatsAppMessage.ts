@@ -15,18 +15,35 @@ const whatsAppMessageSchema = new mongoose.Schema({
     type: String,
     required: true
   },
+  template: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'WhatsAppTemplate',
+    required: false
+  },
   status: {
     type: String,
-    enum: ['sent', 'delivered', 'read', 'failed', 'not_on_whatsapp'],
-    default: 'sent'
+    enum: ['queued', 'sent', 'delivered', 'read', 'failed', 'not_on_whatsapp'],
+    default: 'queued'
   },
   providerMessageId: {
     type: String,
     required: true
   },
+  whatsappMessageId: {
+    type: String,
+    required: false
+  },
   phoneNumber: {
     type: String,
     required: true
+  },
+  fallbackChannel: {
+    type: String,
+    default: 'email'
+  },
+  cost: {
+    type: Number,
+    default: 0
   },
   errorMessage: {
     type: String

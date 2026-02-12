@@ -8,5 +8,6 @@ router.get('/whatsapp', verifyWebhook);
 
 // POST endpoint for receiving webhook events
 router.post('/whatsapp', handleWebhook);
+router.post('/whatsapp/status', handleWebhook);
 
 export default router;

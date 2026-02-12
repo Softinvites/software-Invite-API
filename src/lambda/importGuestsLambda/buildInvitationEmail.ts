@@ -7,7 +7,7 @@ export const buildInvitationEmail = ({
   eventName,
   eventDate,
   qrCodeCenterColor,
-  // finalQrUrl,
+  finalQrUrl,
   downloadUrl,
 }: {
   fullname: string;
@@ -80,8 +80,8 @@ export const buildInvitationEmail = ({
             <h2 style="color: ${centerColorHex}; font-size: clamp(18px, 4vw, 22px); font-weight: 600; margin: 0 0 25px 0;">Your Digital Pass</h2>
             
             <div style="background: #ffffff; padding: clamp(30px, 6vw, 50px); border-radius: 12px; display: inline-block; box-shadow: 0 4px 16px rgba(30,60,114,0.1); border: 1px solid #e2e8f0;">
-              ${downloadUrl ? `
-                <img src="${downloadUrl}" 
+              ${finalQrUrl ? `
+                <img src="${finalQrUrl}" 
                      alt="Your Event QR Code" 
                      width="300" height="300"
                      style="display: block; border-radius: 8px; max-width: 100%; height: auto;" />
@@ -94,10 +94,12 @@ export const buildInvitationEmail = ({
             
             <p style="color: #718096; font-size: clamp(12px, 3vw, 14px); margin: 20px 0 25px 0;">Present this code at the event entrance for quick check-in</p>
             
-            <a href="${downloadUrl}" 
-               style="display: inline-block; background: linear-gradient(135deg, ${centerColorHex} 0%, ${darkerCenterColor} 100%); color: ${textColor}; padding: 12px 28px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: clamp(12px, 3vw, 14px); box-shadow: 0 4px 12px rgba(30,60,114,0.3); transition: all 0.3s ease;">
-               Download QR Code
-            </a>
+            ${finalQrUrl ? `
+              <a href="${finalQrUrl}" 
+                 style="display: inline-block; background: linear-gradient(135deg, ${centerColorHex} 0%, ${darkerCenterColor} 100%); color: ${textColor}; padding: 12px 28px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: clamp(12px, 3vw, 14px); box-shadow: 0 4px 12px rgba(30,60,114,0.3); transition: all 0.3s ease;">
+                 Download QR Code
+              </a>
+            ` : ''}
           </div>
 
           <!-- Important Notice -->

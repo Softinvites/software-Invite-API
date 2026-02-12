@@ -4,10 +4,31 @@ import { connectDB } from "./db.js";
 import { Guest } from "./guestmodel.js";
 import { Event } from "./eventmodel.js";
 import { buildInvitationEmail } from "./buildInvitationEmail.js";
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand, GetObjectCommand, } from "@aws-sdk/client-s3";
 import sharp from "sharp";
 import fetch from "node-fetch";
 const s3 = new S3Client({ region: process.env.AWS_REGION });
+// Helper to normalize various S3 GetObject Body shapes to a Buffer
+async function streamToBuffer(body) {
+    if (!body)
+        throw new Error("S3 object body is empty");
+    // SDK v3 on some runtimes exposes transformToByteArray()
+    if (typeof body.transformToByteArray === "function") {
+        return Buffer.from(await body.transformToByteArray());
+    }
+    // Uint8Array / Buffer
+    if (body instanceof Uint8Array)
+        return Buffer.from(body);
+    if (Buffer.isBuffer(body))
+        return body;
+    // Node.js readable stream
+    return new Promise((resolve, reject) => {
+        const chunks = [];
+        body.on("data", (chunk) => chunks.push(chunk));
+        body.on("end", () => resolve(Buffer.concat(chunks)));
+        body.on("error", reject);
+    });
+}
 const { QR_LAMBDA_FUNCTION_NAME, PNG_CONVERT_LAMBDA, EMAIL_LAMBDA_FUNCTION_NAME, ADMIN_EMAIL, } = process.env;
 /* ------------------------------ */
 /* 🔧 HELPER FUNCTIONS */
@@ -132,8 +153,14 @@ export const handler = async (event) => {
                             skipped: true,
                         };
                     }
+                    const cleanedFullname = String(guestData.fullname)
+                        .trim()
+                        .replace(/\s+/g, " ");
+                    const normalizedFullname = cleanedFullname.toLowerCase();
                     const guest = await Guest.create({
                         ...guestData,
+                        fullname: cleanedFullname,
+                        normalizedFullname,
                         eventId,
                     });
                     const fullnameSafe = guest.fullname.replace(/[^a-zA-Z0-9-_]/g, "_");
@@ -167,13 +194,100 @@ export const handler = async (event) => {
                         parsedQrResult?.qrUrl ||
                         parsedQrResult?.url;
                     /* ------------------------------ */
-                    /* ✅ 4. CONVERT SVG → PNG */
+                    /* ✅ 4. CONVERT SVG → PNG via PNG_CONVERT_LAMBDA (preferred),
+                         fallback to local sharp conversion if needed */
                     /* ------------------------------ */
-                    const pngResult = await safeInvoke(PNG_CONVERT_LAMBDA, {
-                        guestId: guest._id.toString(),
-                        eventId,
-                        filename: fullnameSafe, // ✅ NAME USED FOR DOWNLOAD
-                    });
+                    let pngUrl = "";
+                    // First try the centralized PNG conversion lambda (safer for consistency)
+                    if (PNG_CONVERT_LAMBDA) {
+                        try {
+                            const pngLambdaResp = await safeInvoke(PNG_CONVERT_LAMBDA, {
+                                guestId: guest._id.toString(),
+                                eventId,
+                                // pass along either the SVG payload or the URL so the lambda can fetch/convert
+                                svg: parsedQrResult?.qrSvg,
+                                qrCodeUrl,
+                            });
+                            let parsedPngResult = {};
+                            try {
+                                parsedPngResult = pngLambdaResp?.body
+                                    ? typeof pngLambdaResp.body === "string"
+                                        ? JSON.parse(pngLambdaResp.body)
+                                        : pngLambdaResp.body
+                                    : pngLambdaResp || {};
+                            }
+                            catch (parseErr) {
+                                console.warn("Failed to parse PNG lambda response body:", parseErr, pngLambdaResp);
+                                parsedPngResult = pngLambdaResp || {};
+                            }
+                            pngUrl = parsedPngResult?.pngUrl || parsedPngResult?.url || "";
+                        }
+                        catch (lambdaErr) {
+                            console.warn("PNG lambda failed, will attempt local conversion:", lambdaErr?.message || lambdaErr);
+                        }
+                    }
+                    // If lambda didn't return a pngUrl, fall back to local conversion + upload
+                    if (!pngUrl) {
+                        try {
+                            // Attempt to fetch SVG from qrCodeUrl (if provided) or use qrSvg from QR lambda
+                            let svgBuffer = null;
+                            const svgSource = qrCodeUrl || parsedQrResult?.qrSvg;
+                            if (svgSource) {
+                                try {
+                                    // If svgSource is an S3 URL, fetch via S3
+                                    const url = new URL(svgSource);
+                                    if (url.hostname.includes(".s3.")) {
+                                        const key = decodeURIComponent(url.pathname).replace(/^[\\/]/, "");
+                                        const getRes = await s3.send(new GetObjectCommand({
+                                            Bucket: process.env.S3_BUCKET,
+                                            Key: key,
+                                        }));
+                                        try {
+                                            svgBuffer = await streamToBuffer(getRes.Body);
+                                        }
+                                        catch (bodyErr) {
+                                            console.warn("Failed to read S3 object body:", bodyErr);
+                                        }
+                                    }
+                                    else {
+                                        const resp = await fetch(svgSource);
+                                        if (resp.ok)
+                                            svgBuffer = Buffer.from(await resp.arrayBuffer());
+                                    }
+                                }
+                                catch (fetchErr) {
+                                    try {
+                                        const resp = await fetch(svgSource);
+                                        if (resp.ok)
+                                            svgBuffer = Buffer.from(await resp.arrayBuffer());
+                                    }
+                                    catch (e) {
+                                        console.warn("Failed to fetch SVG for PNG conversion (local fallback):", e);
+                                    }
+                                }
+                            }
+                            if (svgBuffer) {
+                                const pngBuffer = await sharp(svgBuffer, { density: 300 })
+                                    .png()
+                                    .flatten({ background: "#ffffff" })
+                                    .toBuffer();
+                                if (!pngBuffer || pngBuffer.length === 0) {
+                                    throw new Error("Generated PNG buffer is empty");
+                                }
+                                const pngKey = `qr_codes/png/${eventId}/${guest._id.toString()}.png`;
+                                await s3.send(new PutObjectCommand({
+                                    Bucket: process.env.S3_BUCKET,
+                                    Key: pngKey,
+                                    Body: pngBuffer,
+                                    ContentType: "image/png",
+                                }));
+                                pngUrl = `https://${process.env.S3_BUCKET}.s3.${process.env.AWS_REGION}.amazonaws.com/${pngKey}`;
+                            }
+                        }
+                        catch (e) {
+                            console.warn("PNG conversion/upload failed in import lambda (local fallback):", e);
+                        }
+                    }
                     /* ------------------------------ */
                     /* ✅ 5. UPDATE GUEST WITH QR DATA */
                     /* ------------------------------ */
@@ -184,6 +298,7 @@ export const handler = async (event) => {
                     await Guest.findByIdAndUpdate(guest._id, {
                         qrCode: qrCodeUrl || "",
                         qrCodeData: guest._id.toString(),
+                        ...(pngUrl ? { pngUrl } : {}),
                     });
                     /* ------------------------------ */
                     /* ✅ 6. SEND EMAIL TO GUEST */
@@ -200,7 +315,7 @@ export const handler = async (event) => {
                             eventName: eventDoc.name,
                             eventDate: eventDoc.date || "",
                             qrCodeCenterColor: guest.qrCodeCenterColor,
-                            finalQrUrl: downloadUrl,
+                            finalQrUrl: pngUrl || "",
                             downloadUrl: downloadUrl,
                         }),
                         attachments: attachments,
@@ -217,7 +332,7 @@ export const handler = async (event) => {
                     return {
                         ...guestData,
                         success: false,
-                        error: err.message || String(err),
+                        error: err?.message || String(err),
                         email: guestData.email || null,
                     };
                 }
@@ -340,7 +455,7 @@ export const handler = async (event) => {
             statusCode: 500,
             body: JSON.stringify({
                 message: "Import failed",
-                error: err.message,
+                error: err?.message || String(err),
             }),
         };
     }

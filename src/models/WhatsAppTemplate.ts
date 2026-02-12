@@ -1,6 +1,11 @@
 import mongoose from 'mongoose';
 
 const whatsAppTemplateSchema = new mongoose.Schema({
+  eventId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Event',
+    required: false
+  },
   name: {
     type: String,
     required: true,
@@ -30,7 +35,7 @@ const whatsAppTemplateSchema = new mongoose.Schema({
   }],
   status: {
     type: String,
-    enum: ['PENDING', 'APPROVED', 'REJECTED'],
+    enum: ['PENDING', 'APPROVED', 'REJECTED', 'pending', 'approved', 'rejected'],
     default: 'APPROVED'
   },
   isActive: {

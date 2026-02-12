@@ -61,7 +61,18 @@ export const createEventSchema = Joi.object({
   date: Joi.string().required(),
   location: Joi.string().required(),
   description: Joi.string().required(),
-  iv: Joi.string().base64().optional() 
+  iv: Joi.string().base64().optional(),
+  rsvpMessage: Joi.string().allow("").optional(),
+  rsvpBgColor: Joi.string().allow("").optional(),
+  rsvpAccentColor: Joi.string().allow("").optional(),
+  servicePackage: Joi.string()
+    .valid("invitation-only", "one-time-rsvp", "standard-rsvp", "full-rsvp")
+    .optional(),
+  messageCycle: Joi.number().min(0).max(7).optional(),
+  channelConfig: Joi.any().optional(),
+  customMessageSequence: Joi.any().optional(),
+  rsvpDeadline: Joi.any().optional(),
+  eventEndDate: Joi.any().optional(),
 });
 
 export const updateEventSchema = Joi.object({
@@ -69,7 +80,18 @@ export const updateEventSchema = Joi.object({
   date: Joi.string().optional(),
   location: Joi.string().optional(),
   description: Joi.string().optional(),
-  iv: Joi.string().base64().optional(), 
+  iv: Joi.string().base64().optional(),
+  rsvpMessage: Joi.string().allow("").optional(),
+  rsvpBgColor: Joi.string().allow("").optional(),
+  rsvpAccentColor: Joi.string().allow("").optional(),
+  servicePackage: Joi.string()
+    .valid("invitation-only", "one-time-rsvp", "standard-rsvp", "full-rsvp")
+    .optional(),
+  messageCycle: Joi.number().min(0).max(7).optional(),
+  channelConfig: Joi.any().optional(),
+  customMessageSequence: Joi.any().optional(),
+  rsvpDeadline: Joi.any().optional(),
+  eventEndDate: Joi.any().optional(),
 });
 
 export const createGuestSchema = Joi.object({

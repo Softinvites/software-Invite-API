@@ -1,5 +1,6 @@
 import axios from 'axios';
 import mongoose from 'mongoose';
+import twilio from 'twilio';
 import { WhatsAppMessage } from '../models/WhatsAppMessage.js';
 
 interface Guest {
@@ -39,10 +40,14 @@ interface BulkResult {
 class WhatsAppService {
   private baseURL: string;
   private accessToken: string;
+  private provider: string;
 
   constructor() {
     this.baseURL = `https://graph.facebook.com/v18.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}`;
-    this.accessToken = process.env.WHATSAPP_ACCESS_TOKEN!;
+    this.accessToken = process.env.WHATSAPP_ACCESS_TOKEN || '';
+    this.provider =
+      process.env.WHATSAPP_PROVIDER ||
+      (process.env.TERMII_API_KEY ? 'termii' : process.env.TWILIO_ACCOUNT_SID ? 'twilio' : 'meta');
   }
 
   async sendTemplateMessage(
@@ -53,38 +58,86 @@ class WhatsAppService {
     eventId: string
   ): Promise<SendResult> {
     try {
-      const payload = {
-        messaging_product: "whatsapp",
-        to: phoneNumber,
-        type: "template",
-        template: {
-          name: templateName,
-          language: { code: "en_US" },
-          components: [
-            {
-              type: "body",
-              parameters: templateParams.map(param => ({ type: "text", text: param }))
-            }
-          ]
+      if (!phoneNumber) {
+        return { success: false, error: 'Missing phone number' };
+      }
+      let providerMessageId = '';
+      if (this.provider === 'twilio') {
+        if (!process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN) {
+          throw new Error('Twilio credentials not configured');
         }
-      };
-
-      const response = await axios.post(
-        `${this.baseURL}/messages`,
-        payload,
-        {
-          headers: {
-            'Authorization': `Bearer ${this.accessToken}`,
-            'Content-Type': 'application/json'
+        const client = twilio(
+          process.env.TWILIO_ACCOUNT_SID,
+          process.env.TWILIO_AUTH_TOKEN
+        );
+        const from = process.env.TWILIO_WHATSAPP_FROM;
+        if (!from) throw new Error('TWILIO_WHATSAPP_FROM not configured');
+        const to = phoneNumber.startsWith('whatsapp:')
+          ? phoneNumber
+          : `whatsapp:${phoneNumber}`;
+        const body = templateParams?.length
+          ? `${templateName}: ${templateParams.join(' | ')}`
+          : `${templateName}`;
+        const response = await client.messages.create({ from, to, body });
+        providerMessageId = response.sid;
+      } else if (this.provider === 'termii') {
+        const apiKey = process.env.TERMII_API_KEY;
+        if (!apiKey) throw new Error('TERMII_API_KEY not configured');
+        const baseUrl = process.env.TERMII_BASE_URL || 'https://api.ng.termii.com';
+        const url =
+          process.env.TERMII_WHATSAPP_URL ||
+          `${baseUrl.replace(/\/$/, '')}/api/whatsapp/send`;
+        const payload = {
+          to: phoneNumber,
+          message: templateParams?.length
+            ? templateParams.join(' ')
+            : templateName,
+          api_key: apiKey,
+        };
+        const response = await axios.post(url, payload);
+        providerMessageId =
+          response.data?.message_id ||
+          response.data?.messageId ||
+          response.data?.data?.message_id ||
+          `termii_${Date.now()}`;
+      } else {
+        if (!this.accessToken || !process.env.WHATSAPP_PHONE_NUMBER_ID) {
+          throw new Error('Meta WhatsApp credentials not configured');
+        }
+        const payload = {
+          messaging_product: "whatsapp",
+          to: phoneNumber,
+          type: "template",
+          template: {
+            name: templateName,
+            language: { code: "en_US" },
+            components: [
+              {
+                type: "body",
+                parameters: templateParams.map(param => ({ type: "text", text: param }))
+              }
+            ]
           }
-        }
-      );
+        };
+
+        const response = await axios.post(
+          `${this.baseURL}/messages`,
+          payload,
+          {
+            headers: {
+              'Authorization': `Bearer ${this.accessToken}`,
+              'Content-Type': 'application/json'
+            }
+          }
+        );
+        providerMessageId = response.data.messages[0].id;
+      }
 
       const messageRecord = new WhatsAppMessage({
         guestId,
         eventId,
         templateName,
-        providerMessageId: response.data.messages[0].id,
+        providerMessageId,
         phoneNumber,
         status: 'sent'
       });
@@ -93,7 +146,7 @@ class WhatsAppService {
 
       return {
         success: true,
-        messageId: response.data.messages[0].id,
+        messageId: providerMessageId,
         recordId: messageRecord._id.toString()
       };
 

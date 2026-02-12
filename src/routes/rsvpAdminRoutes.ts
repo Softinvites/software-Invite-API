@@ -9,6 +9,17 @@ import {
   sendRsvpInvites,
   generateRsvpFormLink,
 } from "../controllers/rsvpAdminController";
+import {
+  generateRsvpReport,
+  listRsvpReports,
+  getShareableReport,
+} from "../controllers/rsvpReportController";
+import {
+  listSchedules,
+  createSchedule,
+  updateSchedule,
+  deleteSchedule,
+} from "../controllers/rsvpScheduleController";
 
 const router = Router();
 const uploadCSVExcel = multer({ storage: multer.memoryStorage() });
@@ -24,5 +35,12 @@ router.post(
 router.post("/:eventId/rsvp/send", auth, sendRsvpInvites);
 router.get("/:eventId/rsvp/export", auth, exportRsvpCsv);
 router.post("/:eventId/rsvp/generate-form", auth, generateRsvpFormLink);
+router.post("/:eventId/rsvp/generate-report", auth, generateRsvpReport);
+router.get("/:eventId/rsvp/reports", auth, listRsvpReports);
+router.get("/:eventId/rsvp/shareable-report/:token", getShareableReport);
+router.get("/:eventId/rsvp/schedules", auth, listSchedules);
+router.post("/:eventId/rsvp/schedules", auth, createSchedule);
+router.patch("/rsvp/schedules/:scheduleId", auth, updateSchedule);
+router.delete("/rsvp/schedules/:scheduleId", auth, deleteSchedule);
 
 export default router;

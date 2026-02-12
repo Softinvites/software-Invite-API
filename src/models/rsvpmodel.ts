@@ -1,8 +1,11 @@
 import { Schema, model, Document, Types } from "mongoose";
+import { generateRsvpToken } from "../utils/rsvpToken";
 
 export interface RSVPDocument extends Document {
   _id: Types.ObjectId;
   eventId: Types.ObjectId;
+  guestId?: Types.ObjectId;
+  token?: string;
   guestName: string;
   email?: string;
   phone?: string;
@@ -21,6 +24,8 @@ export interface RSVPDocument extends Document {
 const RSVPSchema = new Schema<RSVPDocument>(
   {
     eventId: { type: Schema.Types.ObjectId, ref: "Event", required: true },
+    guestId: { type: Schema.Types.ObjectId, default: () => new Types.ObjectId() },
+    token: { type: String, default: () => generateRsvpToken() },
     guestName: { type: String, required: true },
     email: { type: String, required: false },
     phone: { type: String, required: false },

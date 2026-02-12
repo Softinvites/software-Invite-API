@@ -12,6 +12,7 @@ function safeName(str?: string) {
   return str ? String(str).replace(/[^a-zA-Z0-9._-]/g, "_") : "unknown";
 }
 
+
 /* ------------------------------ */
 /* 📦 ZIP LAMBDA HANDLER */
 /* ------------------------------ */
@@ -77,33 +78,36 @@ export const handler = async (event: any) => {
             return;
           }
 
-          // Prefer pngUrl provided on the guest (pre-generated). Otherwise fall back
-          // to the conventional S3 key `qr_codes/png/{eventId}/{guestId}.png`.
-          let pngKey = `qr_codes/png/${eventId}/${guestId}.png`;
-          if (item.pngUrl && typeof item.pngUrl === 'string') {
-            try {
-              const url = new URL(item.pngUrl);
-              pngKey = url.pathname.startsWith('/') ? url.pathname.slice(1) : url.pathname;
-            } catch (e) {
-              // ignore parsing error and use default key
-            }
+          if (!item.pngUrl || typeof item.pngUrl !== "string") {
+            missingFiles.push({ item, error: "Missing pngUrl" });
+            return;
           }
+
+          let pngKey = "";
+          try {
+            const url = new URL(item.pngUrl);
+            pngKey = url.pathname.startsWith("/")
+              ? url.pathname.slice(1)
+              : url.pathname;
+          } catch (e) {
+            missingFiles.push({ item, error: "Invalid pngUrl" });
+            return;
+          }
+
+          const filename = `qr-${safeName(guestName)}_${safeName(
+            tableNo
+          )}_${safeName(others)}_${guestId}.png`;
 
           try {
             const s3Stream = s3
               .getObject({ Bucket: bucket, Key: pngKey })
               .createReadStream();
-
-            const filename = `qr-${safeName(guestName)}_${safeName(
-              tableNo
-            )}_${safeName(others)}_${guestId}.png`;
-
             archive.append(s3Stream, { name: filename });
             addedFiles.push(filename);
           } catch (err: any) {
-            console.error("❌ Missing PNG:", pngKey, err);
+            console.error("❌ PNG not found in S3:", pngKey, err);
             missingFiles.push({
-              guestId,
+              item,
               error: "PNG not found in S3",
               key: pngKey,
             });

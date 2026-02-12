@@ -18,9 +18,16 @@ const whatsappRoutes_1 = __importDefault(require("./routes/whatsappRoutes"));
 const webhookRoutes_1 = __importDefault(require("./routes/webhookRoutes"));
 const rsvpRoutes_1 = __importDefault(require("./routes/rsvpRoutes"));
 const rsvpAdminRoutes_1 = __importDefault(require("./routes/rsvpAdminRoutes"));
+const emailRoutes_1 = __importDefault(require("./routes/emailRoutes"));
+const reportRoutes_1 = __importDefault(require("./routes/reportRoutes"));
 const dbConnect_1 = require("./library/middlewares/dbConnect");
 dotenv_1.default.config();
 const app = (0, express_1.default)();
+if (process.env.RUN_SCHEDULER === "true" ||
+    process.env.NODE_ENV === "development") {
+    // fire-and-forget scheduler import (node-cron)
+    import("./jobs/messageScheduler.js");
+}
 const allowedOrigins = [
     "http://localhost:3039",
     "localhost:3039",
@@ -62,6 +69,8 @@ app.use("/guest", guestRoutes_1.default);
 app.use("/whatsapp", whatsappRoutes_1.default);
 app.use("/webhook", webhookRoutes_1.default);
 app.use("/rsvp", rsvpRoutes_1.default);
+app.use("/email", emailRoutes_1.default);
+app.use("/reports", reportRoutes_1.default);
 // --- Error handler ---
 app.use((err, req, res, next) => {
     console.error(err);

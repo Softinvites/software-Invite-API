@@ -54,6 +54,7 @@ export const handler = async (event: any) => {
       to: event.to,
       subject: event.subject,
       htmlContent: event.htmlContent,
+      replyTo: event.replyTo,
       attachments,
     });
 

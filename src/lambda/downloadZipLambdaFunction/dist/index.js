@@ -1,168 +1,136 @@
 import AWS from "aws-sdk";
 import archiver from "archiver";
-import { PassThrough } from "stream";
-import sharp from "sharp";
+import { PassThrough, Readable } from "stream";
 const s3 = new AWS.S3();
-/**
- * safeName
- */
+/* ------------------------------ */
+/* 🔧 HELPERS */
+/* ------------------------------ */
 function safeName(str) {
     return str ? String(str).replace(/[^a-zA-Z0-9._-]/g, "_") : "unknown";
 }
-/**
- * streamToBuffer
- */
-async function streamToBuffer(stream) {
-    return new Promise((resolve, reject) => {
-        const chunks = [];
-        stream.on("data", (chunk) => chunks.push(chunk));
-        stream.on("end", () => resolve(Buffer.concat(chunks)));
-        stream.on("error", (err) => reject(err));
-    });
+function isS3Url(url) {
+    return url.hostname.includes(".s3.") || url.hostname.endsWith("amazonaws.com");
 }
-/**
- * ZIP LAMBDA HANDLER
- */
+/* ------------------------------ */
+/* 📦 ZIP LAMBDA HANDLER */
+/* ------------------------------ */
 export const handler = async (event) => {
     try {
         const bucket = process.env.S3_BUCKET;
         if (!bucket)
             throw new Error("S3_BUCKET not configured");
         const { qrItems, eventId } = event;
-        if (!qrItems || !Array.isArray(qrItems) || qrItems.length === 0) {
+        if (!Array.isArray(qrItems) || qrItems.length === 0) {
             return {
                 statusCode: 400,
-                body: JSON.stringify({ error: "qrItems must be a non-empty array", eventId }),
+                body: JSON.stringify({ error: "qrItems must be a non-empty array" }),
             };
         }
-        const CONCURRENCY_LIMIT = Math.max(1, parseInt(process.env.CONCURRENCY_LIMIT || "10", 10));
-        const makePublic = (process.env.S3_UPLOAD_PUBLIC || "false").toLowerCase() === "true";
-        const archive = archiver("zip", { zlib: { level: 9 } });
+        const CONCURRENCY_LIMIT = Math.max(1, Number(process.env.CONCURRENCY_LIMIT || 15));
+        /* ------------------------------ */
+        /* 🧵 CREATE ZIP STREAM */
+        /* ------------------------------ */
+        const archive = archiver("zip", { zlib: { level: 6 } }); // lower CPU
         const zipStream = new PassThrough();
         archive.pipe(zipStream);
         const zipKey = `qr_zips/event_${eventId}_${Date.now()}.zip`;
-        const uploadParams = {
+        const uploadPromise = s3
+            .upload({
             Bucket: bucket,
             Key: zipKey,
             Body: zipStream,
             ContentType: "application/zip",
-        };
-        if (makePublic)
-            uploadParams.ACL = "public-read";
-        const uploadPromise = s3.upload(uploadParams).promise();
+        })
+            .promise();
         const streamErrorPromise = new Promise((_, reject) => {
             archive.on("error", reject);
             zipStream.on("error", reject);
         });
         const addedFiles = [];
         const missingFiles = [];
+        /* ------------------------------ */
+        /* 🚀 STREAM PNG FILES INTO ZIP */
+        /* ------------------------------ */
         for (let i = 0; i < qrItems.length; i += CONCURRENCY_LIMIT) {
-            const slice = qrItems.slice(i, i + CONCURRENCY_LIMIT);
-            await Promise.all(slice.map(async (item, idx) => {
-                const localIndex = i + idx;
-                try {
-                    let { key, guestId, guestName, tableNo, others } = item;
-                    if (!guestId) {
-                        missingFiles.push({ item, error: "Missing guestId" });
-                        return;
+            const batch = qrItems.slice(i, i + CONCURRENCY_LIMIT);
+            await Promise.all(batch.map(async (item) => {
+                const { guestId, guestName, tableNo, others } = item;
+                if (!guestId) {
+                    missingFiles.push({ item, error: "Missing guestId" });
+                    return;
+                }
+                if (!item.pngUrl || typeof item.pngUrl !== "string") {
+                    missingFiles.push({ item, error: "Missing pngUrl" });
+                    return;
+                }
+                const filename = `qr-${safeName(guestName)}_${safeName(tableNo)}_${safeName(others)}_${guestId}.png`;
+                const tryFetch = async () => {
+                    const response = await fetch(item.pngUrl);
+                    if (!response.ok) {
+                        throw new Error(`Failed to fetch pngUrl (${response.status})`);
                     }
-                    // ✅ 1. Always decode URL-encoded keys (%20 etc)
-                    if (key) {
-                        key = decodeURIComponent(key);
+                    if (!response.body) {
+                        throw new Error("Empty pngUrl response body");
                     }
-                    // ✅ 2. Fallback to the PNG path if SVG is missing
-                    const fallbackPngKey = `qr_codes/png/${eventId}/${guestId}.png`;
-                    let s3Obj;
-                    try {
-                        if (key) {
-                            s3Obj = await s3.getObject({ Bucket: bucket, Key: key }).promise();
-                        }
-                    }
-                    catch {
-                        // ✅ Fallback to PNG if SVG is missing
-                        try {
-                            s3Obj = await s3.getObject({ Bucket: bucket, Key: fallbackPngKey }).promise();
-                            key = fallbackPngKey;
-                        }
-                        catch (fallbackErr) {
-                            missingFiles.push({
-                                item,
-                                error: "Neither SVG nor PNG exists in S3",
-                                tried: [key, fallbackPngKey],
-                            });
-                            return;
-                        }
-                    }
-                    if (!s3Obj || !s3Obj.Body) {
-                        missingFiles.push({ item, error: "Empty S3 object body" });
-                        return;
-                    }
-                    // Create a readable stream for the S3 object body (it may already be a stream)
-                    const s3BodyStream = (() => {
-                        if (Buffer.isBuffer(s3Obj.Body)) {
-                            const passthrough = new PassThrough();
-                            passthrough.end(s3Obj.Body);
-                            return passthrough;
-                        }
-                        return s3Obj.Body;
-                    })();
-                    const isPng = Boolean(key && key.toLowerCase().endsWith(".png"));
-                    const filename = `qr-${safeName(guestName)}_${safeName(tableNo)}_${safeName(others)}_${guestId || localIndex}.png`;
-                    // Create a passthrough stream that will be appended to the archive.
-                    const outStream = new PassThrough();
-                    // If it's already PNG, pipe directly to the zip stream; otherwise, convert via sharp stream.
-                    if (isPng) {
-                        // Pipe S3 body -> outStream
-                        s3BodyStream.pipe(outStream).on("error", (pipeErr) => {
-                            console.error("Stream pipe error (png):", pipeErr);
-                            outStream.destroy(pipeErr);
-                        });
-                    }
-                    else {
-                        // Pipe S3 body -> sharp -> outStream
-                        try {
-                            const transformer = sharp().png();
-                            s3BodyStream.pipe(transformer).on("error", (tErr) => {
-                                console.error("Sharp transform error:", tErr);
-                                outStream.destroy(tErr);
-                            });
-                            transformer.pipe(outStream).on("error", (pipeErr) => {
-                                console.error("Stream pipe error (svg->png):", pipeErr);
-                                outStream.destroy(pipeErr);
-                            });
-                        }
-                        catch (convErr) {
-                            console.error("Conversion setup failed:", convErr);
-                            missingFiles.push({ item, error: String(convErr) });
-                            return;
-                        }
-                    }
-                    // Append the output stream to the archive (archiver will stream it out)
-                    archive.append(outStream, { name: filename });
+                    const nodeStream = Readable.fromWeb(response.body);
+                    archive.append(nodeStream, { name: filename });
                     addedFiles.push(filename);
+                };
+                const tryS3 = async () => {
+                    const url = new URL(item.pngUrl);
+                    if (!isS3Url(url)) {
+                        throw new Error("pngUrl is not an S3 URL");
+                    }
+                    const key = url.pathname.startsWith("/")
+                        ? url.pathname.slice(1)
+                        : url.pathname;
+                    const s3Stream = s3
+                        .getObject({ Bucket: bucket, Key: key })
+                        .createReadStream();
+                    archive.append(s3Stream, { name: filename });
+                    addedFiles.push(filename);
+                };
+                try {
+                    await tryFetch();
                 }
                 catch (err) {
-                    console.error("❌ Failed to process QR item:", item, err);
+                    const message = err?.message || String(err);
+                    if (message.includes("(403)") || message.includes("403")) {
+                        try {
+                            await tryS3();
+                        }
+                        catch (s3Err) {
+                            console.error("❌ PNG fetch failed (403) and S3 fallback failed:", s3Err);
+                            missingFiles.push({
+                                item,
+                                error: "PNG fetch failed (403) and S3 fallback failed",
+                            });
+                        }
+                        return;
+                    }
+                    console.error("❌ PNG fetch failed:", item.pngUrl, err);
                     missingFiles.push({
                         item,
-                        error: err instanceof Error ? err.message : String(err),
+                        error: message,
                     });
                 }
             }));
         }
+        /* ------------------------------ */
+        /* ✅ FINALIZE ZIP */
+        /* ------------------------------ */
         const finalizePromise = archive.finalize();
         await Promise.race([
             Promise.all([uploadPromise, finalizePromise]),
             streamErrorPromise,
         ]);
         await uploadPromise;
-        if (addedFiles.length === 0) {
+        if (!addedFiles.length) {
             return {
                 statusCode: 400,
                 body: JSON.stringify({
-                    message: "No QR codes processed",
+                    message: "No PNG files added to ZIP",
                     missingFiles,
-                    eventId,
                 }),
             };
         }
@@ -170,8 +138,8 @@ export const handler = async (event) => {
         return {
             statusCode: 200,
             body: JSON.stringify({
-                zipDownloadLink: zipUrl,
                 eventId,
+                zipDownloadLink: zipUrl,
                 generatedAt: new Date().toISOString(),
                 numberOfFiles: addedFiles.length,
                 missingFiles,
@@ -179,11 +147,11 @@ export const handler = async (event) => {
         };
     }
     catch (err) {
-        console.error("❌ Error in ZIP Lambda:", err);
+        console.error("❌ ZIP Lambda Error:", err);
         return {
             statusCode: 500,
             body: JSON.stringify({
-                error: err instanceof Error ? err.message : "Internal Server Error",
+                error: err.message || "Internal Server Error",
             }),
         };
     }

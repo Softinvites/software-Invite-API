@@ -12,10 +12,20 @@ import WhatsAppRouter from "./routes/whatsappRoutes";
 import WebhookRouter from "./routes/webhookRoutes";
 import RsvpRouter from "./routes/rsvpRoutes";
 import RsvpAdminRouter from "./routes/rsvpAdminRoutes";
+import EmailRouter from "./routes/emailRoutes";
+import ReportRouter from "./routes/reportRoutes";
 import { dbConnect } from "./library/middlewares/dbConnect";
 
 dotenv.config();
 const app = express();
+
+if (
+  process.env.RUN_SCHEDULER === "true" ||
+  process.env.NODE_ENV === "development"
+) {
+  // fire-and-forget scheduler import (node-cron)
+  import("./jobs/messageScheduler.js");
+}
 
 const allowedOrigins: string[] = [
   "http://localhost:3039",
@@ -63,6 +73,8 @@ app.use("/guest", GuestRouter);
 app.use("/whatsapp", WhatsAppRouter);
 app.use("/webhook", WebhookRouter);
 app.use("/rsvp", RsvpRouter);
+app.use("/email", EmailRouter);
+app.use("/reports", ReportRouter);
 
 // --- Error handler ---
 app.use((err: HttpError, req: Request, res: Response, next: NextFunction) => {

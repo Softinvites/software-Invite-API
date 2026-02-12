@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import { connectDB } from "../db";
 import { RSVP } from "../models/rsvpmodel";
+import { generateRsvpToken } from "../utils/rsvpToken";
 
 async function run() {
   await connectDB();
@@ -35,6 +36,7 @@ async function run() {
 
     await RSVP.create({
       eventId: guest.eventId,
+      token: generateRsvpToken(),
       guestName: guest.fullname,
       email: guest.email || null,
       phone: guest.phone || null,
