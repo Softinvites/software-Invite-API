@@ -231,8 +231,9 @@ async function parseCsvExcelBuffer(
 function buildRsvpEmailHtml(
   event: any,
   guestName: string,
-  rsvpId: string,
-  baseUrl: string,
+  rsvpId?: string,
+  baseUrl?: string,
+  options?: { showButtons?: boolean },
 ) {
   const headerBg = (event as any).rsvpBgColor
     ? `rgb(${(event as any).rsvpBgColor})`
@@ -244,8 +245,16 @@ function buildRsvpEmailHtml(
     : (event as any).qrCodeCenterColor
       ? `rgb(${(event as any).qrCodeCenterColor})`
       : "#111827";
-  const yesUrl = `${baseUrl.replace(/\/$/, "")}/rsvp/respond/${rsvpId}?status=yes`;
-  const noUrl = `${baseUrl.replace(/\/$/, "")}/rsvp/respond/${rsvpId}?status=no`;
+  const showButtons = options?.showButtons !== false;
+  const safeBase = baseUrl ? baseUrl.replace(/\/$/, "") : "";
+  const yesUrl =
+    showButtons && safeBase && rsvpId
+      ? `${safeBase}/rsvp/respond/${rsvpId}?status=yes`
+      : "";
+  const noUrl =
+    showButtons && safeBase && rsvpId
+      ? `${safeBase}/rsvp/respond/${rsvpId}?status=no`
+      : "";
 
   return `
     <div style="font-family:'Segoe UI','Arial',sans-serif;background:#f7f8fc;padding:24px 10px;line-height:1.6;">
@@ -259,6 +268,9 @@ function buildRsvpEmailHtml(
           <div style="font-size:14px;color:#4a5568;line-height:1.7;margin:0 0 20px 0;">
             ${event.rsvpMessage || event.description || "You're invited! Please let us know if you will attend."}
           </div>
+          ${
+            showButtons && yesUrl && noUrl
+              ? `
           <p style="font-size:14px;margin:0 0 12px 0;">Will you attend?</p>
           <div style="display:flex;gap:12px;flex-wrap:wrap;">
             <a href="${yesUrl}" style="display:inline-block;background:${headerBg};color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-size:14px;font-weight:600;">Yes</a>
@@ -269,6 +281,9 @@ function buildRsvpEmailHtml(
           </p>
           <p style="font-size:12px;color:#94a3b8;margin:0;">Yes: ${yesUrl}</p>
           <p style="font-size:12px;color:#94a3b8;margin:0;">No: ${noUrl}</p>
+          `
+              : ""
+          }
         </div>
       </div>
     </div>
@@ -365,7 +380,9 @@ async function sendInvitationEmailsBatch(
       skipped += 1;
       continue;
     }
-    const html = renderInvitationOnlyEmail(event, invite.guestName);
+    const html = buildRsvpEmailHtml(event, invite.guestName, undefined, undefined, {
+      showButtons: false,
+    });
     try {
       await sendEmail(
         invite.email,

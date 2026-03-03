@@ -26,7 +26,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.resendAllEmails = exports.checkQRCodeStatus = exports.testDatabase = exports.restoreGuestsAndRegenerateQRCodes = exports.generateTempLink = exports.generateEventAnalytics = exports.generateAnalytics = exports.scanQRCode = exports.deleteSelectedGuests = exports.deleteGuestsByEventAndTimestamp = exports.deleteGuestsByEvent = exports.deleteGuestById = exports.getGuestById = exports.getGuestsByEvent = exports.downloadEmailQRCode = exports.downloadBatchQRCodes = exports.downloadAllQRCodes = exports.downloadQRCode = exports.checkInGuest = exports.updateGuest = exports.importGuests = exports.addGuest = void 0;
+exports.resendAllEmails = exports.checkQRCodeStatus = exports.testDatabase = exports.restoreGuestsAndRegenerateQRCodes = exports.generateTempLink = exports.generateEventAnalytics = exports.generateAnalytics = exports.scanQRCode = exports.deleteSelectedGuests = exports.deleteGuestsByEventAndTimestamp = exports.deleteGuestsByEvent = exports.deleteGuestById = exports.getGuestById = exports.getGuestsByEvent = exports.downloadEmailQRCode = exports.downloadBatchQRCodes = exports.downloadAllQRCodes = exports.downloadQRCode = exports.checkInGuest = exports.importGuests = exports.updateGuest = exports.addGuest = void 0;
 const guestmodel_1 = require("../models/guestmodel");
 const eventmodel_1 = require("../models/eventmodel");
 const lambdaUtils_1 = require("../utils/lambdaUtils");
@@ -219,10 +219,34 @@ const addGuest = async (req, res) => {
         // Convert SVG -> PNG locally and upload to S3 (store pngUrl on guest)
         if (qrCodeUrl || qrSvg) {
             try {
-                const uploaded = await generateAndUploadPng(savedGuest._id.toString(), eventId, qrSvg, qrCodeUrl);
-                if (uploaded) {
-                    savedGuest.pngUrl = uploaded;
-                    await savedGuest.save();
+                const pngLambdaName = process.env.PNG_CONVERT_LAMBDA;
+                if (!pngLambdaName) {
+                    console.warn("PNG_CONVERT_LAMBDA not set; skipping PNG conversion");
+                }
+                else {
+                    const pngLambdaResp = await (0, lambdaUtils_1.invokeLambda)(pngLambdaName, {
+                        guestId: savedGuest._id.toString(),
+                        eventId,
+                        svg: qrSvg,
+                        qrCodeUrl,
+                    });
+                    let parsedPngResult = {};
+                    try {
+                        parsedPngResult = pngLambdaResp?.body
+                            ? typeof pngLambdaResp.body === "string"
+                                ? JSON.parse(pngLambdaResp.body)
+                                : pngLambdaResp.body
+                            : pngLambdaResp || {};
+                    }
+                    catch (parseErr) {
+                        console.warn("Failed to parse PNG lambda response body:", parseErr, pngLambdaResp);
+                        parsedPngResult = pngLambdaResp || {};
+                    }
+                    const pngUrl = parsedPngResult?.pngUrl || parsedPngResult?.url || "";
+                    if (pngUrl) {
+                        savedGuest.pngUrl = pngUrl;
+                        await savedGuest.save();
+                    }
                 }
             }
             catch (pngError) {
@@ -381,42 +405,6 @@ const addGuest = async (req, res) => {
     }
 };
 exports.addGuest = addGuest;
-const importGuests = async (req, res) => {
-    try {
-        if (!req.file) {
-            res.status(400).json({ message: "No file uploaded" });
-            return;
-        }
-        const eventId = req.body.eventId;
-        const userEmail = req.body.userEmail || "softinvites@gmail.com";
-        if (!eventId) {
-            res.status(400).json({ message: "Missing event ID" });
-            return;
-        }
-        // Upload file to S3
-        const fileKey = `uploads/${Date.now()}_${req.file.originalname}`;
-        const fileUrl = await (0, s3Utils_1.uploadToS3)(req.file.buffer, fileKey, req.file.mimetype);
-        await new Promise((resolve) => setTimeout(resolve, 3000));
-        // Trigger import Lambda asynchronously
-        await (0, lambdaUtils_1.invokeLambda)(process.env.IMPORT_LAMBDA_FUNCTION_NAME, {
-            fileUrl,
-            eventId,
-            userEmail,
-        }, true);
-        res.status(202).json({
-            message: "Import job is running. You will receive an email when processing completes.",
-            fileUrl,
-        });
-    }
-    catch (error) {
-        console.error("Error starting import job:", error);
-        res.status(500).json({
-            message: "Error starting import job",
-            error: error instanceof Error ? error.message : "Unknown error",
-        });
-    }
-};
-exports.importGuests = importGuests;
 const updateGuest = async (req, res) => {
     try {
         // Handle both JSON string and already-parsed object
@@ -586,10 +574,32 @@ const updateGuest = async (req, res) => {
         // Ensure PNG is generated and persisted whenever possible
         if (!guest.pngUrl && guest.qrCode) {
             try {
-                const uploaded = await generateAndUploadPng(guest._id.toString(), (guest.eventId || eventId), undefined, guest.qrCode);
-                if (uploaded) {
-                    guest.pngUrl = uploaded;
-                    await guest.save();
+                const pngLambdaName = process.env.PNG_CONVERT_LAMBDA;
+                if (!pngLambdaName) {
+                    console.warn("PNG_CONVERT_LAMBDA not set; skipping PNG conversion");
+                }
+                else {
+                    const pngLambdaResp = await (0, lambdaUtils_1.invokeLambda)(pngLambdaName, {
+                        guestId: guest._id.toString(),
+                        eventId: (guest.eventId || eventId),
+                    });
+                    let parsedPngResult = {};
+                    try {
+                        parsedPngResult = pngLambdaResp?.body
+                            ? typeof pngLambdaResp.body === "string"
+                                ? JSON.parse(pngLambdaResp.body)
+                                : pngLambdaResp.body
+                            : pngLambdaResp || {};
+                    }
+                    catch (parseErr) {
+                        console.warn("Failed to parse PNG lambda response body:", parseErr);
+                        parsedPngResult = pngLambdaResp || {};
+                    }
+                    const pngUrl = parsedPngResult?.pngUrl || parsedPngResult?.url || "";
+                    if (pngUrl) {
+                        guest.pngUrl = pngUrl;
+                        await guest.save();
+                    }
                 }
             }
             catch (e) {
@@ -790,6 +800,42 @@ const updateGuest = async (req, res) => {
     }
 };
 exports.updateGuest = updateGuest;
+const importGuests = async (req, res) => {
+    try {
+        if (!req.file) {
+            res.status(400).json({ message: "No file uploaded" });
+            return;
+        }
+        const eventId = req.body.eventId;
+        const userEmail = req.body.userEmail || "softinvites@gmail.com";
+        if (!eventId) {
+            res.status(400).json({ message: "Missing event ID" });
+            return;
+        }
+        // Upload file to S3
+        const fileKey = `uploads/${Date.now()}_${req.file.originalname}`;
+        const fileUrl = await (0, s3Utils_1.uploadToS3)(req.file.buffer, fileKey, req.file.mimetype);
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+        // Trigger import Lambda asynchronously
+        await (0, lambdaUtils_1.invokeLambda)(process.env.IMPORT_LAMBDA_FUNCTION_NAME, {
+            fileUrl,
+            eventId,
+            userEmail,
+        }, true);
+        res.status(202).json({
+            message: "Import job is running. You will receive an email when processing completes.",
+            fileUrl,
+        });
+    }
+    catch (error) {
+        console.error("Error starting import job:", error);
+        res.status(500).json({
+            message: "Error starting import job",
+            error: error instanceof Error ? error.message : "Unknown error",
+        });
+    }
+};
+exports.importGuests = importGuests;
 // New endpoint for QR scanner with timestamp
 const checkInGuest = async (req, res) => {
     try {

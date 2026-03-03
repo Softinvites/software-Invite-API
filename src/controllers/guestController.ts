@@ -32,68 +32,6 @@ const buildPngUrl = (eventId?: string, guestId?: string) => {
   return `https://${bucket}.s3.${region}.amazonaws.com/qr_codes/png/${eventId}/${guestId}.png`;
 };
 
-// Helper: convert SVG (string or URL) to PNG, upload to S3, and return the public URL
-async function generateAndUploadPng(
-  guestId: string,
-  eventId: string,
-  svgString?: string,
-  svgUrl?: string,
-): Promise<string | null> {
-  try {
-    let svgBuffer: Buffer | null = null;
-    if (svgString) {
-      svgBuffer = Buffer.from(svgString);
-    } else if (svgUrl) {
-      // If the svgUrl is an S3 URL, try to fetch from S3 directly
-      try {
-        const url = new URL(svgUrl);
-        if (url.hostname.includes(".s3.")) {
-          const key = decodeURIComponent(url.pathname).replace(/^\//, "");
-          const res = await s3.send(
-            new GetObjectCommand({ Bucket: process.env.S3_BUCKET!, Key: key }),
-          );
-          // Node SDK v3: res.Body can be read via transformToByteArray in Node 18 runtime
-          // @ts-ignore
-          svgBuffer = Buffer.from(await res.Body.transformToByteArray());
-        } else {
-          const resp = await fetch(svgUrl);
-          if (!resp.ok) throw new Error("Failed to fetch SVG");
-          svgBuffer = Buffer.from(await resp.arrayBuffer());
-        }
-      } catch (e) {
-        // Last resort: try fetch
-        const resp = await fetch(svgUrl);
-        if (!resp.ok) throw new Error("Failed to fetch SVG");
-        svgBuffer = Buffer.from(await resp.arrayBuffer());
-      }
-    }
-
-    if (!svgBuffer) return null;
-
-    const pngBuffer = await sharp(svgBuffer, { density: 300 })
-      .png()
-      .flatten({ background: "#ffffff" })
-      .toBuffer();
-    if (!pngBuffer || pngBuffer.length === 0) {
-      throw new Error("Generated PNG buffer is empty");
-    }
-
-    const key = `qr_codes/png/${eventId}/${guestId}.png`;
-    await s3.send(
-      new PutObjectCommand({
-        Bucket: process.env.S3_BUCKET!,
-        Key: key,
-        Body: pngBuffer,
-        ContentType: "image/png",
-      }),
-    );
-
-    return `https://${process.env.S3_BUCKET}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`;
-  } catch (err) {
-    console.error("generateAndUploadPng error:", err);
-    return null;
-  }
-}
 
 // Helper function to adjust color brightness
 const adjustColorBrightness = (hex: string, percent: number): string => {
@@ -236,17 +174,43 @@ export const addGuest = async (req: Request, res: Response): Promise<void> => {
     await savedGuest.save();
 
     // Convert SVG -> PNG locally and upload to S3 (store pngUrl on guest)
+
     if (qrCodeUrl || qrSvg) {
       try {
-        const uploaded = await generateAndUploadPng(
-          savedGuest._id.toString(),
-          eventId,
-          qrSvg,
-          qrCodeUrl,
-        );
-        if (uploaded) {
-          savedGuest.pngUrl = uploaded;
-          await savedGuest.save();
+        const pngLambdaName = process.env.PNG_CONVERT_LAMBDA;
+        if (!pngLambdaName) {
+          console.warn("PNG_CONVERT_LAMBDA not set; skipping PNG conversion");
+        } else {
+          const pngLambdaResp: any = await invokeLambda(pngLambdaName, {
+            guestId: savedGuest._id.toString(),
+            eventId,
+            svg: qrSvg,
+            qrCodeUrl,
+          });
+
+          let parsedPngResult: any = {};
+          try {
+            parsedPngResult = pngLambdaResp?.body
+              ? typeof pngLambdaResp.body === "string"
+                ? JSON.parse(pngLambdaResp.body)
+                : pngLambdaResp.body
+              : pngLambdaResp || {};
+          } catch (parseErr) {
+            console.warn(
+              "Failed to parse PNG lambda response body:",
+              parseErr,
+              pngLambdaResp,
+            );
+            parsedPngResult = pngLambdaResp || {};
+          }
+
+          const pngUrl =
+            parsedPngResult?.pngUrl || parsedPngResult?.url || "";
+
+          if (pngUrl) {
+            savedGuest.pngUrl = pngUrl;
+            await savedGuest.save();
+          }
         }
       } catch (pngError) {
         console.error("❌ PNG generation/upload failed:", pngError);
@@ -432,58 +396,6 @@ export const addGuest = async (req: Request, res: Response): Promise<void> => {
   }
 };
 
-export const importGuests = async (
-  req: Request,
-  res: Response,
-): Promise<void> => {
-  try {
-    if (!req.file) {
-      res.status(400).json({ message: "No file uploaded" });
-      return;
-    }
-
-    const eventId = req.body.eventId;
-    const userEmail = req.body.userEmail || "softinvites@gmail.com";
-
-    if (!eventId) {
-      res.status(400).json({ message: "Missing event ID" });
-      return;
-    }
-
-    // Upload file to S3
-    const fileKey = `uploads/${Date.now()}_${req.file.originalname}`;
-    const fileUrl = await uploadToS3(
-      req.file.buffer,
-      fileKey,
-      req.file.mimetype,
-    );
-
-    await new Promise((resolve) => setTimeout(resolve, 3000));
-
-    // Trigger import Lambda asynchronously
-    await invokeLambda(
-      process.env.IMPORT_LAMBDA_FUNCTION_NAME!,
-      {
-        fileUrl,
-        eventId,
-        userEmail,
-      },
-      true,
-    );
-
-    res.status(202).json({
-      message:
-        "Import job is running. You will receive an email when processing completes.",
-      fileUrl,
-    });
-  } catch (error) {
-    console.error("Error starting import job:", error);
-    res.status(500).json({
-      message: "Error starting import job",
-      error: error instanceof Error ? error.message : "Unknown error",
-    });
-  }
-};
 
 export const updateGuest = async (
   req: Request,
@@ -691,20 +603,43 @@ export const updateGuest = async (
     // Ensure PNG is generated and persisted whenever possible
     if (!guest.pngUrl && guest.qrCode) {
       try {
-        const uploaded = await generateAndUploadPng(
-          guest._id.toString(),
-          (guest.eventId || eventId) as any,
-          undefined,
-          guest.qrCode,
-        );
-        if (uploaded) {
-          guest.pngUrl = uploaded;
-          await guest.save();
+        const pngLambdaName = process.env.PNG_CONVERT_LAMBDA;
+        if (!pngLambdaName) {
+          console.warn("PNG_CONVERT_LAMBDA not set; skipping PNG conversion");
+        } else {
+          const pngLambdaResp: any = await invokeLambda(pngLambdaName, {
+            guestId: guest._id.toString(),
+            eventId: (guest.eventId || eventId) as any,
+          });
+
+          let parsedPngResult: any = {};
+          try {
+            parsedPngResult = pngLambdaResp?.body
+              ? typeof pngLambdaResp.body === "string"
+                ? JSON.parse(pngLambdaResp.body)
+                : pngLambdaResp.body
+              : pngLambdaResp || {};
+          } catch (parseErr) {
+            console.warn(
+              "Failed to parse PNG lambda response body:",
+              parseErr,
+            );
+            parsedPngResult = pngLambdaResp || {};
+          }
+
+          const pngUrl = parsedPngResult?.pngUrl || parsedPngResult?.url || "";
+
+          if (pngUrl) {
+            guest.pngUrl = pngUrl;
+            await guest.save();
+          }
         }
       } catch (e) {
         console.error("Failed to generate PNG for QR:", e);
       }
     }
+
+
 
     // Use QR code URL (either existing or newly generated)
     qrCodeUrl = guest.qrCode;
@@ -930,6 +865,61 @@ export const updateGuest = async (
     });
   }
 };
+
+export const importGuests = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
+  try {
+    if (!req.file) {
+      res.status(400).json({ message: "No file uploaded" });
+      return;
+    }
+
+    const eventId = req.body.eventId;
+    const userEmail = req.body.userEmail || "softinvites@gmail.com";
+
+    if (!eventId) {
+      res.status(400).json({ message: "Missing event ID" });
+      return;
+    }
+
+    // Upload file to S3
+    const fileKey = `uploads/${Date.now()}_${req.file.originalname}`;
+    const fileUrl = await uploadToS3(
+      req.file.buffer,
+      fileKey,
+      req.file.mimetype,
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+
+    // Trigger import Lambda asynchronously
+    await invokeLambda(
+      process.env.IMPORT_LAMBDA_FUNCTION_NAME!,
+      {
+        fileUrl,
+        eventId,
+        userEmail,
+      },
+      true,
+    );
+
+    res.status(202).json({
+      message:
+        "Import job is running. You will receive an email when processing completes.",
+      fileUrl,
+    });
+  } catch (error) {
+    console.error("Error starting import job:", error);
+    res.status(500).json({
+      message: "Error starting import job",
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+};
+
+
 
 // New endpoint for QR scanner with timestamp
 export const checkInGuest = async (
