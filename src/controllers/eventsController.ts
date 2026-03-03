@@ -17,6 +17,106 @@ const parseMaybeJson = (value: any) => {
   return value;
 };
 
+const STEP_ATTACHMENT_MIME_TYPES = new Set([
+  "image/png",
+  "image/jpeg",
+  "application/pdf",
+]);
+
+const sanitizeFileName = (name: string) =>
+  String(name || "attachment")
+    .replace(/[^a-zA-Z0-9._-]/g, "_")
+    .slice(0, 180);
+
+const getUploadedFiles = (req: Request): Express.Multer.File[] => {
+  const files = (req as any).files;
+  if (Array.isArray(files)) {
+    return files as Express.Multer.File[];
+  }
+  const singleFile = (req as any).file as Express.Multer.File | undefined;
+  return singleFile ? [singleFile] : [];
+};
+
+const getUploadedFileByField = (
+  files: Express.Multer.File[],
+  fieldName: string,
+) => files.find((f) => f.fieldname === fieldName);
+
+const normalizeAttachmentObject = (input: any) => {
+  if (!input || typeof input !== "object") return null;
+  const url = typeof input.url === "string" ? input.url.trim() : "";
+  if (!url) return null;
+  return {
+    url,
+    filename:
+      typeof input.filename === "string" && input.filename.trim()
+        ? input.filename.trim()
+        : null,
+    contentType:
+      typeof input.contentType === "string" && input.contentType.trim()
+        ? input.contentType.trim()
+        : null,
+  };
+};
+
+const resolveCustomMessageSequence = async (
+  customMessageSequence: any,
+  files: Express.Multer.File[],
+  eventRef: string,
+) => {
+  const parsed = parseMaybeJson(customMessageSequence);
+  if (!Array.isArray(parsed)) {
+    return parsed;
+  }
+
+  const fileMap = new Map<string, Express.Multer.File>();
+  files.forEach((file) => {
+    fileMap.set(file.fieldname, file);
+  });
+
+  const safeEventRef = String(eventRef || "event").replace(/[^a-zA-Z0-9-_]/g, "_");
+  const nextSequence: any[] = [];
+
+  for (const rawStep of parsed) {
+    const step = rawStep && typeof rawStep === "object" ? { ...rawStep } : {};
+    const rawAttachment =
+      step.attachment && typeof step.attachment === "object"
+        ? { ...step.attachment }
+        : null;
+
+    const uploadKey =
+      rawAttachment && typeof rawAttachment.uploadKey === "string"
+        ? rawAttachment.uploadKey.trim()
+        : "";
+    const uploadedFile = uploadKey ? fileMap.get(uploadKey) : null;
+
+    let attachment = normalizeAttachmentObject(rawAttachment);
+
+    if (uploadedFile) {
+      if (!STEP_ATTACHMENT_MIME_TYPES.has(uploadedFile.mimetype)) {
+        throw new Error("Attachment must be PNG, JPG, or PDF");
+      }
+      const safeFile = sanitizeFileName(uploadedFile.originalname);
+      const key = `events/${safeEventRef}/rsvp-step-attachments/${Date.now()}_${safeFile}`;
+      const url = await uploadToS3(
+        uploadedFile.buffer,
+        key,
+        uploadedFile.mimetype,
+      );
+      attachment = {
+        url,
+        filename: uploadedFile.originalname || safeFile,
+        contentType: uploadedFile.mimetype,
+      };
+    }
+
+    step.attachment = attachment;
+    nextSequence.push(step);
+  }
+
+  return nextSequence;
+};
+
 export const createEvent = async (
   req: Request,
   res: Response
@@ -70,16 +170,26 @@ export const createEvent = async (
       return;
     }
 
+    const uploadedFiles = getUploadedFiles(req);
+    const ivFile = getUploadedFileByField(uploadedFiles, "iv");
     let ivImageUrl: string | null = null;
+    const resolvedCustomMessageSequence =
+      customMessageSequence !== undefined
+        ? await resolveCustomMessageSequence(
+            customMessageSequence,
+            uploadedFiles,
+            name || "event",
+          )
+        : undefined;
 
     // ✅ Upload IV image if provided
-    if (req.file) {
+    if (ivFile) {
       try {
         const safeName = name.replace(/[^a-zA-Z0-9-_]/g, "_");
         ivImageUrl = await uploadToS3(
-          req.file.buffer,
+          ivFile.buffer,
           `events/${safeName}_iv_${Date.now()}.png`,
-          req.file.mimetype
+          ivFile.mimetype
         );
         console.log("✅ Image uploaded successfully:", ivImageUrl);
       } catch (uploadError) {
@@ -104,7 +214,7 @@ export const createEvent = async (
         ? { channelConfig: parseMaybeJson(channelConfig) }
         : {}),
       ...(customMessageSequence !== undefined
-        ? { customMessageSequence: parseMaybeJson(customMessageSequence) }
+        ? { customMessageSequence: resolvedCustomMessageSequence }
         : {}),
       ...(rsvpDeadline !== undefined
         ? { rsvpDeadline: new Date(rsvpDeadline) }
@@ -200,6 +310,8 @@ export const updateEvent = async (req: Request, res: Response) => {
     }
 
     const updateData: any = {};
+    const uploadedFiles = getUploadedFiles(req);
+    const ivFile = getUploadedFileByField(uploadedFiles, "iv");
     if (name) updateData.name = name;
     if (date) updateData.date = date;
     if (location) updateData.location = location;
@@ -212,14 +324,18 @@ export const updateEvent = async (req: Request, res: Response) => {
     if (channelConfig !== undefined)
       updateData.channelConfig = parseMaybeJson(channelConfig);
     if (customMessageSequence !== undefined)
-      updateData.customMessageSequence = parseMaybeJson(customMessageSequence);
+      updateData.customMessageSequence = await resolveCustomMessageSequence(
+        customMessageSequence,
+        uploadedFiles,
+        id || existingEvent._id?.toString() || existingEvent.name || "event",
+      );
     if (rsvpDeadline !== undefined)
       updateData.rsvpDeadline = new Date(rsvpDeadline);
     if (eventEndDate !== undefined)
       updateData.eventEndDate = new Date(eventEndDate);
 
     // Handle new IV upload (if provided via multipart/form-data)
-    if (req.file && req.file.buffer) {
+    if (ivFile?.buffer) {
       try {
         // Delete old IV from S3 if it was an S3 URL
         if (existingEvent.iv) {
@@ -236,9 +352,9 @@ export const updateEvent = async (req: Request, res: Response) => {
           "_"
         );
         const ivImageUrl = await uploadToS3(
-          req.file.buffer,
+          ivFile.buffer,
           `events/${safeName}_iv_${Date.now()}.png`,
-          req.file.mimetype || "image/png"
+          ivFile.mimetype || "image/png"
         );
 
         updateData.iv = ivImageUrl;

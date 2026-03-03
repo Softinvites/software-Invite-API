@@ -153,10 +153,7 @@ export const getShareableReport = async (req: Request, res: Response) => {
       return res.status(410).json({ message: "Report link expired" });
     }
     return res.json({
-      reportId: report._id,
       fileUrl: report.fileUrl,
-      type: report.type,
-      expiresAt: report.expiresAt,
     });
   } catch (error: any) {
     console.error("getShareableReport error", error);

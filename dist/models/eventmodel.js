@@ -40,8 +40,16 @@ const EventSchema = new mongoose_1.Schema({
     },
     customMessageSequence: [
         {
-            dayOffset: { type: Number, default: 0 },
+            dayOffset: { type: Number, default: null },
+            scheduledDate: { type: Date, default: null },
             messageName: { type: String, default: "" },
+            messageTitle: { type: String, default: "" },
+            messageBody: { type: String, default: "" },
+            attachment: {
+                url: { type: String, default: null },
+                filename: { type: String, default: null },
+                contentType: { type: String, default: null },
+            },
             channels: {
                 email: {
                     enabled: { type: Boolean, default: true },

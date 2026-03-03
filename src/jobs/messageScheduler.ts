@@ -7,6 +7,7 @@ import { RSVPChannelPreference } from "../models/rsvpChannelPreference";
 import whatsappService from "../utils/whatsappService";
 import smsService from "../utils/smsService";
 import { EmailTemplate } from "../models/emailTemplate";
+import fetch from "node-fetch";
 
 const resolveAudienceFilter = (target: string) => {
   if (target === "non-responders" || target === "pending") {
@@ -30,18 +31,107 @@ const applyTemplateTokens = (html: string, event: any, rsvp: any) =>
     .replace(/{{\s*eventName\s*}}/g, event.name || "")
     .replace(/{{\s*eventDate\s*}}/g, event.date || "");
 
+const stripHtml = (value: string) =>
+  value.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+
+const buildDefaultScheduleMessage = (event: any, rsvp: any, schedule: any) => {
+  let message =
+    (event as any).rsvpMessage || event.description || "You're invited!";
+  if (schedule.messageType === "reminder") {
+    message = `Reminder: ${message}`;
+  } else if (schedule.messageType === "thankyou") {
+    message =
+      rsvp.attendanceStatus === "yes"
+        ? "Thanks for confirming! We look forward to seeing you."
+        : "Thank you for your response.";
+  } else if (schedule.messageType === "custom" && schedule.messageName) {
+    message = `${schedule.messageName}: ${message}`;
+  }
+  return message;
+};
+
+const resolveScheduleBody = (
+  schedule: any,
+  event: any,
+  rsvp: any,
+  templateHtml?: string | null,
+) => {
+  if (typeof schedule?.messageBody === "string" && schedule.messageBody.trim()) {
+    return applyTemplateTokens(schedule.messageBody, event, rsvp);
+  }
+  if (templateHtml && templateHtml.trim()) {
+    return applyTemplateTokens(templateHtml, event, rsvp);
+  }
+  return applyTemplateTokens(buildDefaultScheduleMessage(event, rsvp, schedule), event, rsvp);
+};
+
+const buildScheduleTextMessage = (
+  schedule: any,
+  event: any,
+  rsvp: any,
+  templateHtml?: string | null,
+) => stripHtml(resolveScheduleBody(schedule, event, rsvp, templateHtml));
+
+const inferAttachmentFilename = (url: string, contentType?: string | null) => {
+  try {
+    const parsed = new URL(url);
+    const raw = parsed.pathname.split("/").pop() || "";
+    if (raw) return decodeURIComponent(raw);
+  } catch {
+    // fallback below
+  }
+
+  const extension =
+    contentType === "application/pdf"
+      ? "pdf"
+      : contentType?.includes("png")
+        ? "png"
+        : contentType?.includes("jpeg")
+          ? "jpg"
+          : contentType?.includes("html")
+            ? "html"
+            : "bin";
+  return `attachment.${extension}`;
+};
+
+const resolveScheduleAttachment = async (schedule: any) => {
+  const url =
+    typeof schedule?.attachment?.url === "string"
+      ? schedule.attachment.url.trim()
+      : "";
+  if (!url) return null;
+
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Attachment fetch failed (${response.status})`);
+    }
+    const content = Buffer.from(await response.arrayBuffer());
+    const detectedType = response.headers.get("content-type");
+    const contentType =
+      (typeof schedule?.attachment?.contentType === "string" &&
+        schedule.attachment.contentType.trim()) ||
+      detectedType ||
+      "application/octet-stream";
+    const filename =
+      (typeof schedule?.attachment?.filename === "string" &&
+        schedule.attachment.filename.trim()) ||
+      inferAttachmentFilename(url, contentType);
+
+    return { filename, content, contentType };
+  } catch (error) {
+    console.error("Failed to resolve schedule attachment:", error);
+    return null;
+  }
+};
+
 const buildScheduleEmailHtml = async (
   event: any,
   rsvp: any,
   schedule: any,
   baseUrl: string,
+  templateHtml?: string | null,
 ) => {
-  if (schedule.templateId) {
-    const template = await EmailTemplate.findById(schedule.templateId);
-    if (template?.html) {
-      return applyTemplateTokens(template.html, event, rsvp);
-    }
-  }
   const headerBg = (event as any).rsvpBgColor
     ? `rgb(${(event as any).rsvpBgColor})`
     : (event as any).qrCodeBgColor
@@ -56,17 +146,12 @@ const buildScheduleEmailHtml = async (
   const yesUrl = `${baseUrl.replace(/\/$/, "")}/rsvp/respond/${rsvp._id}?status=yes`;
   const noUrl = `${baseUrl.replace(/\/$/, "")}/rsvp/respond/${rsvp._id}?status=no`;
 
-  let message = event.rsvpMessage || event.description || "You're invited!";
-  if (schedule.messageType === "reminder") {
-    message = `Reminder: ${message}`;
-  } else if (schedule.messageType === "thankyou") {
-    message =
-      rsvp.attendanceStatus === "yes"
-        ? "Thanks for confirming! We look forward to seeing you."
-        : "Thank you for your response.";
-  } else if (schedule.messageType === "custom" && schedule.messageName) {
-    message = `${schedule.messageName}: ${message}`;
-  }
+  const title =
+    schedule.messageTitle ||
+    schedule.messageName ||
+    schedule.messageType ||
+    "RSVP Update";
+  const message = resolveScheduleBody(schedule, event, rsvp, templateHtml);
 
   const buttons =
     schedule.messageType === "thankyou"
@@ -86,6 +171,7 @@ const buildScheduleEmailHtml = async (
         </div>
         <div style="padding:24px 20px;">
           <p style="font-size:15px;margin:0 0 16px 0;">Dear ${rsvp.guestName},</p>
+          <h2 style="margin:0 0 10px 0;font-size:20px;color:#111827;">${title}</h2>
           <div style="font-size:14px;color:#4a5568;line-height:1.7;margin:0 0 20px 0;">
             ${message}
           </div>
@@ -138,6 +224,10 @@ export const processPendingSchedules = async () => {
           ? await EmailTemplate.findById(schedule.templateId)
           : null;
       const replyTo = (event as any)?.channelConfig?.email?.replyTo;
+      const scheduleAttachment =
+        schedule.channel === "email"
+          ? await resolveScheduleAttachment(schedule)
+          : null;
       for (const rsvp of rsvps) {
         const email = rsvp.email || "";
         if (schedule.channel === "email" && !email) continue;
@@ -145,10 +235,15 @@ export const processPendingSchedules = async () => {
         if (!channelAllowed) continue;
 
         if (schedule.channel === "email") {
-          const html = template?.html
-            ? applyTemplateTokens(template.html, event, rsvp)
-            : await buildScheduleEmailHtml(event, rsvp, schedule, baseUrl);
+          const html = await buildScheduleEmailHtml(
+            event,
+            rsvp,
+            schedule,
+            baseUrl,
+            template?.html || null,
+          );
           const subject =
+            schedule.messageTitle ||
             template?.subject ||
             `${schedule.messageName || schedule.messageType} - ${event.name}`;
           await sendEmail(
@@ -156,7 +251,7 @@ export const processPendingSchedules = async () => {
             subject,
             html,
             `SoftInvites <info@softinvite.com>`,
-            undefined,
+            scheduleAttachment ? [scheduleAttachment] : undefined,
             {
               eventId: String(event._id),
               rsvpId: String(rsvp._id),
@@ -166,18 +261,30 @@ export const processPendingSchedules = async () => {
           );
           sentCount += 1;
         } else if (schedule.channel === "whatsapp") {
+          const whatsappMessage = buildScheduleTextMessage(
+            schedule,
+            event,
+            rsvp,
+            template?.html || null,
+          );
           await whatsappService.sendTemplateMessage(
             rsvp.phone || "",
             "event_invitation",
-            [rsvp.guestName, event.name],
+            [rsvp.guestName, whatsappMessage],
             String(rsvp._id),
             String(event._id),
           );
           sentCount += 1;
         } else if (schedule.channel === "bulkSms") {
+          const smsMessage = buildScheduleTextMessage(
+            schedule,
+            event,
+            rsvp,
+            template?.html || null,
+          );
           await smsService.sendSms({
             to: rsvp.phone || "",
-            message: `${event.name}: ${event.rsvpMessage || "You're invited!"}`,
+            message: smsMessage || `${event.name}: You're invited!`,
             eventId: String(event._id),
             rsvpId: String(rsvp._id),
           });

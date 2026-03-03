@@ -1,6 +1,23 @@
 import { Request, Response } from "express";
 import { MessageSchedule } from "../models/messageSchedule";
 
+const normalizeAttachment = (attachment: any) => {
+  if (!attachment || typeof attachment !== "object") return null;
+  const url = typeof attachment.url === "string" ? attachment.url.trim() : "";
+  if (!url) return null;
+  return {
+    url,
+    filename:
+      typeof attachment.filename === "string"
+        ? attachment.filename.trim()
+        : null,
+    contentType:
+      typeof attachment.contentType === "string"
+        ? attachment.contentType.trim()
+        : null,
+  };
+};
+
 export const listSchedules = async (req: Request, res: Response) => {
   try {
     const { eventId } = req.params;
@@ -20,10 +37,13 @@ export const createSchedule = async (req: Request, res: Response) => {
     const {
       messageType = "custom",
       messageName,
+      messageTitle,
+      messageBody,
       scheduledDate,
       targetAudience = "all",
       channel = "email",
       templateId,
+      attachment,
     } = req.body || {};
 
     if (!scheduledDate) {
@@ -34,6 +54,9 @@ export const createSchedule = async (req: Request, res: Response) => {
       eventId,
       messageType,
       messageName,
+      messageTitle,
+      messageBody,
+      attachment: normalizeAttachment(attachment),
       scheduledDate: new Date(scheduledDate),
       targetAudience,
       channel,
@@ -51,12 +74,24 @@ export const createSchedule = async (req: Request, res: Response) => {
 export const updateSchedule = async (req: Request, res: Response) => {
   try {
     const { scheduleId } = req.params;
-    const { status, scheduledDate, messageName } = req.body || {};
+    const {
+      status,
+      scheduledDate,
+      messageName,
+      messageTitle,
+      messageBody,
+      attachment,
+    } = req.body || {};
 
     const update: any = {};
     if (status) update.status = status;
     if (scheduledDate) update.scheduledDate = new Date(scheduledDate);
     if (messageName !== undefined) update.messageName = messageName;
+    if (messageTitle !== undefined) update.messageTitle = messageTitle;
+    if (messageBody !== undefined) update.messageBody = messageBody;
+    if (attachment !== undefined) {
+      update.attachment = normalizeAttachment(attachment);
+    }
 
     const schedule = await MessageSchedule.findByIdAndUpdate(
       scheduleId,

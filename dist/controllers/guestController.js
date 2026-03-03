@@ -15,13 +15,23 @@ var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (
 }) : function(o, v) {
     o["default"] = v;
 });
-var __importStar = (this && this.__importStar) || function (mod) {
-    if (mod && mod.__esModule) return mod;
-    var result = {};
-    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
-    __setModuleDefault(result, mod);
-    return result;
-};
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -39,7 +49,6 @@ const mongoose_1 = __importStar(require("mongoose"));
 const sanitize_html_1 = __importDefault(require("sanitize-html"));
 const client_lambda_1 = require("@aws-sdk/client-lambda");
 const client_s3_1 = require("@aws-sdk/client-s3");
-const sharp_1 = __importDefault(require("sharp"));
 const node_fetch_1 = __importDefault(require("node-fetch"));
 const s3 = new client_s3_1.S3Client({ region: process.env.AWS_REGION || "us-east-2" });
 const lambdaClient = new client_lambda_1.LambdaClient({ region: process.env.AWS_REGION });
@@ -51,62 +60,6 @@ const buildPngUrl = (eventId, guestId) => {
         return "";
     return `https://${bucket}.s3.${region}.amazonaws.com/qr_codes/png/${eventId}/${guestId}.png`;
 };
-// Helper: convert SVG (string or URL) to PNG, upload to S3, and return the public URL
-async function generateAndUploadPng(guestId, eventId, svgString, svgUrl) {
-    try {
-        let svgBuffer = null;
-        if (svgString) {
-            svgBuffer = Buffer.from(svgString);
-        }
-        else if (svgUrl) {
-            // If the svgUrl is an S3 URL, try to fetch from S3 directly
-            try {
-                const url = new URL(svgUrl);
-                if (url.hostname.includes(".s3.")) {
-                    const key = decodeURIComponent(url.pathname).replace(/^\//, "");
-                    const res = await s3.send(new client_s3_1.GetObjectCommand({ Bucket: process.env.S3_BUCKET, Key: key }));
-                    // Node SDK v3: res.Body can be read via transformToByteArray in Node 18 runtime
-                    // @ts-ignore
-                    svgBuffer = Buffer.from(await res.Body.transformToByteArray());
-                }
-                else {
-                    const resp = await (0, node_fetch_1.default)(svgUrl);
-                    if (!resp.ok)
-                        throw new Error("Failed to fetch SVG");
-                    svgBuffer = Buffer.from(await resp.arrayBuffer());
-                }
-            }
-            catch (e) {
-                // Last resort: try fetch
-                const resp = await (0, node_fetch_1.default)(svgUrl);
-                if (!resp.ok)
-                    throw new Error("Failed to fetch SVG");
-                svgBuffer = Buffer.from(await resp.arrayBuffer());
-            }
-        }
-        if (!svgBuffer)
-            return null;
-        const pngBuffer = await (0, sharp_1.default)(svgBuffer, { density: 300 })
-            .png()
-            .flatten({ background: "#ffffff" })
-            .toBuffer();
-        if (!pngBuffer || pngBuffer.length === 0) {
-            throw new Error("Generated PNG buffer is empty");
-        }
-        const key = `qr_codes/png/${eventId}/${guestId}.png`;
-        await s3.send(new client_s3_1.PutObjectCommand({
-            Bucket: process.env.S3_BUCKET,
-            Key: key,
-            Body: pngBuffer,
-            ContentType: "image/png",
-        }));
-        return `https://${process.env.S3_BUCKET}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`;
-    }
-    catch (err) {
-        console.error("generateAndUploadPng error:", err);
-        return null;
-    }
-}
 // Helper function to adjust color brightness
 const adjustColorBrightness = (hex, percent) => {
     const num = parseInt(hex.replace("#", ""), 16);

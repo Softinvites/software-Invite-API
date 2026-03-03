@@ -5,7 +5,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.connectDB = void 0;
+exports.connectDB = connectDB;
 // dotenv.config();
 // const url: string =
 //   process.env.MONGODB_URL || "mongodb://localhost:27017/softinvites";
@@ -65,7 +65,7 @@ async function connectDB() {
     try {
         const connection = await mongoose_1.default.connect(process.env.MONGODB_URI, {
             family: 4,
-            serverSelectionTimeoutMS: 30000,
+            serverSelectionTimeoutMS: 30000, // wait up to 30s for MongoDB
             socketTimeoutMS: 45000,
             maxPoolSize: 10,
         });
@@ -78,4 +78,3 @@ async function connectDB() {
         throw error;
     }
 }
-exports.connectDB = connectDB;

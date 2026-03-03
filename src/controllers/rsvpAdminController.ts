@@ -79,7 +79,12 @@ const scheduleStandardMessages = async (event: any) => {
       eventId,
       messageType: "reminder",
       messageName: "Reminder",
+      messageTitle: "Reminder",
       scheduledDate: reminderDate,
+      messageBody:
+        (event as any).rsvpMessage ||
+        event.description ||
+        "Reminder: please respond to this RSVP.",
       status: "pending",
       targetAudience: "non-responders",
       channel: "email",
@@ -91,7 +96,9 @@ const scheduleStandardMessages = async (event: any) => {
       eventId,
       messageType: "thankyou",
       messageName: "Thank You",
+      messageTitle: "Thank You",
       scheduledDate: thankYouDate,
+      messageBody: "Thank you for your RSVP response.",
       status: "pending",
       targetAudience: "responders",
       channel: "email",
@@ -104,15 +111,119 @@ const scheduleStandardMessages = async (event: any) => {
   }
 };
 
-const defaultFullSequence = [
-  { dayOffset: 1, messageName: "Initial Invitation", channels: { email: { enabled: true } } },
-  { dayOffset: 4, messageName: "Event Details", channels: { email: { enabled: true } } },
-  { dayOffset: 7, messageName: "Reminder", channels: { email: { enabled: true } } },
-  { dayOffset: 14, messageName: "Follow Up", channels: { email: { enabled: true } } },
-  { dayOffset: 21, messageName: "Last Call", channels: { email: { enabled: true } } },
-  { dayOffset: 28, messageName: "Final Logistics", channels: { email: { enabled: true } } },
-  { dayOffset: 31, messageName: "Post Event Thanks", channels: { email: { enabled: true } } },
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+const buildDefaultFullSequence = (baseDate: Date) => [
+  {
+    scheduledDate: new Date(baseDate.getTime() + 1 * DAY_MS),
+    messageName: "Initial Invitation",
+    messageTitle: "Initial Invitation",
+    messageBody: "",
+    channels: { email: { enabled: true } },
+  },
+  {
+    scheduledDate: new Date(baseDate.getTime() + 4 * DAY_MS),
+    messageName: "Event Details",
+    messageTitle: "Event Details",
+    messageBody: "",
+    channels: { email: { enabled: true } },
+  },
+  {
+    scheduledDate: new Date(baseDate.getTime() + 7 * DAY_MS),
+    messageName: "Reminder",
+    messageTitle: "Reminder",
+    messageBody: "",
+    channels: { email: { enabled: true } },
+  },
+  {
+    scheduledDate: new Date(baseDate.getTime() + 14 * DAY_MS),
+    messageName: "Follow Up",
+    messageTitle: "Follow Up",
+    messageBody: "",
+    channels: { email: { enabled: true } },
+  },
+  {
+    scheduledDate: new Date(baseDate.getTime() + 21 * DAY_MS),
+    messageName: "Last Call",
+    messageTitle: "Last Call",
+    messageBody: "",
+    channels: { email: { enabled: true } },
+  },
+  {
+    scheduledDate: new Date(baseDate.getTime() + 28 * DAY_MS),
+    messageName: "Final Logistics",
+    messageTitle: "Final Logistics",
+    messageBody: "",
+    channels: { email: { enabled: true } },
+  },
+  {
+    scheduledDate: new Date(baseDate.getTime() + 31 * DAY_MS),
+    messageName: "Post Event Thanks",
+    messageTitle: "Post Event Thanks",
+    messageBody: "",
+    channels: { email: { enabled: true } },
+  },
 ];
+
+const normalizeSequenceDate = (item: any, baseDate: Date): Date | null => {
+  if (item?.scheduledDate) {
+    const directDate = new Date(item.scheduledDate);
+    if (!Number.isNaN(directDate.getTime())) {
+      return directDate;
+    }
+  }
+  // Legacy fallback for old payloads still sending dayOffset.
+  if (item?.dayOffset !== undefined && item?.dayOffset !== null) {
+    const dayOffset = Number(item.dayOffset);
+    if (!Number.isNaN(dayOffset)) {
+      return new Date(baseDate.getTime() + dayOffset * DAY_MS);
+    }
+  }
+  return null;
+};
+
+const normalizeSequenceAttachment = (attachment: any) => {
+  if (!attachment || typeof attachment !== "object") return null;
+  const url =
+    typeof attachment.url === "string" ? attachment.url.trim() : "";
+  if (!url) return null;
+  return {
+    url,
+    filename:
+      typeof attachment.filename === "string"
+        ? attachment.filename.trim()
+        : null,
+    contentType:
+      typeof attachment.contentType === "string"
+        ? attachment.contentType.trim()
+        : null,
+  };
+};
+
+const resolveInitialRsvpSubject = (event: any) => {
+  const fallback = `RSVP for ${event.name}`;
+  if (resolveServicePackage(event) !== "full-rsvp") {
+    return fallback;
+  }
+  const sequence = Array.isArray((event as any)?.customMessageSequence)
+    ? (event as any).customMessageSequence
+    : [];
+  for (const item of sequence) {
+    if (item?.channels?.email?.enabled === false) {
+      continue;
+    }
+    const title =
+      typeof item?.messageTitle === "string" && item.messageTitle.trim()
+        ? item.messageTitle.trim()
+        : typeof item?.messageName === "string" && item.messageName.trim()
+          ? item.messageName.trim()
+          : "";
+    if (title) {
+      return title;
+    }
+  }
+  return fallback;
+};
 
 const scheduleFullMessages = async (event: any) => {
   const existing = await MessageSchedule.find({
@@ -123,16 +234,29 @@ const scheduleFullMessages = async (event: any) => {
   if (existing.length) {
     return;
   }
+  const now = new Date();
   const sequence =
     Array.isArray(event.customMessageSequence) && event.customMessageSequence.length
       ? event.customMessageSequence
-      : defaultFullSequence;
-  const now = new Date();
+      : buildDefaultFullSequence(now);
   const schedules: any[] = [];
 
   for (const item of sequence) {
-    const dayOffset = Number(item.dayOffset || 0);
-    const scheduledDate = new Date(now.getTime() + dayOffset * 24 * 60 * 60 * 1000);
+    const scheduledDate = normalizeSequenceDate(item, now);
+    if (!scheduledDate) {
+      continue;
+    }
+    const messageTitle = String(
+      item?.messageTitle || item?.messageName || "Custom Message",
+    ).trim();
+    const messageBody =
+      typeof item?.messageBody === "string" && item.messageBody.trim()
+        ? item.messageBody
+        : (event as any).rsvpMessage ||
+          event.description ||
+          "You're invited! Please let us know if you will attend.";
+    const messageName = String(item?.messageName || messageTitle || "Custom Message").trim();
+    const attachment = normalizeSequenceAttachment(item?.attachment);
     const channels = item.channels || { email: { enabled: true } };
     const eventChannelConfig = (event as any)?.channelConfig || {};
     const channelEntries: Array<{ channel: "email" | "whatsapp" | "bulkSms"; enabled?: boolean }> = [
@@ -154,7 +278,10 @@ const scheduleFullMessages = async (event: any) => {
       schedules.push({
         eventId: event._id,
         messageType: "custom",
-        messageName: item.messageName || "Custom Message",
+        messageName: messageName || "Custom Message",
+        messageTitle: messageTitle || "Custom Message",
+        messageBody,
+        attachment,
         scheduledDate,
         status: "pending",
         targetAudience: item?.conditions?.audienceType || "all",
@@ -301,6 +428,7 @@ async function sendRsvpEmailsBatch(
 ) {
   const emails = rsvps.filter((r) => r.email);
   if (!emails.length) return { sent: 0, skipped: rsvps.length };
+  const subject = resolveInitialRsvpSubject(event);
   const trackingEnabled =
     (event as any)?.channelConfig?.email?.trackingEnabled !== false;
   const replyTo = (event as any)?.channelConfig?.email?.replyTo;
@@ -313,6 +441,7 @@ async function sendRsvpEmailsBatch(
         event: {
           id: event._id,
           name: event.name,
+          rsvpSubject: subject,
           date: event.date,
           description: event.description,
           rsvpMessage: (event as any).rsvpMessage,
@@ -344,7 +473,7 @@ async function sendRsvpEmailsBatch(
     );
     await sendEmail(
       rsvp.email,
-      `RSVP for ${event.name}`,
+      subject,
       html,
       `SoftInvites <info@softinvite.com>`,
       undefined,

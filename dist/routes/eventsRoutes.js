@@ -12,19 +12,40 @@ const auth_1 = __importDefault(require("../library/middlewares/auth"));
 const multer_1 = __importDefault(require("multer"));
 const router = express_1.default.Router();
 const storage = multer_1.default.memoryStorage();
+const IV_MIME_TYPES = new Set(["image/png"]);
+const STEP_ATTACHMENT_MIME_TYPES = new Set([
+    "image/png",
+    "image/jpeg",
+    "application/pdf",
+]);
 const upload = (0, multer_1.default)({
     storage,
     fileFilter: (req, file, cb) => {
-        if (file.mimetype === 'image/png')
-            cb(null, true);
-        else
-            cb(new Error('Only PNG images are allowed'));
+        if (file.fieldname === "iv") {
+            if (IV_MIME_TYPES.has(file.mimetype)) {
+                cb(null, true);
+            }
+            else {
+                cb(new Error("Only PNG is allowed for IV image"));
+            }
+            return;
+        }
+        if (file.fieldname.startsWith("sequenceAttachment_")) {
+            if (STEP_ATTACHMENT_MIME_TYPES.has(file.mimetype)) {
+                cb(null, true);
+            }
+            else {
+                cb(new Error("Step attachment must be PNG, JPG, or PDF"));
+            }
+            return;
+        }
+        cb(new Error("Unsupported file field"));
     }
 });
-router.post("/create", auth_1.default, upload.single("iv"), eventsController_1.createEvent);
-// router.put("/update/:id", auth, upload.single("iv"), updateEvent);
-router.put("/update", auth_1.default, upload.single("iv"), eventsController_1.updateEvent);
-router.post("/update/:id", auth_1.default, upload.single("iv"), eventsController_1.updateEvent);
+router.post("/create", auth_1.default, upload.any(), eventsController_1.createEvent);
+// router.put("/update/:id", auth, upload.any(), updateEvent);
+router.put("/update", auth_1.default, upload.any(), eventsController_1.updateEvent);
+router.post("/update/:id", auth_1.default, upload.any(), eventsController_1.updateEvent);
 router.get("/events", auth_1.default, eventsController_1.getAllEvents);
 router.get("/events/:id", auth_1.default, eventsController_1.getEventById);
 router.put("/events/:id/rsvp-settings", auth_1.default, eventsController_1.updateRsvpSettings);

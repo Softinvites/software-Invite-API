@@ -36,18 +36,41 @@ import multer from "multer";
 const router = express.Router();
 
 const storage = multer.memoryStorage(); 
+const IV_MIME_TYPES = new Set(["image/png"]);
+const STEP_ATTACHMENT_MIME_TYPES = new Set([
+  "image/png",
+  "image/jpeg",
+  "application/pdf",
+]);
 const upload = multer({ 
   storage,
   fileFilter: (req, file, cb) => {
-    if (file.mimetype === 'image/png') cb(null, true);
-    else cb(new Error('Only PNG images are allowed'));
+    if (file.fieldname === "iv") {
+      if (IV_MIME_TYPES.has(file.mimetype)) {
+        cb(null, true);
+      } else {
+        cb(new Error("Only PNG is allowed for IV image"));
+      }
+      return;
+    }
+
+    if (file.fieldname.startsWith("sequenceAttachment_")) {
+      if (STEP_ATTACHMENT_MIME_TYPES.has(file.mimetype)) {
+        cb(null, true);
+      } else {
+        cb(new Error("Step attachment must be PNG, JPG, or PDF"));
+      }
+      return;
+    }
+
+    cb(new Error("Unsupported file field"));
   }
 });
 
-router.post("/create", auth, upload.single("iv"), createEvent);
-// router.put("/update/:id", auth, upload.single("iv"), updateEvent);
-router.put("/update", auth, upload.single("iv"), updateEvent);
-router.post("/update/:id", auth, upload.single("iv"), updateEvent);
+router.post("/create", auth, upload.any(), createEvent);
+// router.put("/update/:id", auth, upload.any(), updateEvent);
+router.put("/update", auth, upload.any(), updateEvent);
+router.post("/update/:id", auth, upload.any(), updateEvent);
 router.get("/events", auth, getAllEvents);
 router.get("/events/:id", auth, getEventById);
 router.put("/events/:id/rsvp-settings", auth, updateRsvpSettings);

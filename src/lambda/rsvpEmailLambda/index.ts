@@ -12,6 +12,7 @@ type Recipient = {
 type EventPayload = {
   id: string;
   name: string;
+  rsvpSubject?: string;
   date?: string;
   description?: string;
   rsvpMessage?: string;
@@ -78,6 +79,10 @@ export const handler = async (event: any) => {
       : eventInfo.qrCodeCenterColor
         ? `rgb(${eventInfo.qrCodeCenterColor})`
         : "#111827";
+    const subject =
+      typeof eventInfo.rsvpSubject === "string" && eventInfo.rsvpSubject.trim()
+        ? eventInfo.rsvpSubject.trim()
+        : `RSVP for ${eventInfo.name}`;
 
     const BATCH_SIZE = 25;
     let sent = 0;
@@ -110,7 +115,7 @@ export const handler = async (event: any) => {
             {
               to: recipient.email,
               from: `SoftInvites <info@softinvite.com>`,
-              subject: `RSVP for ${eventInfo.name}`,
+              subject,
               htmlContent,
             },
             true,

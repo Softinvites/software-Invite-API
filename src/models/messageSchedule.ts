@@ -5,6 +5,13 @@ export interface MessageScheduleDocument extends Document {
   eventId: Types.ObjectId;
   messageType: "initial" | "reminder" | "thankyou" | "custom";
   messageName?: string;
+  messageTitle?: string;
+  messageBody?: string;
+  attachment?: {
+    url?: string;
+    filename?: string;
+    contentType?: string;
+  };
   scheduledDate: Date;
   status: "pending" | "sent" | "failed" | "cancelled";
   targetAudience: "all" | "non-responders" | "responders" | "yes" | "no" | "pending";
@@ -32,6 +39,13 @@ const MessageScheduleSchema = new Schema<MessageScheduleDocument>(
       default: "custom",
     },
     messageName: { type: String, default: null },
+    messageTitle: { type: String, default: null },
+    messageBody: { type: String, default: null },
+    attachment: {
+      url: { type: String, default: null },
+      filename: { type: String, default: null },
+      contentType: { type: String, default: null },
+    },
     scheduledDate: { type: Date, required: true, index: true },
     status: {
       type: String,

@@ -33,8 +33,16 @@ interface EventDocument extends Document {
     };
   };
   customMessageSequence?: Array<{
-    dayOffset?: number;
+    dayOffset?: number; // legacy fallback
+    scheduledDate?: Date;
     messageName?: string;
+    messageTitle?: string;
+    messageBody?: string;
+    attachment?: {
+      url?: string;
+      filename?: string;
+      contentType?: string;
+    };
     channels?: {
       email?: { enabled?: boolean; templateId?: Schema.Types.ObjectId };
       whatsapp?: { enabled?: boolean; templateId?: Schema.Types.ObjectId };
@@ -99,8 +107,16 @@ const EventSchema = new Schema(
     },
     customMessageSequence: [
       {
-        dayOffset: { type: Number, default: 0 },
+        dayOffset: { type: Number, default: null },
+        scheduledDate: { type: Date, default: null },
         messageName: { type: String, default: "" },
+        messageTitle: { type: String, default: "" },
+        messageBody: { type: String, default: "" },
+        attachment: {
+          url: { type: String, default: null },
+          filename: { type: String, default: null },
+          contentType: { type: String, default: null },
+        },
         channels: {
           email: {
             enabled: { type: Boolean, default: true },
