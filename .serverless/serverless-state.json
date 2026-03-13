@@ -59,6 +59,8 @@
         "BACKUP_BUCKET": "softinvites-backups",
         "BACKUP_LAMBDA": "softinvites-backend-dev-backup",
         "EMAIL_FROM": "SoftInvites <info@softinvite.com>",
+        "RSVP_SCHEDULER_SECRET": "",
+        "RSVP_SCHEDULER_LAMBDA_NAME": "",
         "SERVERLESS_LICENSE_KEY": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJvcmdJZCI6IjdmYjQ0ZmY4LTQ5YmUtNGY0My1iMmM2LTliMzIyYmU5ZmQ3OSIsImlhdCI6MTc1NjM3MjU3NCwiZXhwIjoxNzg3OTA4NTc0LCJpc3MiOiJhcHAuc2VydmVybGVzcy5jb20ifQ.wxYOYIhN7zKm1zUY3l0RaHDnGOWKBqjdt9aPzjaiWZrMqhOxRWr8AD7Oy_-KQ-JnBu4ow1rKFqgFWc62EYwMY5XZvtCM91U-3lixSNMtqCyMhokEusEVM3IApNdQcl2fBS65RHGg1DVdWIVMGBBURMTDyy1DP0fhcINigjr08zP6iNeyjypdNp_az1TfDPZHVpAItKsIhk0sp0I9TBC_GPObgQ8gH9BK2guDNsEP92XJLoQaDCRXwlVemX3QjT3H6lEJBJjrzzAkOiDaGBd0TEHcpwbORdWKpZB9IRjmD0B6RVXU4W2azSGx8HEG3wHimraoUYXSG9Y9VOKEcpHq2w"
       },
       "iam": {
@@ -161,6 +163,12 @@
               "LogGroupName": "/aws/lambda/softinvites-backend-dev-backup"
             }
           },
+          "RsvpSchedulerLogGroup": {
+            "Type": "AWS::Logs::LogGroup",
+            "Properties": {
+              "LogGroupName": "/aws/lambda/softinvites-backend-dev-rsvpScheduler"
+            }
+          },
           "IamRoleLambdaExecution": {
             "Type": "AWS::IAM::Role",
             "Properties": {
@@ -249,7 +257,7 @@
                 "S3Bucket": {
                   "Ref": "ServerlessDeploymentBucket"
                 },
-                "S3Key": "serverless/softinvites-backend/dev/1771504080464-2026-02-19T12:28:00.464Z/app.zip"
+                "S3Key": "serverless/softinvites-backend/dev/1773404341815-2026-03-13T12:19:01.815Z/app.zip"
               },
               "Handler": "dist/index.handler",
               "Runtime": "nodejs20.x",
@@ -277,6 +285,10 @@
                   "BACKUP_BUCKET": "softinvites-backups",
                   "BACKUP_LAMBDA": "softinvites-backend-dev-backup",
                   "EMAIL_FROM": "SoftInvites <info@softinvite.com>",
+                  "RSVP_SCHEDULER_SECRET": "",
+                  "RSVP_SCHEDULER_LAMBDA_NAME": {
+                    "Ref": "RsvpSchedulerLambdaFunction"
+                  },
                   "SERVERLESS_LICENSE_KEY": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJvcmdJZCI6IjdmYjQ0ZmY4LTQ5YmUtNGY0My1iMmM2LTliMzIyYmU5ZmQ3OSIsImlhdCI6MTc1NjM3MjU3NCwiZXhwIjoxNzg3OTA4NTc0LCJpc3MiOiJhcHAuc2VydmVybGVzcy5jb20ifQ.wxYOYIhN7zKm1zUY3l0RaHDnGOWKBqjdt9aPzjaiWZrMqhOxRWr8AD7Oy_-KQ-JnBu4ow1rKFqgFWc62EYwMY5XZvtCM91U-3lixSNMtqCyMhokEusEVM3IApNdQcl2fBS65RHGg1DVdWIVMGBBURMTDyy1DP0fhcINigjr08zP6iNeyjypdNp_az1TfDPZHVpAItKsIhk0sp0I9TBC_GPObgQ8gH9BK2guDNsEP92XJLoQaDCRXwlVemX3QjT3H6lEJBJjrzzAkOiDaGBd0TEHcpwbORdWKpZB9IRjmD0B6RVXU4W2azSGx8HEG3wHimraoUYXSG9Y9VOKEcpHq2w"
                 }
               },
@@ -301,7 +313,7 @@
                 "S3Bucket": {
                   "Ref": "ServerlessDeploymentBucket"
                 },
-                "S3Key": "serverless/softinvites-backend/dev/1771504080464-2026-02-19T12:28:00.464Z/backup.zip"
+                "S3Key": "serverless/softinvites-backend/dev/1773404341815-2026-03-13T12:19:01.815Z/backup.zip"
               },
               "Handler": "dist/backup.handler",
               "Runtime": "nodejs20.x",
@@ -330,6 +342,8 @@
                   "BACKUP_BUCKET": "softinvites-backups",
                   "BACKUP_LAMBDA": "softinvites-backend-dev-backup",
                   "EMAIL_FROM": "SoftInvites <info@softinvite.com>",
+                  "RSVP_SCHEDULER_SECRET": "",
+                  "RSVP_SCHEDULER_LAMBDA_NAME": "",
                   "SERVERLESS_LICENSE_KEY": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJvcmdJZCI6IjdmYjQ0ZmY4LTQ5YmUtNGY0My1iMmM2LTliMzIyYmU5ZmQ3OSIsImlhdCI6MTc1NjM3MjU3NCwiZXhwIjoxNzg3OTA4NTc0LCJpc3MiOiJhcHAuc2VydmVybGVzcy5jb20ifQ.wxYOYIhN7zKm1zUY3l0RaHDnGOWKBqjdt9aPzjaiWZrMqhOxRWr8AD7Oy_-KQ-JnBu4ow1rKFqgFWc62EYwMY5XZvtCM91U-3lixSNMtqCyMhokEusEVM3IApNdQcl2fBS65RHGg1DVdWIVMGBBURMTDyy1DP0fhcINigjr08zP6iNeyjypdNp_az1TfDPZHVpAItKsIhk0sp0I9TBC_GPObgQ8gH9BK2guDNsEP92XJLoQaDCRXwlVemX3QjT3H6lEJBJjrzzAkOiDaGBd0TEHcpwbORdWKpZB9IRjmD0B6RVXU4W2azSGx8HEG3wHimraoUYXSG9Y9VOKEcpHq2w"
                 }
               },
@@ -344,25 +358,125 @@
               "BackupLogGroup"
             ]
           },
-          "BackupLambdaVersionGav4FZ2Z9UPiVgZlhBj2N8XqkMtnUzHGianbOc420A": {
+          "RsvpSchedulerLambdaFunction": {
+            "Type": "AWS::Lambda::Function",
+            "Properties": {
+              "Code": {
+                "S3Bucket": {
+                  "Ref": "ServerlessDeploymentBucket"
+                },
+                "S3Key": "serverless/softinvites-backend/dev/1773404341815-2026-03-13T12:19:01.815Z/rsvpScheduler.zip"
+              },
+              "Handler": "dist/lambda/rsvpSchedulerLambda/index.handler",
+              "Runtime": "nodejs20.x",
+              "FunctionName": "softinvites-backend-dev-rsvpScheduler",
+              "MemorySize": 512,
+              "Timeout": 60,
+              "Architectures": [
+                "x86_64"
+              ],
+              "Description": "Runs pending RSVP message schedules",
+              "Environment": {
+                "Variables": {
+                  "MONGODB_URI": "mongodb+srv://softinvites:Pi1pZr1yjuIcJ5pL@cluster1.f69gx.mongodb.net/softinvites?retryWrites=true&w=majority",
+                  "JWT_SECRET": "soft_invites363effbch7ee",
+                  "S3_BUCKET": "softinvites-assets",
+                  "REGION": "us-east-2",
+                  "CDN_URL": "https://softinvites-assets.s3.amazonaws.com",
+                  "QR_LAMBDA_FUNCTION_NAME": "generateQrToS3",
+                  "IMPORT_LAMBDA_FUNCTION_NAME": "importGuestsLambda",
+                  "ZIP_LAMBDA_FUNCTION_NAME": "downloadZipLambdaFunction",
+                  "SINGLE_QR_LAMBDA_FUNCTION_NAME": "downloadLambdaFunction",
+                  "EMAIL_LAMBDA_FUNCTION_NAME": "sendEmailLambdaFunction",
+                  "RESEND_EMAILS_LAMBDA_FUNCTION_NAME": "resendEmailsLambdaFunction",
+                  "PNG_CONVERT_LAMBDA": "pngConvertLambda",
+                  "FRONTEND_URL": "https://www.softinvite.com",
+                  "BACKUP_BUCKET": "softinvites-backups",
+                  "BACKUP_LAMBDA": "softinvites-backend-dev-backup",
+                  "EMAIL_FROM": "SoftInvites <info@softinvite.com>",
+                  "RSVP_SCHEDULER_SECRET": "",
+                  "RSVP_SCHEDULER_LAMBDA_NAME": "",
+                  "SERVERLESS_LICENSE_KEY": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJvcmdJZCI6IjdmYjQ0ZmY4LTQ5YmUtNGY0My1iMmM2LTliMzIyYmU5ZmQ3OSIsImlhdCI6MTc1NjM3MjU3NCwiZXhwIjoxNzg3OTA4NTc0LCJpc3MiOiJhcHAuc2VydmVybGVzcy5jb20ifQ.wxYOYIhN7zKm1zUY3l0RaHDnGOWKBqjdt9aPzjaiWZrMqhOxRWr8AD7Oy_-KQ-JnBu4ow1rKFqgFWc62EYwMY5XZvtCM91U-3lixSNMtqCyMhokEusEVM3IApNdQcl2fBS65RHGg1DVdWIVMGBBURMTDyy1DP0fhcINigjr08zP6iNeyjypdNp_az1TfDPZHVpAItKsIhk0sp0I9TBC_GPObgQ8gH9BK2guDNsEP92XJLoQaDCRXwlVemX3QjT3H6lEJBJjrzzAkOiDaGBd0TEHcpwbORdWKpZB9IRjmD0B6RVXU4W2azSGx8HEG3wHimraoUYXSG9Y9VOKEcpHq2w"
+                }
+              },
+              "Role": {
+                "Fn::GetAtt": [
+                  "IamRoleLambdaExecution",
+                  "Arn"
+                ]
+              }
+            },
+            "DependsOn": [
+              "RsvpSchedulerLogGroup"
+            ]
+          },
+          "BackupLambdaVersionh16hOfbHhgGPRnT8Zxsx1XoCQWgPSO2aECGvBYY": {
             "Type": "AWS::Lambda::Version",
             "DeletionPolicy": "Retain",
             "Properties": {
               "FunctionName": {
                 "Ref": "BackupLambdaFunction"
               },
-              "CodeSha256": "qqm1sPagaTysrWg+yA6if1LMS90PnHAkihG7EKgTfJs=",
+              "CodeSha256": "m7sOQDtLAYk7GyCx79zDS5406tccB7HsUEspUMPC8+Y=",
               "Description": "Event-driven MongoDB backup to S3"
             }
           },
-          "AppLambdaVersiondZxsqcXv53QEHkOftxcQcHvePf7P813m1x1fmOoed2c": {
+          "RsvpSchedulerLambdaVersion5mWJcP9yuRvZDLvnXvTRoFYaIUjl8QEPMCHJT1HoxM": {
+            "Type": "AWS::Lambda::Version",
+            "DeletionPolicy": "Retain",
+            "Properties": {
+              "FunctionName": {
+                "Ref": "RsvpSchedulerLambdaFunction"
+              },
+              "CodeSha256": "mkulu1Utg8pqsKBuZdPwLT3cDsOEUmc37VQRK1r6YkI=",
+              "Description": "Runs pending RSVP message schedules"
+            }
+          },
+          "AppLambdaVersionLuns5YLXiHuoQkAeBGGnfA0xTc9SrCQOg45mhqSfmcc": {
             "Type": "AWS::Lambda::Version",
             "DeletionPolicy": "Retain",
             "Properties": {
               "FunctionName": {
                 "Ref": "AppLambdaFunction"
               },
-              "CodeSha256": "fbVPew/pdtiPfiOb8s542vPvSscHH4MeFvymZNHsrwA="
+              "CodeSha256": "a+0tx+WQ+exwTff+O6pL4Z8cmWwdMpENtJCk6MyOBC4="
+            }
+          },
+          "RsvpSchedulerEventsRuleSchedule1": {
+            "Type": "AWS::Events::Rule",
+            "Properties": {
+              "ScheduleExpression": "rate(5 minutes)",
+              "State": "ENABLED",
+              "Targets": [
+                {
+                  "Arn": {
+                    "Fn::GetAtt": [
+                      "RsvpSchedulerLambdaFunction",
+                      "Arn"
+                    ]
+                  },
+                  "Id": "rsvpSchedulerSchedule"
+                }
+              ]
+            }
+          },
+          "RsvpSchedulerLambdaPermissionEventsRuleSchedule1": {
+            "Type": "AWS::Lambda::Permission",
+            "Properties": {
+              "FunctionName": {
+                "Fn::GetAtt": [
+                  "RsvpSchedulerLambdaFunction",
+                  "Arn"
+                ]
+              },
+              "Action": "lambda:InvokeFunction",
+              "Principal": "events.amazonaws.com",
+              "SourceArn": {
+                "Fn::GetAtt": [
+                  "RsvpSchedulerEventsRuleSchedule1",
+                  "Arn"
+                ]
+              }
             }
           },
           "HttpApi": {
@@ -493,16 +607,25 @@
           "BackupLambdaFunctionQualifiedArn": {
             "Description": "Current Lambda function version",
             "Value": {
-              "Ref": "BackupLambdaVersionGav4FZ2Z9UPiVgZlhBj2N8XqkMtnUzHGianbOc420A"
+              "Ref": "BackupLambdaVersionh16hOfbHhgGPRnT8Zxsx1XoCQWgPSO2aECGvBYY"
             },
             "Export": {
               "Name": "sls-softinvites-backend-dev-BackupLambdaFunctionQualifiedArn"
             }
           },
+          "RsvpSchedulerLambdaFunctionQualifiedArn": {
+            "Description": "Current Lambda function version",
+            "Value": {
+              "Ref": "RsvpSchedulerLambdaVersion5mWJcP9yuRvZDLvnXvTRoFYaIUjl8QEPMCHJT1HoxM"
+            },
+            "Export": {
+              "Name": "sls-softinvites-backend-dev-RsvpSchedulerLambdaFunctionQualifiedArn"
+            }
+          },
           "AppLambdaFunctionQualifiedArn": {
             "Description": "Current Lambda function version",
             "Value": {
-              "Ref": "AppLambdaVersiondZxsqcXv53QEHkOftxcQcHvePf7P813m1x1fmOoed2c"
+              "Ref": "AppLambdaVersionLuns5YLXiHuoQkAeBGGnfA0xTc9SrCQOg45mhqSfmcc"
             },
             "Export": {
               "Name": "sls-softinvites-backend-dev-AppLambdaFunctionQualifiedArn"
@@ -665,6 +788,11 @@
         "layers": {
           "$ref": "$[\"service\"][\"provider\"][\"compiledCloudFormationTemplate\"][\"Resources\"][\"AppLambdaFunction\"][\"Properties\"][\"Layers\"]"
         },
+        "environment": {
+          "RSVP_SCHEDULER_LAMBDA_NAME": {
+            "$ref": "$[\"service\"][\"provider\"][\"compiledCloudFormationTemplate\"][\"Resources\"][\"AppLambdaFunction\"][\"Properties\"][\"Environment\"][\"Variables\"][\"RSVP_SCHEDULER_LAMBDA_NAME\"]"
+          }
+        },
         "events": [
           {
             "httpApi": {
@@ -684,7 +812,7 @@
         "memory": 1024,
         "runtime": "nodejs20.x",
         "vpc": {},
-        "versionLogicalId": "AppLambdaVersiondZxsqcXv53QEHkOftxcQcHvePf7P813m1x1fmOoed2c"
+        "versionLogicalId": "AppLambdaVersionLuns5YLXiHuoQkAeBGGnfA0xTc9SrCQOg45mhqSfmcc"
       },
       "backup": {
         "handler": "dist/backup.handler",
@@ -703,7 +831,31 @@
         "memory": 512,
         "runtime": "nodejs20.x",
         "vpc": {},
-        "versionLogicalId": "BackupLambdaVersionGav4FZ2Z9UPiVgZlhBj2N8XqkMtnUzHGianbOc420A"
+        "versionLogicalId": "BackupLambdaVersionh16hOfbHhgGPRnT8Zxsx1XoCQWgPSO2aECGvBYY"
+      },
+      "rsvpScheduler": {
+        "handler": "dist/lambda/rsvpSchedulerLambda/index.handler",
+        "description": "Runs pending RSVP message schedules",
+        "memorySize": 512,
+        "timeout": 60,
+        "events": [
+          {
+            "schedule": {
+              "rate": [
+                "rate(5 minutes)"
+              ],
+              "enabled": true
+            }
+          }
+        ],
+        "name": "softinvites-backend-dev-rsvpScheduler",
+        "package": {
+          "artifact": ".serverless/rsvpScheduler.zip"
+        },
+        "memory": 512,
+        "runtime": "nodejs20.x",
+        "vpc": {},
+        "versionLogicalId": "RsvpSchedulerLambdaVersion5mWJcP9yuRvZDLvnXvTRoFYaIUjl8QEPMCHJT1HoxM"
       }
     },
     "configValidationMode": "error",
@@ -741,7 +893,7 @@
   },
   "package": {
     "individually": true,
-    "artifactDirectoryName": "serverless/softinvites-backend/dev/1771504080464-2026-02-19T12:28:00.464Z",
+    "artifactDirectoryName": "serverless/softinvites-backend/dev/1773404341815-2026-03-13T12:19:01.815Z",
     "artifact": ""
   }
 }

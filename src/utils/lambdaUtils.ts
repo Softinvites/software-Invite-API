@@ -5,6 +5,40 @@ const lambda = new LambdaClient({
   region: process.env.AWS_REGION || "us-east-2",
 });
 
+const extractLambdaError = (response: any, parsedPayload: any) => {
+  if (response?.FunctionError) {
+    return parsedPayload?.errorMessage || parsedPayload?.message || response.FunctionError;
+  }
+
+  if (
+    parsedPayload &&
+    typeof parsedPayload.statusCode === "number" &&
+    parsedPayload.statusCode >= 400
+  ) {
+    let body: any = parsedPayload.body;
+    if (typeof body === "string") {
+      try {
+        body = JSON.parse(body);
+      } catch {
+        // keep original string
+      }
+    }
+    return (
+      body?.error ||
+      body?.message ||
+      parsedPayload?.error ||
+      parsedPayload?.message ||
+      `Invoked lambda returned status ${parsedPayload.statusCode}`
+    );
+  }
+
+  if (parsedPayload?.errorMessage) {
+    return parsedPayload.errorMessage;
+  }
+
+  return null;
+};
+
 export const invokeLambda = async (functionName: string, payload: any, asyncInvoke: boolean = false ) => {
   const params = {
     FunctionName: functionName,
@@ -14,6 +48,12 @@ export const invokeLambda = async (functionName: string, payload: any, asyncInvo
 
   const command = new InvokeCommand(params);
   const response = await lambda.send(command);
+  if (asyncInvoke) {
+    return {
+      statusCode: response.StatusCode ?? 202,
+      requestId: response.$metadata?.requestId || null,
+    };
+  }
 
   if (!response.Payload) {
     return {};
@@ -25,10 +65,18 @@ export const invokeLambda = async (functionName: string, payload: any, asyncInvo
     return {};
   }
 
+  let parsed: any;
   try {
-    return JSON.parse(responseStr);
+    parsed = JSON.parse(responseStr);
   } catch (err) {
     console.error("Failed to parse Lambda response:", responseStr);
     throw err;
   }
+
+  const errorMessage = extractLambdaError(response, parsed);
+  if (errorMessage) {
+    throw new Error(`Lambda invoke failed for ${functionName}: ${String(errorMessage)}`);
+  }
+
+  return parsed;
 };

@@ -18,6 +18,24 @@ const normalizeAttachment = (attachment: any) => {
   };
 };
 
+const normalizeTargetAudience = (value: any) => {
+  if (value === "non-responders") return "pending";
+  if (value === "pending-no" || value === "pending_and_no") {
+    return "pending-and-no";
+  }
+  if (
+    value === "all" ||
+    value === "responders" ||
+    value === "yes" ||
+    value === "no" ||
+    value === "pending" ||
+    value === "pending-and-no"
+  ) {
+    return value;
+  }
+  return "all";
+};
+
 export const listSchedules = async (req: Request, res: Response) => {
   try {
     const { eventId } = req.params;
@@ -58,7 +76,7 @@ export const createSchedule = async (req: Request, res: Response) => {
       messageBody,
       attachment: normalizeAttachment(attachment),
       scheduledDate: new Date(scheduledDate),
-      targetAudience,
+      targetAudience: normalizeTargetAudience(targetAudience),
       channel,
       templateId: templateId || null,
       status: "pending",
@@ -81,6 +99,7 @@ export const updateSchedule = async (req: Request, res: Response) => {
       messageTitle,
       messageBody,
       attachment,
+      targetAudience,
     } = req.body || {};
 
     const update: any = {};
@@ -91,6 +110,9 @@ export const updateSchedule = async (req: Request, res: Response) => {
     if (messageBody !== undefined) update.messageBody = messageBody;
     if (attachment !== undefined) {
       update.attachment = normalizeAttachment(attachment);
+    }
+    if (targetAudience !== undefined) {
+      update.targetAudience = normalizeTargetAudience(targetAudience);
     }
 
     const schedule = await MessageSchedule.findByIdAndUpdate(

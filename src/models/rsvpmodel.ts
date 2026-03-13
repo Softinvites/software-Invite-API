@@ -11,6 +11,7 @@ export interface RSVPDocument extends Document {
   phone?: string;
   attendanceStatus: "pending" | "yes" | "no";
   comments?: string;
+  responses?: Record<string, any>;
   submissionDate?: Date;
   source: "imported" | "form_submission";
   isEditable: boolean;
@@ -36,6 +37,7 @@ const RSVPSchema = new Schema<RSVPDocument>(
       index: true,
     },
     comments: { type: String, default: "" },
+    responses: { type: Schema.Types.Mixed, default: {} },
     submissionDate: { type: Date, default: null },
     source: {
       type: String,

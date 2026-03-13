@@ -25,8 +25,10 @@ dotenv_1.default.config();
 const app = (0, express_1.default)();
 if (process.env.RUN_SCHEDULER === "true" ||
     process.env.NODE_ENV === "development") {
-    // fire-and-forget scheduler import (node-cron)
-    import("./jobs/messageScheduler.js");
+    // fire-and-forget scheduler startup (node-cron)
+    import("./jobs/messageScheduler.js")
+        .then((mod) => mod.startMessageScheduler())
+        .catch((error) => console.error("Failed to start message scheduler:", error));
 }
 const allowedOrigins = [
     "http://localhost:3039",

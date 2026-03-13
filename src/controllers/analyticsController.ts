@@ -23,6 +23,24 @@ const buildDateFilter = (start?: string, end?: string) => {
   return Object.keys(filter).length ? filter : null;
 };
 
+const matchesDateFilter = (
+  value: Date | string | null | undefined,
+  filter: Record<string, Date> | null,
+) => {
+  if (!filter) return true;
+  if (!value) return false;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return false;
+  if (filter.$gte && parsed < filter.$gte) return false;
+  if (filter.$lte && parsed > filter.$lte) return false;
+  return true;
+};
+
+const isRsvpResponded = (rsvp: any) =>
+  Boolean(rsvp?.submissionDate) ||
+  rsvp?.attendanceStatus === "yes" ||
+  rsvp?.attendanceStatus === "no";
+
 export const getAnalyticsOverview = async (req: Request, res: Response) => {
   try {
     const { eventId } = req.params;
@@ -30,13 +48,17 @@ export const getAnalyticsOverview = async (req: Request, res: Response) => {
       req.query.start as string,
       req.query.end as string,
     );
-    const rsvpQuery: any = { eventId };
-    if (dateFilter) rsvpQuery.createdAt = dateFilter;
-    const rsvps = await RSVP.find(rsvpQuery);
-    const total = rsvps.length;
-    const yes = rsvps.filter((r) => r.attendanceStatus === "yes").length;
-    const no = rsvps.filter((r) => r.attendanceStatus === "no").length;
-    const pending = rsvps.filter((r) => r.attendanceStatus === "pending").length;
+    const rsvps = await RSVP.find({ eventId });
+    const filteredRsvps = rsvps.filter((r) =>
+      matchesDateFilter(r.submissionDate || r.createdAt, dateFilter),
+    );
+    const totalInvited = filteredRsvps.length;
+    const totalResponses = filteredRsvps.filter((r) => isRsvpResponded(r)).length;
+    const yes = filteredRsvps.filter((r) => r.attendanceStatus === "yes").length;
+    const no = filteredRsvps.filter((r) => r.attendanceStatus === "no").length;
+    const pending = filteredRsvps.filter(
+      (r) => r.attendanceStatus === "pending",
+    ).length;
 
     const emailQuery: any = { eventId };
     if (dateFilter) emailQuery.createdAt = dateFilter;
@@ -45,11 +67,12 @@ export const getAnalyticsOverview = async (req: Request, res: Response) => {
     const clicks = emailMessages.reduce((acc, m) => acc + (m.clickCount || 0), 0);
 
     return res.json({
-      totalResponses: total,
+      totalInvited,
+      totalResponses,
       yes,
       no,
       pending,
-      responseRate: total ? ((yes + no) / total) * 100 : 0,
+      responseRate: totalInvited ? (totalResponses / totalInvited) * 100 : 0,
       emailOpens: opens,
       emailClicks: clicks,
     });
@@ -119,19 +142,18 @@ export const getTimelineAnalytics = async (req: Request, res: Response) => {
       req.query.start as string,
       req.query.end as string,
     );
-    const rsvpQuery: any = { eventId };
-    if (dateFilter) rsvpQuery.createdAt = dateFilter;
-    const rsvps = await RSVP.find(rsvpQuery);
+    const rsvps = await RSVP.find({ eventId });
     const bucket: Record<string, number> = {};
-    rsvps.forEach((r) => {
-      const date = r.submissionDate
-        ? new Date(r.submissionDate)
-        : r.createdAt
-          ? new Date(r.createdAt)
-          : new Date();
-      const key = date.toISOString().slice(0, 10);
-      bucket[key] = (bucket[key] || 0) + 1;
-    });
+    rsvps
+      .filter((r) => isRsvpResponded(r))
+      .forEach((r) => {
+        const date = r.submissionDate || r.updatedAt || r.createdAt || new Date();
+        if (!matchesDateFilter(date, dateFilter)) {
+          return;
+        }
+        const key = new Date(date).toISOString().slice(0, 10);
+        bucket[key] = (bucket[key] || 0) + 1;
+      });
     const timeline = Object.keys(bucket)
       .sort()
       .map((date) => ({ date, count: bucket[date] }));
@@ -149,9 +171,9 @@ export const getAnalyticsExport = async (req: Request, res: Response) => {
       req.query.start as string,
       req.query.end as string,
     );
-    const rsvpQuery: any = { eventId };
-    if (dateFilter) rsvpQuery.createdAt = dateFilter;
-    const overview = await RSVP.find(rsvpQuery);
+    const overview = (await RSVP.find({ eventId })).filter((r) =>
+      matchesDateFilter(r.submissionDate || r.createdAt, dateFilter),
+    );
     return res.json({ export: overview });
   } catch (error: any) {
     console.error("getAnalyticsExport error", error);

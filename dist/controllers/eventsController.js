@@ -5,6 +5,7 @@ const eventmodel_1 = require("../models/eventmodel");
 const utils_1 = require("../utils/utils");
 const emailService_1 = require("../library/helpers/emailService");
 const s3Utils_1 = require("../utils/s3Utils");
+const fullRsvpScheduleService_1 = require("../services/fullRsvpScheduleService");
 const client_lambda_1 = require("@aws-sdk/client-lambda");
 const lambdaClient = new client_lambda_1.LambdaClient({ region: process.env.AWS_REGION });
 const parseMaybeJson = (value) => {
@@ -18,6 +19,7 @@ const parseMaybeJson = (value) => {
     }
     return value;
 };
+const normalizeRsvpServicePackage = (value) => value === "invitation-only" ? "invitation-only" : "full-rsvp";
 const STEP_ATTACHMENT_MIME_TYPES = new Set([
     "image/png",
     "image/jpeg",
@@ -50,6 +52,22 @@ const normalizeAttachmentObject = (input) => {
             ? input.contentType.trim()
             : null,
     };
+};
+const normalizeMessageAudience = (value) => {
+    if (value === "non-responders")
+        return "pending";
+    if (value === "pending-no" || value === "pending_and_no") {
+        return "pending-and-no";
+    }
+    if (value === "all" ||
+        value === "responders" ||
+        value === "yes" ||
+        value === "no" ||
+        value === "pending" ||
+        value === "pending-and-no") {
+        return value;
+    }
+    return "all";
 };
 const resolveCustomMessageSequence = async (customMessageSequence, files, eventRef) => {
     const parsed = parseMaybeJson(customMessageSequence);
@@ -86,6 +104,10 @@ const resolveCustomMessageSequence = async (customMessageSequence, files, eventR
             };
         }
         step.attachment = attachment;
+        step.conditions = {
+            ...(step.conditions && typeof step.conditions === "object" ? step.conditions : {}),
+            audienceType: normalizeMessageAudience(step?.conditions?.audienceType),
+        };
         nextSequence.push(step);
     }
     return nextSequence;
@@ -100,6 +122,7 @@ const createEvent = async (req, res) => {
             AWS_REGION: process.env.AWS_REGION,
         });
         const { name, date, location, description, rsvpMessage, rsvpBgColor, rsvpAccentColor, servicePackage, messageCycle, channelConfig, customMessageSequence, rsvpDeadline, eventEndDate, } = req.body;
+        const normalizedServicePackage = normalizeRsvpServicePackage(servicePackage);
         // ✅ Validate event fields
         const validateEvent = utils_1.createEventSchema.validate({
             name,
@@ -109,7 +132,7 @@ const createEvent = async (req, res) => {
             rsvpMessage,
             rsvpBgColor,
             rsvpAccentColor,
-            servicePackage,
+            servicePackage: normalizedServicePackage,
             messageCycle,
             channelConfig,
             customMessageSequence,
@@ -148,7 +171,7 @@ const createEvent = async (req, res) => {
             ...(rsvpMessage !== undefined ? { rsvpMessage } : {}),
             ...(rsvpBgColor !== undefined ? { rsvpBgColor } : {}),
             ...(rsvpAccentColor !== undefined ? { rsvpAccentColor } : {}),
-            ...(servicePackage !== undefined ? { servicePackage } : {}),
+            servicePackage: normalizedServicePackage,
             ...(messageCycle !== undefined ? { messageCycle } : {}),
             ...(channelConfig !== undefined
                 ? { channelConfig: parseMaybeJson(channelConfig) }
@@ -164,10 +187,22 @@ const createEvent = async (req, res) => {
                 : {}),
         });
         console.log("✅ Event created successfully:", newEvent.id);
+        let scheduleSync = null;
+        if (newEvent.servicePackage !== "invitation-only" && customMessageSequence !== undefined) {
+            try {
+                scheduleSync = await (0, fullRsvpScheduleService_1.syncFullRsvpPendingSchedules)(newEvent, {
+                    replacePending: true,
+                });
+            }
+            catch (scheduleError) {
+                console.error("Failed to sync full RSVP schedules after create:", scheduleError);
+            }
+        }
         // ✅ Respond immediately so frontend doesn't break
         res.status(201).json({
             message: "Event created successfully",
             event: newEvent,
+            ...(scheduleSync ? { scheduleSync } : {}),
         });
         // ✅ Send admin notification email with better error handling
         const adminEmail = process.env.ADMIN_EMAIL || "softinvites@gmail.com";
@@ -245,8 +280,9 @@ const updateEvent = async (req, res) => {
             updateData.rsvpBgColor = rsvpBgColor;
         if (rsvpAccentColor !== undefined)
             updateData.rsvpAccentColor = rsvpAccentColor;
-        if (servicePackage !== undefined)
-            updateData.servicePackage = servicePackage;
+        if (servicePackage !== undefined) {
+            updateData.servicePackage = normalizeRsvpServicePackage(servicePackage);
+        }
         if (messageCycle !== undefined)
             updateData.messageCycle = messageCycle;
         if (channelConfig !== undefined)
@@ -285,10 +321,24 @@ const updateEvent = async (req, res) => {
         if (!updatedEvent) {
             return res.status(404).json({ message: "Event not found" });
         }
+        const effectiveServicePackage = normalizeRsvpServicePackage(updateData.servicePackage ?? existingEvent.servicePackage);
+        const shouldSyncFullSchedules = effectiveServicePackage !== "invitation-only" &&
+            (customMessageSequence !== undefined ||
+                servicePackage !== undefined ||
+                channelConfig !== undefined ||
+                rsvpMessage !== undefined ||
+                description !== undefined);
+        let scheduleSync = null;
+        if (shouldSyncFullSchedules) {
+            scheduleSync = await (0, fullRsvpScheduleService_1.syncFullRsvpPendingSchedules)(updatedEvent, {
+                replacePending: true,
+            });
+        }
         // Return updated event
         res.status(200).json({
             message: "Event updated successfully",
             event: updatedEvent,
+            ...(scheduleSync ? { scheduleSync } : {}),
         });
     }
     catch (error) {
@@ -349,21 +399,15 @@ exports.getEventById = getEventById;
 const updateRsvpSettings = async (req, res) => {
     try {
         const { id } = req.params;
-        const { rsvpMessage, rsvpBgColor, rsvpAccentColor, rsvpDeadline, eventEndDate } = req.body;
+        const { rsvpBgColor, rsvpAccentColor } = req.body;
         if (!id) {
             return res.status(400).json({ message: "Event ID is required" });
         }
         const updateData = {};
-        if (rsvpMessage !== undefined)
-            updateData.rsvpMessage = rsvpMessage;
         if (rsvpBgColor !== undefined)
             updateData.rsvpBgColor = rsvpBgColor;
         if (rsvpAccentColor !== undefined)
             updateData.rsvpAccentColor = rsvpAccentColor;
-        if (rsvpDeadline !== undefined)
-            updateData.rsvpDeadline = rsvpDeadline || null;
-        if (eventEndDate !== undefined)
-            updateData.eventEndDate = eventEndDate || null;
         const updatedEvent = await eventmodel_1.Event.findByIdAndUpdate(id, updateData, {
             new: true,
         });

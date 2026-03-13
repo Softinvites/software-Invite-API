@@ -6,6 +6,33 @@ const client_lambda_2 = require("@aws-sdk/client-lambda");
 const lambda = new client_lambda_2.LambdaClient({
     region: process.env.AWS_REGION || "us-east-2",
 });
+const extractLambdaError = (response, parsedPayload) => {
+    if (response?.FunctionError) {
+        return parsedPayload?.errorMessage || parsedPayload?.message || response.FunctionError;
+    }
+    if (parsedPayload &&
+        typeof parsedPayload.statusCode === "number" &&
+        parsedPayload.statusCode >= 400) {
+        let body = parsedPayload.body;
+        if (typeof body === "string") {
+            try {
+                body = JSON.parse(body);
+            }
+            catch {
+                // keep original string
+            }
+        }
+        return (body?.error ||
+            body?.message ||
+            parsedPayload?.error ||
+            parsedPayload?.message ||
+            `Invoked lambda returned status ${parsedPayload.statusCode}`);
+    }
+    if (parsedPayload?.errorMessage) {
+        return parsedPayload.errorMessage;
+    }
+    return null;
+};
 const invokeLambda = async (functionName, payload, asyncInvoke = false) => {
     const params = {
         FunctionName: functionName,
@@ -14,6 +41,12 @@ const invokeLambda = async (functionName, payload, asyncInvoke = false) => {
     };
     const command = new client_lambda_1.InvokeCommand(params);
     const response = await lambda.send(command);
+    if (asyncInvoke) {
+        return {
+            statusCode: response.StatusCode ?? 202,
+            requestId: response.$metadata?.requestId || null,
+        };
+    }
     if (!response.Payload) {
         return {};
     }
@@ -21,12 +54,18 @@ const invokeLambda = async (functionName, payload, asyncInvoke = false) => {
     if (!responseStr) {
         return {};
     }
+    let parsed;
     try {
-        return JSON.parse(responseStr);
+        parsed = JSON.parse(responseStr);
     }
     catch (err) {
         console.error("Failed to parse Lambda response:", responseStr);
         throw err;
     }
+    const errorMessage = extractLambdaError(response, parsed);
+    if (errorMessage) {
+        throw new Error(`Lambda invoke failed for ${functionName}: ${String(errorMessage)}`);
+    }
+    return parsed;
 };
 exports.invokeLambda = invokeLambda;

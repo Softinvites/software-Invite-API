@@ -56,6 +56,8 @@ provider:
     BACKUP_BUCKET: ${env:BACKUP_BUCKET, 'softinvites-backups'}
     BACKUP_LAMBDA: ${env:BACKUP_LAMBDA, 'softinvites-backend-dev-backup'}
     EMAIL_FROM: ${env:EMAIL_FROM, 'SoftInvites <info@softinvite.com>'}
+    RSVP_SCHEDULER_SECRET: ${env:RSVP_SCHEDULER_SECRET, ''}
+    RSVP_SCHEDULER_LAMBDA_NAME: ${env:RSVP_SCHEDULER_LAMBDA_NAME, ''}
     SERVERLESS_LICENSE_KEY: ${env:SERVERLESS_LICENSE_KEY, 'eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJvcmdJZCI6IjdmYjQ0ZmY4LTQ5YmUtNGY0My1iMmM2LTliMzIyYmU5ZmQ3OSIsImlhdCI6MTc1NjM3MjU3NCwiZXhwIjoxNzg3OTA4NTc0LCJpc3MiOiJhcHAuc2VydmVybGVzcy5jb20ifQ.wxYOYIhN7zKm1zUY3l0RaHDnGOWKBqjdt9aPzjaiWZrMqhOxRWr8AD7Oy_-KQ-JnBu4ow1rKFqgFWc62EYwMY5XZvtCM91U-3lixSNMtqCyMhokEusEVM3IApNdQcl2fBS65RHGg1DVdWIVMGBBURMTDyy1DP0fhcINigjr08zP6iNeyjypdNp_az1TfDPZHVpAItKsIhk0sp0I9TBC_GPObgQ8gH9BK2guDNsEP92XJLoQaDCRXwlVemX3QjT3H6lEJBJjrzzAkOiDaGBd0TEHcpwbORdWKpZB9IRjmD0B6RVXU4W2azSGx8HEG3wHimraoUYXSG9Y9VOKEcpHq2w'}
 
   iam:
@@ -72,6 +74,9 @@ functions:
     handler: dist/index.handler
     layers:
       - arn:aws:lambda:us-east-2:402961397587:layer:Sharp2:1
+    environment:
+      RSVP_SCHEDULER_LAMBDA_NAME:
+        Ref: RsvpSchedulerLambdaFunction
  
     events:
       - httpApi:
@@ -88,6 +93,16 @@ functions:
     environment:
       MONGODB_URI: ${env:MONGODB_URI, 'mongodb+srv://softinvites:Pi1pZr1yjuIcJ5pL@cluster1.f69gx.mongodb.net/softinvites'}
       BACKUP_BUCKET: ${env:BACKUP_BUCKET, 'softinvites-backups'}
+
+  rsvpScheduler:
+    handler: dist/lambda/rsvpSchedulerLambda/index.handler
+    description: "Runs pending RSVP message schedules"
+    memorySize: 512
+    timeout: 60
+    events:
+      - schedule:
+          rate: rate(5 minutes)
+          enabled: true
 
 plugins:
   - serverless-plugin-dotenv

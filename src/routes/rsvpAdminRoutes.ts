@@ -20,6 +20,11 @@ import {
   updateSchedule,
   deleteSchedule,
 } from "../controllers/rsvpScheduleController";
+import {
+  runSchedulerNow,
+  runSchedulerNowWithSecret,
+  triggerSchedulerLambdaRun,
+} from "../controllers/rsvpSchedulerController";
 
 const router = Router();
 const uploadCSVExcel = multer({ storage: multer.memoryStorage() });
@@ -42,5 +47,8 @@ router.get("/:eventId/rsvp/schedules", auth, listSchedules);
 router.post("/:eventId/rsvp/schedules", auth, createSchedule);
 router.patch("/rsvp/schedules/:scheduleId", auth, updateSchedule);
 router.delete("/rsvp/schedules/:scheduleId", auth, deleteSchedule);
+router.post("/rsvp/scheduler/run", auth, runSchedulerNow);
+router.post("/rsvp/scheduler/run-public", runSchedulerNowWithSecret);
+router.post("/rsvp/scheduler/trigger", auth, triggerSchedulerLambdaRun);
 
 export default router;

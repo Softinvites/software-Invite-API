@@ -6,19 +6,34 @@ import { RSVP } from "../models/rsvpmodel";
 import { Event } from "../models/eventmodel";
 import { RSVPFormLink } from "../models/rsvpFormLinkModel";
 import { InvitationRecord } from "../models/invitationRecord";
-import { MessageSchedule } from "../models/messageSchedule";
 import { generateRsvpToken } from "../utils/rsvpToken";
 import { sendEmail } from "../library/helpers/emailService";
 import { invokeLambda } from "../utils/lambdaUtils";
+import { syncFullRsvpPendingSchedules } from "../services/fullRsvpScheduleService";
 import fs from "fs";
 import path from "path";
 
 type AttendanceStatus = "pending" | "yes" | "no";
 
-const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "softinvites@gmail.com";
-
 const resolveServicePackage = (event: any) =>
   (event?.servicePackage as string) || "standard-rsvp";
+
+const DEFAULT_ATTENDANCE_LABEL = "Will you attend?";
+const DEFAULT_ATTENDANCE_YES_LABEL = "YES, I WILL ATTEND";
+const DEFAULT_ATTENDANCE_NO_LABEL = "UNABLE TO ATTEND";
+
+const shouldIncludeInitialResponseButtons = (event: any) => {
+  const sequence = Array.isArray((event as any)?.customMessageSequence)
+    ? (event as any).customMessageSequence
+    : [];
+  for (const item of sequence) {
+    if (item?.channels?.email?.enabled === false) {
+      continue;
+    }
+    return item?.includeResponseButtons !== false;
+  }
+  return true;
+};
 
 let invitationTemplateCache: string | null = null;
 const renderInvitationOnlyEmail = (event: any, guestName: string) => {
@@ -54,157 +69,8 @@ const renderInvitationOnlyEmail = (event: any, guestName: string) => {
     .replace(/{{message}}/g, message);
 };
 
-const scheduleStandardMessages = async (event: any) => {
-  const eventId = event._id;
-  const now = new Date();
-  const reminderDate = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
-  const eventEnd =
-    (event as any).eventEndDate ||
-    (event as any).date ||
-    new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
-  const eventEndDate = new Date(eventEnd);
-  const thankYouDate = new Date(eventEndDate.getTime() + 24 * 60 * 60 * 1000);
-
-  const existing = await MessageSchedule.find({
-    eventId,
-    messageType: { $in: ["reminder", "thankyou"] },
-    status: "pending",
-  });
-  const hasReminder = existing.some((s) => s.messageType === "reminder");
-  const hasThankYou = existing.some((s) => s.messageType === "thankyou");
-
-  const schedules: any[] = [];
-  if (!hasReminder) {
-    schedules.push({
-      eventId,
-      messageType: "reminder",
-      messageName: "Reminder",
-      messageTitle: "Reminder",
-      scheduledDate: reminderDate,
-      messageBody:
-        (event as any).rsvpMessage ||
-        event.description ||
-        "Reminder: please respond to this RSVP.",
-      status: "pending",
-      targetAudience: "non-responders",
-      channel: "email",
-      servicePackage: "standard-rsvp",
-    });
-  }
-  if (!hasThankYou) {
-    schedules.push({
-      eventId,
-      messageType: "thankyou",
-      messageName: "Thank You",
-      messageTitle: "Thank You",
-      scheduledDate: thankYouDate,
-      messageBody: "Thank you for your RSVP response.",
-      status: "pending",
-      targetAudience: "responders",
-      channel: "email",
-      servicePackage: "standard-rsvp",
-    });
-  }
-
-  if (schedules.length) {
-    await MessageSchedule.insertMany(schedules);
-  }
-};
-
-const DAY_MS = 24 * 60 * 60 * 1000;
-
-const buildDefaultFullSequence = (baseDate: Date) => [
-  {
-    scheduledDate: new Date(baseDate.getTime() + 1 * DAY_MS),
-    messageName: "Initial Invitation",
-    messageTitle: "Initial Invitation",
-    messageBody: "",
-    channels: { email: { enabled: true } },
-  },
-  {
-    scheduledDate: new Date(baseDate.getTime() + 4 * DAY_MS),
-    messageName: "Event Details",
-    messageTitle: "Event Details",
-    messageBody: "",
-    channels: { email: { enabled: true } },
-  },
-  {
-    scheduledDate: new Date(baseDate.getTime() + 7 * DAY_MS),
-    messageName: "Reminder",
-    messageTitle: "Reminder",
-    messageBody: "",
-    channels: { email: { enabled: true } },
-  },
-  {
-    scheduledDate: new Date(baseDate.getTime() + 14 * DAY_MS),
-    messageName: "Follow Up",
-    messageTitle: "Follow Up",
-    messageBody: "",
-    channels: { email: { enabled: true } },
-  },
-  {
-    scheduledDate: new Date(baseDate.getTime() + 21 * DAY_MS),
-    messageName: "Last Call",
-    messageTitle: "Last Call",
-    messageBody: "",
-    channels: { email: { enabled: true } },
-  },
-  {
-    scheduledDate: new Date(baseDate.getTime() + 28 * DAY_MS),
-    messageName: "Final Logistics",
-    messageTitle: "Final Logistics",
-    messageBody: "",
-    channels: { email: { enabled: true } },
-  },
-  {
-    scheduledDate: new Date(baseDate.getTime() + 31 * DAY_MS),
-    messageName: "Post Event Thanks",
-    messageTitle: "Post Event Thanks",
-    messageBody: "",
-    channels: { email: { enabled: true } },
-  },
-];
-
-const normalizeSequenceDate = (item: any, baseDate: Date): Date | null => {
-  if (item?.scheduledDate) {
-    const directDate = new Date(item.scheduledDate);
-    if (!Number.isNaN(directDate.getTime())) {
-      return directDate;
-    }
-  }
-  // Legacy fallback for old payloads still sending dayOffset.
-  if (item?.dayOffset !== undefined && item?.dayOffset !== null) {
-    const dayOffset = Number(item.dayOffset);
-    if (!Number.isNaN(dayOffset)) {
-      return new Date(baseDate.getTime() + dayOffset * DAY_MS);
-    }
-  }
-  return null;
-};
-
-const normalizeSequenceAttachment = (attachment: any) => {
-  if (!attachment || typeof attachment !== "object") return null;
-  const url =
-    typeof attachment.url === "string" ? attachment.url.trim() : "";
-  if (!url) return null;
-  return {
-    url,
-    filename:
-      typeof attachment.filename === "string"
-        ? attachment.filename.trim()
-        : null,
-    contentType:
-      typeof attachment.contentType === "string"
-        ? attachment.contentType.trim()
-        : null,
-  };
-};
-
 const resolveInitialRsvpSubject = (event: any) => {
   const fallback = `RSVP for ${event.name}`;
-  if (resolveServicePackage(event) !== "full-rsvp") {
-    return fallback;
-  }
   const sequence = Array.isArray((event as any)?.customMessageSequence)
     ? (event as any).customMessageSequence
     : [];
@@ -226,80 +92,7 @@ const resolveInitialRsvpSubject = (event: any) => {
 };
 
 const scheduleFullMessages = async (event: any) => {
-  const existing = await MessageSchedule.find({
-    eventId: event._id,
-    status: "pending",
-    servicePackage: "full-rsvp",
-  });
-  if (existing.length) {
-    return;
-  }
-  const now = new Date();
-  const sequence =
-    Array.isArray(event.customMessageSequence) && event.customMessageSequence.length
-      ? event.customMessageSequence
-      : buildDefaultFullSequence(now);
-  const schedules: any[] = [];
-
-  for (const item of sequence) {
-    const scheduledDate = normalizeSequenceDate(item, now);
-    if (!scheduledDate) {
-      continue;
-    }
-    const messageTitle = String(
-      item?.messageTitle || item?.messageName || "Custom Message",
-    ).trim();
-    const messageBody =
-      typeof item?.messageBody === "string" && item.messageBody.trim()
-        ? item.messageBody
-        : (event as any).rsvpMessage ||
-          event.description ||
-          "You're invited! Please let us know if you will attend.";
-    const messageName = String(item?.messageName || messageTitle || "Custom Message").trim();
-    const attachment = normalizeSequenceAttachment(item?.attachment);
-    const channels = item.channels || { email: { enabled: true } };
-    const eventChannelConfig = (event as any)?.channelConfig || {};
-    const channelEntries: Array<{ channel: "email" | "whatsapp" | "bulkSms"; enabled?: boolean }> = [
-      { channel: "email", enabled: channels?.email?.enabled !== false },
-      {
-        channel: "whatsapp",
-        enabled:
-          !!channels?.whatsapp?.enabled && eventChannelConfig?.whatsapp?.enabled !== false,
-      },
-      {
-        channel: "bulkSms",
-        enabled:
-          !!channels?.bulkSms?.enabled && eventChannelConfig?.bulkSms?.enabled !== false,
-      },
-    ];
-
-    for (const ch of channelEntries) {
-      if (!ch.enabled) continue;
-      schedules.push({
-        eventId: event._id,
-        messageType: "custom",
-        messageName: messageName || "Custom Message",
-        messageTitle: messageTitle || "Custom Message",
-        messageBody,
-        attachment,
-        scheduledDate,
-        status: "pending",
-        targetAudience: item?.conditions?.audienceType || "all",
-        channel: ch.channel,
-        templateId:
-          ch.channel === "email"
-            ? item?.channels?.email?.templateId || null
-            : ch.channel === "whatsapp"
-              ? item?.channels?.whatsapp?.templateId || null
-              : item?.channels?.bulkSms?.templateId || null,
-        servicePackage: "full-rsvp",
-      });
-    }
-  }
-
-  if (schedules.length) {
-    await MessageSchedule.insertMany(schedules);
-  }
+  await syncFullRsvpPendingSchedules(event, { replacePending: false });
 };
 
 function normalizeRow(obj: any) {
@@ -372,7 +165,8 @@ function buildRsvpEmailHtml(
     : (event as any).qrCodeCenterColor
       ? `rgb(${(event as any).qrCodeCenterColor})`
       : "#111827";
-  const showButtons = options?.showButtons !== false;
+  const showButtons =
+    options?.showButtons !== false && shouldIncludeInitialResponseButtons(event);
   const safeBase = baseUrl ? baseUrl.replace(/\/$/, "") : "";
   const yesUrl =
     showButtons && safeBase && rsvpId
@@ -398,16 +192,16 @@ function buildRsvpEmailHtml(
           ${
             showButtons && yesUrl && noUrl
               ? `
-          <p style="font-size:14px;margin:0 0 12px 0;">Will you attend?</p>
+          <p style="font-size:14px;margin:0 0 12px 0;">${DEFAULT_ATTENDANCE_LABEL}</p>
           <div style="display:flex;gap:12px;flex-wrap:wrap;">
-            <a href="${yesUrl}" style="display:inline-block;background:${headerBg};color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-size:14px;font-weight:600;">Yes</a>
-            <a href="${noUrl}" style="display:inline-block;background:${accent};color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-size:14px;font-weight:600;">No</a>
+            <a href="${yesUrl}" style="display:inline-block;background:${headerBg};color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-size:14px;font-weight:600;">${DEFAULT_ATTENDANCE_YES_LABEL}</a>
+            <a href="${noUrl}" style="display:inline-block;background:${accent};color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-size:14px;font-weight:600;">${DEFAULT_ATTENDANCE_NO_LABEL}</a>
           </div>
           <p style="font-size:12px;color:#94a3b8;margin-top:16px;">
             If the buttons do not work, you can copy these links into your browser:
           </p>
-          <p style="font-size:12px;color:#94a3b8;margin:0;">Yes: ${yesUrl}</p>
-          <p style="font-size:12px;color:#94a3b8;margin:0;">No: ${noUrl}</p>
+          <p style="font-size:12px;color:#94a3b8;margin:0;">${DEFAULT_ATTENDANCE_YES_LABEL}: ${yesUrl}</p>
+          <p style="font-size:12px;color:#94a3b8;margin:0;">${DEFAULT_ATTENDANCE_NO_LABEL}: ${noUrl}</p>
           `
               : ""
           }
@@ -618,10 +412,6 @@ export const addRsvpGuest = async (req: Request, res: Response) => {
         source: "manual",
       });
 
-      if (invitation.email) {
-        await sendInvitationEmailsBatch(event, [invitation]);
-      }
-
       return res
         .status(201)
         .json({ message: "Invitation guest created", invitation });
@@ -640,15 +430,6 @@ export const addRsvpGuest = async (req: Request, res: Response) => {
       qrCodeCenterColor: (event as any).qrCodeCenterColor,
       qrCodeEdgeColor: (event as any).qrCodeEdgeColor,
     });
-
-    const baseUrl =
-      req.body?.publicBaseUrl ||
-      process.env.RSVP_PUBLIC_BASE_URL ||
-      process.env.FRONTEND_URL ||
-      "";
-    if (baseUrl && rsvp.email) {
-      await sendRsvpEmailsBatch(event, [rsvp], baseUrl);
-    }
 
     return res.status(201).json({ message: "RSVP guest created", rsvp });
   } catch (error: any) {
@@ -717,29 +498,6 @@ export const importRsvpGuests = async (req: Request, res: Response) => {
       }
     }
 
-    const baseUrl =
-      req.body?.publicBaseUrl ||
-      process.env.RSVP_PUBLIC_BASE_URL ||
-      process.env.FRONTEND_URL ||
-      "";
-    if (servicePackage === "invitation-only") {
-      if (created.length) {
-        await sendInvitationEmailsBatch(event, created as any);
-      }
-    } else if (baseUrl) {
-      await sendRsvpEmailsBatch(event, created as any, baseUrl);
-    }
-
-    if (ADMIN_EMAIL) {
-      await sendEmail(
-        ADMIN_EMAIL,
-        `${servicePackage === "invitation-only" ? "Invitation" : "RSVP"} import summary for ${event.name}`,
-        `<p>Imported ${created.length} ${
-          servicePackage === "invitation-only" ? "invitation" : "RSVP"
-        } guests (skipped ${skipped}).</p>`,
-      );
-    }
-
     return res.json({
       message:
         servicePackage === "invitation-only"
@@ -801,10 +559,7 @@ export const sendRsvpInvites = async (req: Request, res: Response) => {
     const rsvps = await RSVP.find(filter);
     const result = await sendRsvpEmailsBatch(event, rsvps as any, baseUrl);
 
-    if (servicePackage === "standard-rsvp") {
-      await scheduleStandardMessages(event);
-    }
-    if (servicePackage === "full-rsvp") {
+    if (servicePackage !== "invitation-only") {
       await scheduleFullMessages(event);
     }
 
@@ -844,6 +599,70 @@ export const updateRsvpStatus = async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error("updateRsvpStatus error", error);
     res.status(500).json({ message: "Failed to update RSVP status" });
+  }
+};
+
+export const updateRsvpGuest = async (req: Request, res: Response) => {
+  try {
+    const { rsvpId } = req.params;
+    const cleanedGuestName =
+      typeof req.body?.guestName === "string" ? req.body.guestName.trim() : "";
+    const cleanedEmail =
+      typeof req.body?.email === "string" ? req.body.email.trim() : "";
+    const cleanedPhone =
+      typeof req.body?.phone === "string" ? req.body.phone.trim() : "";
+    const nextStatus =
+      typeof req.body?.attendanceStatus === "string"
+        ? req.body.attendanceStatus.trim().toLowerCase()
+        : undefined;
+
+    if (!cleanedGuestName) {
+      return res.status(400).json({ message: "Guest name is required" });
+    }
+
+    const invitation = await InvitationRecord.findById(rsvpId);
+    if (invitation) {
+      invitation.guestName = cleanedGuestName;
+      invitation.email = cleanedEmail || null;
+      invitation.phone = cleanedPhone || null;
+      await invitation.save();
+
+      return res.json({ message: "Invitation guest updated", invitation });
+    }
+
+    const rsvp = await RSVP.findById(rsvpId);
+    if (!rsvp) {
+      return res.status(404).json({ message: "RSVP guest not found" });
+    }
+
+    if (
+      nextStatus !== undefined &&
+      !["yes", "no", "pending"].includes(nextStatus)
+    ) {
+      return res.status(400).json({ message: "Invalid attendance status" });
+    }
+
+    rsvp.guestName = cleanedGuestName;
+    rsvp.email = cleanedEmail || null;
+    rsvp.phone = cleanedPhone || null;
+
+    if (nextStatus !== undefined) {
+      rsvp.attendanceStatus = nextStatus as AttendanceStatus;
+      if (nextStatus === "pending") {
+        (rsvp as any).submissionDate = null;
+      } else if (!rsvp.submissionDate) {
+        rsvp.submissionDate = new Date();
+      }
+    }
+
+    await rsvp.save();
+
+    return res.json({ message: "RSVP guest updated", rsvp });
+  } catch (error: any) {
+    console.error("updateRsvpGuest error", error);
+    res
+      .status(500)
+      .json({ message: "Failed to update RSVP guest", error: error.message });
   }
 };
 

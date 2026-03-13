@@ -7,6 +7,7 @@ export interface MessageScheduleDocument extends Document {
   messageName?: string;
   messageTitle?: string;
   messageBody?: string;
+  includeResponseButtons?: boolean;
   attachment?: {
     url?: string;
     filename?: string;
@@ -14,7 +15,14 @@ export interface MessageScheduleDocument extends Document {
   };
   scheduledDate: Date;
   status: "pending" | "sent" | "failed" | "cancelled";
-  targetAudience: "all" | "non-responders" | "responders" | "yes" | "no" | "pending";
+  targetAudience:
+    | "all"
+    | "non-responders"
+    | "responders"
+    | "yes"
+    | "no"
+    | "pending"
+    | "pending-and-no";
   channel: "email" | "whatsapp" | "bulkSms";
   templateId?: Types.ObjectId;
   servicePackage?: string;
@@ -41,6 +49,7 @@ const MessageScheduleSchema = new Schema<MessageScheduleDocument>(
     messageName: { type: String, default: null },
     messageTitle: { type: String, default: null },
     messageBody: { type: String, default: null },
+    includeResponseButtons: { type: Boolean, default: true },
     attachment: {
       url: { type: String, default: null },
       filename: { type: String, default: null },
@@ -55,7 +64,15 @@ const MessageScheduleSchema = new Schema<MessageScheduleDocument>(
     },
     targetAudience: {
       type: String,
-      enum: ["all", "non-responders", "responders", "yes", "no", "pending"],
+      enum: [
+        "all",
+        "non-responders",
+        "responders",
+        "yes",
+        "no",
+        "pending",
+        "pending-and-no",
+      ],
       default: "all",
     },
     channel: {

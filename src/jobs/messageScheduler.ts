@@ -9,18 +9,59 @@ import smsService from "../utils/smsService";
 import { EmailTemplate } from "../models/emailTemplate";
 import fetch from "node-fetch";
 
+export type SchedulerRunOptions = {
+  limit?: number;
+  now?: Date;
+};
+
+export type SchedulerRunSummary = {
+  scanned: number;
+  processed: number;
+  sent: number;
+  failed: number;
+  pendingRetried: number;
+};
+
+let schedulerStarted = false;
+
+const DEFAULT_ATTENDANCE_LABEL = "Will you attend?";
+const DEFAULT_ATTENDANCE_YES_LABEL = "YES, I WILL ATTEND";
+const DEFAULT_ATTENDANCE_NO_LABEL = "UNABLE TO ATTEND";
+
+const normalizeTargetAudience = (target: string) => {
+  if (target === "non-responders") return "pending";
+  if (target === "pending-no" || target === "pending_and_no") {
+    return "pending-and-no";
+  }
+  if (
+    target === "all" ||
+    target === "responders" ||
+    target === "yes" ||
+    target === "no" ||
+    target === "pending" ||
+    target === "pending-and-no"
+  ) {
+    return target;
+  }
+  return "all";
+};
+
 const resolveAudienceFilter = (target: string) => {
-  if (target === "non-responders" || target === "pending") {
+  const normalizedTarget = normalizeTargetAudience(target);
+  if (normalizedTarget === "pending") {
     return { attendanceStatus: "pending" };
   }
-  if (target === "responders") {
+  if (normalizedTarget === "responders") {
     return { attendanceStatus: { $in: ["yes", "no"] } };
   }
-  if (target === "yes") {
+  if (normalizedTarget === "yes") {
     return { attendanceStatus: "yes" };
   }
-  if (target === "no") {
+  if (normalizedTarget === "no") {
     return { attendanceStatus: "no" };
+  }
+  if (normalizedTarget === "pending-and-no") {
+    return { attendanceStatus: { $in: ["pending", "no"] } };
   }
   return {};
 };
@@ -142,9 +183,15 @@ const buildScheduleEmailHtml = async (
     : (event as any).qrCodeCenterColor
       ? `rgb(${(event as any).qrCodeCenterColor})`
       : "#111827";
-
-  const yesUrl = `${baseUrl.replace(/\/$/, "")}/rsvp/respond/${rsvp._id}?status=yes`;
-  const noUrl = `${baseUrl.replace(/\/$/, "")}/rsvp/respond/${rsvp._id}?status=no`;
+  const safeBase = typeof baseUrl === "string" ? baseUrl.replace(/\/$/, "") : "";
+  const attendanceEnabled =
+    schedule?.includeResponseButtons !== false && Boolean(safeBase);
+  const yesUrl = attendanceEnabled
+    ? `${safeBase}/rsvp/respond/${rsvp._id}?status=yes`
+    : "";
+  const noUrl = attendanceEnabled
+    ? `${safeBase}/rsvp/respond/${rsvp._id}?status=no`
+    : "";
 
   const title =
     schedule.messageTitle ||
@@ -154,12 +201,13 @@ const buildScheduleEmailHtml = async (
   const message = resolveScheduleBody(schedule, event, rsvp, templateHtml);
 
   const buttons =
-    schedule.messageType === "thankyou"
+    schedule.messageType === "thankyou" || !yesUrl || !noUrl
       ? ""
       : `
+        <p style="font-size:14px;margin:0 0 12px 0;">${DEFAULT_ATTENDANCE_LABEL}</p>
         <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:12px;">
-          <a href="${yesUrl}" style="display:inline-block;background:${headerBg};color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-size:14px;font-weight:600;">Yes</a>
-          <a href="${noUrl}" style="display:inline-block;background:${accent};color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-size:14px;font-weight:600;">No</a>
+          <a href="${yesUrl}" style="display:inline-block;background:${headerBg};color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-size:14px;font-weight:600;">${DEFAULT_ATTENDANCE_YES_LABEL}</a>
+          <a href="${noUrl}" style="display:inline-block;background:${accent};color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-size:14px;font-weight:600;">${DEFAULT_ATTENDANCE_NO_LABEL}</a>
         </div>`;
 
   return `
@@ -191,14 +239,29 @@ const canUseChannel = async (rsvpId: string, channel: string) => {
   return true;
 };
 
-export const processPendingSchedules = async () => {
-  const now = new Date();
+export const processPendingSchedules = async (
+  options: SchedulerRunOptions = {},
+): Promise<SchedulerRunSummary> => {
+  const now = options.now || new Date();
+  const requestedLimit = Number(options.limit || 50);
+  const limit = Number.isFinite(requestedLimit)
+    ? Math.max(1, Math.min(500, Math.trunc(requestedLimit)))
+    : 50;
+  const summary: SchedulerRunSummary = {
+    scanned: 0,
+    processed: 0,
+    sent: 0,
+    failed: 0,
+    pendingRetried: 0,
+  };
   const schedules = await MessageSchedule.find({
     status: "pending",
     scheduledDate: { $lte: now },
-  }).limit(50);
+  }).limit(limit);
+  summary.scanned = schedules.length;
 
   for (const schedule of schedules) {
+    summary.processed += 1;
     try {
       const event = await Event.findById(schedule.eventId);
       if (!event) {
@@ -208,6 +271,7 @@ export const processPendingSchedules = async () => {
           lastAttemptAt: new Date(),
           $inc: { attempts: 1 },
         });
+        summary.failed += 1;
         continue;
       }
 
@@ -298,6 +362,7 @@ export const processPendingSchedules = async () => {
         $inc: { attempts: 1 },
         errorMessage: sentCount ? null : "No recipients sent",
       });
+      summary.sent += 1;
     } catch (error: any) {
       await MessageSchedule.findByIdAndUpdate(schedule._id, {
         status: schedule.attempts >= 2 ? "failed" : "pending",
@@ -305,14 +370,24 @@ export const processPendingSchedules = async () => {
         $inc: { attempts: 1 },
         errorMessage: error?.message || "Failed to process schedule",
       });
+      if (schedule.attempts >= 2) {
+        summary.failed += 1;
+      } else {
+        summary.pendingRetried += 1;
+      }
     }
   }
+  return summary;
 };
 
 export const startMessageScheduler = () => {
+  if (schedulerStarted) {
+    return;
+  }
   if (process.env.RUN_SCHEDULER === "false") {
     return;
   }
+  schedulerStarted = true;
   cron.schedule("*/5 * * * *", async () => {
     try {
       await processPendingSchedules();
@@ -321,5 +396,3 @@ export const startMessageScheduler = () => {
     }
   });
 };
-
-startMessageScheduler();

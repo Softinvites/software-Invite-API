@@ -45,6 +45,7 @@ const EventSchema = new mongoose_1.Schema({
             messageName: { type: String, default: "" },
             messageTitle: { type: String, default: "" },
             messageBody: { type: String, default: "" },
+            includeResponseButtons: { type: Boolean, default: true },
             attachment: {
                 url: { type: String, default: null },
                 filename: { type: String, default: null },
@@ -67,7 +68,15 @@ const EventSchema = new mongoose_1.Schema({
             conditions: {
                 audienceType: {
                     type: String,
-                    enum: ["all", "yes", "no", "pending"],
+                    enum: [
+                        "all",
+                        "responders",
+                        "non-responders",
+                        "yes",
+                        "no",
+                        "pending",
+                        "pending-and-no",
+                    ],
                     default: "all",
                 },
                 delayAfterPrevious: { type: Number, default: 0 },

@@ -38,6 +38,7 @@ interface EventDocument extends Document {
     messageName?: string;
     messageTitle?: string;
     messageBody?: string;
+    includeResponseButtons?: boolean;
     attachment?: {
       url?: string;
       filename?: string;
@@ -49,7 +50,14 @@ interface EventDocument extends Document {
       bulkSms?: { enabled?: boolean; templateId?: Schema.Types.ObjectId };
     };
     conditions?: {
-      audienceType?: "all" | "yes" | "no" | "pending";
+      audienceType?:
+        | "all"
+        | "responders"
+        | "non-responders"
+        | "yes"
+        | "no"
+        | "pending"
+        | "pending-and-no";
       delayAfterPrevious?: number;
       sendWindow?: { start?: string; end?: string };
     };
@@ -112,6 +120,7 @@ const EventSchema = new Schema(
         messageName: { type: String, default: "" },
         messageTitle: { type: String, default: "" },
         messageBody: { type: String, default: "" },
+        includeResponseButtons: { type: Boolean, default: true },
         attachment: {
           url: { type: String, default: null },
           filename: { type: String, default: null },
@@ -134,7 +143,15 @@ const EventSchema = new Schema(
         conditions: {
           audienceType: {
             type: String,
-            enum: ["all", "yes", "no", "pending"],
+            enum: [
+              "all",
+              "responders",
+              "non-responders",
+              "yes",
+              "no",
+              "pending",
+              "pending-and-no",
+            ],
             default: "all",
           },
           delayAfterPrevious: { type: Number, default: 0 },
