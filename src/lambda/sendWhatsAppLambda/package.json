@@ -12,9 +12,10 @@
   "license": "ISC",
   "dependencies": {
     "@aws-sdk/client-lambda": "^3.844.0",
-    "axios": "^1.7.2",
+    "axios": "^1.16.1",
     "dotenv": "^17.2.3",
-    "mongoose": "^8.18.0"
+    "mongoose": "^8.18.0",
+    "twilio": "^5.13.1"
   },
   "devDependencies": {
     "@types/node": "^24.0.14",

@@ -44,7 +44,7 @@
     "@types/xlsx": "^0.0.36",
     "@vercel/node": "^5.1.10",
     "nodemon": "^3.1.10",
-    "serverless": "^3.40.0",
+    "serverless": "^4.36.0",
     "serverless-esbuild": "^1.55.1",
     "serverless-offline": "^13.9.0",
     "serverless-plugin-dotenv": "^1.0.0",
@@ -53,11 +53,16 @@
     "tsc-watch": "^6.2.1",
     "typescript": "^5.9.3"
   },
+  "overrides": {
+    "axios": "^1.16.1"
+  },
   "dependencies": {
+    "axios": "^1.16.1",
     "@aws-sdk/client-lambda": "^3.879.0",
     "@aws-sdk/client-s3": "^3.879.0",
     "@aws-sdk/client-ses": "^3.844.0",
     "@aws-sdk/credential-provider-node": "^3.873.0",
+    "@aws-sdk/lib-storage": "^3.1046.0",
     "@aws-sdk/s3-request-presigner": "^3.907.0",
     "@resvg/resvg-js": "^2.6.2",
     "@sendgrid/mail": "^7.7.0",
