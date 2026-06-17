@@ -54,15 +54,19 @@ const EventSchema = new mongoose_1.Schema({
             channels: {
                 email: {
                     enabled: { type: Boolean, default: true },
-                    templateId: { type: mongoose_1.Schema.Types.ObjectId, default: null },
+                    // String so it can hold either a Mongo ObjectId or a template
+                    // friendlyName (e.g. "rsvp_stalo") from the Content Template Manager.
+                    templateId: { type: String, default: null },
                 },
                 whatsapp: {
                     enabled: { type: Boolean, default: false },
-                    templateId: { type: mongoose_1.Schema.Types.ObjectId, default: null },
+                    templateId: { type: String, default: null },
+                    templateVariables: { type: mongoose_1.Schema.Types.Mixed, default: null },
+                    redirectUrl: { type: String, default: null },
                 },
                 bulkSms: {
                     enabled: { type: Boolean, default: false },
-                    templateId: { type: mongoose_1.Schema.Types.ObjectId, default: null },
+                    templateId: { type: String, default: null },
                 },
             },
             conditions: {
@@ -76,9 +80,11 @@ const EventSchema = new mongoose_1.Schema({
                         "no",
                         "pending",
                         "pending-and-no",
+                        "tag",
                     ],
                     default: "all",
                 },
+                targetTag: { type: String, default: null },
                 delayAfterPrevious: { type: Number, default: 0 },
                 sendWindow: {
                     start: { type: String, default: null },

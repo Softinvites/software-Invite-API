@@ -5,7 +5,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.connectDB = connectDB;
+exports.connectDB = void 0;
 // dotenv.config();
 // const url: string =
 //   process.env.MONGODB_URL || "mongodb://localhost:27017/softinvites";
@@ -55,9 +55,10 @@ exports.connectDB = connectDB;
 // }
 const mongoose_1 = __importDefault(require("mongoose"));
 const dotenv_1 = __importDefault(require("dotenv"));
+const migrations_js_1 = require("./utils/migrations.js");
 dotenv_1.default.config();
 let cachedConnection = null;
-mongoose_1.default.set("bufferCommands", false); // 👈 important for Lambda
+mongoose_1.default.set("bufferCommands", false);
 async function connectDB() {
     if (cachedConnection) {
         return cachedConnection;
@@ -65,12 +66,14 @@ async function connectDB() {
     try {
         const connection = await mongoose_1.default.connect(process.env.MONGODB_URI, {
             family: 4,
-            serverSelectionTimeoutMS: 30000, // wait up to 30s for MongoDB
+            serverSelectionTimeoutMS: 30000,
             socketTimeoutMS: 45000,
             maxPoolSize: 10,
         });
         cachedConnection = connection;
         console.log("✅ Database connected");
+        // Run one-time migrations
+        await (0, migrations_js_1.dropLegacyWhatsAppTemplateIndex)();
         return connection;
     }
     catch (error) {
@@ -78,3 +81,4 @@ async function connectDB() {
         throw error;
     }
 }
+exports.connectDB = connectDB;

@@ -4,7 +4,17 @@ const whatsAppMessageSchema = new mongoose.Schema({
   guestId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Guest',
-    required: true
+    required: false,
+    default: null,
+  },
+  // RSVP-admin sends (full-rsvp service package) use the RSVP collection
+  // instead of Guest. Storing the rsvpId here lets the status dashboard
+  // resolve guest names for both send paths uniformly.
+  rsvpId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'RSVP',
+    required: false,
+    default: null,
   },
   eventId: {
     type: mongoose.Schema.Types.ObjectId,
@@ -64,6 +74,7 @@ const whatsAppMessageSchema = new mongoose.Schema({
 
 whatsAppMessageSchema.index({ eventId: 1, status: 1 });
 whatsAppMessageSchema.index({ guestId: 1 });
+whatsAppMessageSchema.index({ rsvpId: 1 });
 whatsAppMessageSchema.index({ providerMessageId: 1 });
 
 export const WhatsAppMessage = mongoose.model('WhatsAppMessage', whatsAppMessageSchema);

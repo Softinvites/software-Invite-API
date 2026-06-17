@@ -13,6 +13,10 @@ const buildReportRows = (rsvps: any[]) =>
     Guest: r.guestName || "",
     Email: r.email || "",
     Phone: r.phone || "",
+    GuestCount: Number.isFinite(Number(r.guestCount))
+      ? Math.max(1, Math.trunc(Number(r.guestCount)))
+      : 1,
+    Tag: r.tag || "",
     Status: r.attendanceStatus || "pending",
     Comments: r.comments || "",
     Source: r.source || "",
@@ -31,13 +35,13 @@ const buildPdfBuffer = async (event: any, rows: any[]) => {
   doc.text(`Generated At: ${new Date().toLocaleString()}`);
   doc.moveDown();
 
-  const header = ["Guest", "Email", "Phone", "Status"];
+  const header = ["Guest", "Email", "Phone", "Guests", "Tag", "Status"];
   doc.fontSize(10).text(header.join(" | "));
   doc.moveDown(0.5);
 
   rows.forEach((row) => {
     doc.text(
-      `${row.Guest} | ${row.Email} | ${row.Phone} | ${row.Status}`,
+      `${row.Guest} | ${row.Email} | ${row.Phone} | ${row.GuestCount} | ${row.Tag} | ${row.Status}`,
       { width: 520 },
     );
   });

@@ -1,7 +1,10 @@
 import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
-import xlsx from 'xlsx';
-import csv from 'fast-csv';
-import { Readable } from 'stream';
+// Use namespace/named imports — fast-csv has no default export, and xlsx's
+// default-import shape changes after esbuild bundling, so both have failed
+// at runtime as "Cannot read properties of undefined (reading 'parse'/'read')".
+import * as xlsx from "xlsx";
+import { parse as csvParse } from "fast-csv";
+import { Readable } from "stream";
 
 const s3 = new S3Client({ region: process.env.AWS_REGION });
 
@@ -71,7 +74,7 @@ export async function parseCsvExcel(fileUrl: string): Promise<any[]> {
         const guests: any[] = [];
         const stream = Readable.from(buffer.toString());
         stream
-          .pipe(csv.parse({ headers: true }))
+          .pipe(csvParse({ headers: true }))
           .on("data", (row) => guests.push(normalizeKeys(row)))
           .on("end", () => {
             console.log(`CSV parsing complete: ${guests.length} guests found`);

@@ -6,6 +6,36 @@ import { buildInvitationEmail } from "./buildInvitationEmail.js";
 
 const { EMAIL_LAMBDA_FUNCTION_NAME, ADMIN_EMAIL } = process.env;
 
+const sleep = (ms: number) =>
+  new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+async function safeInvoke(
+  functionName: string,
+  payload: any,
+  asyncInvoke = false,
+  retries = 6,
+) {
+  for (let i = 0; i < retries; i += 1) {
+    try {
+      return await invokeLambda(functionName, payload, asyncInvoke);
+    } catch (err: any) {
+      const attempt = i + 1;
+      console.error(
+        `Invoke failed (${attempt}/${retries}) → ${functionName}`,
+        err?.message || err,
+      );
+
+      if (attempt >= retries) {
+        throw err;
+      }
+
+      const baseDelay = Math.min(30000, Math.pow(2, attempt) * 1000);
+      const jitter = Math.floor(Math.random() * 300);
+      await sleep(baseDelay + jitter);
+    }
+  }
+}
+
 export const handler = async (event: any) => {
   try {
     console.log("✅ Resend Emails Started");
@@ -32,12 +62,25 @@ export const handler = async (event: any) => {
 
     console.log(`Found ${guests.length} guests with emails`);
 
+    const attachments =
+      eventDoc.iv && eventDoc.iv.includes(".s3.")
+        ? [
+            {
+              filename: `${eventDoc.name.replace(/[^a-zA-Z0-9]/g, "_")}_invitation.jpg`,
+              s3Key: decodeURIComponent(new URL(eventDoc.iv).pathname.slice(1)),
+              contentType: "image/jpeg",
+            },
+          ]
+        : [];
+
     let successCount = 0;
     let failureCount = 0;
     const failed: any[] = [];
 
-    // Process guests in batches (respecting SES rate limit of 14/sec)
-    const BATCH_SIZE = 5;
+    // Queue email jobs in manageable async batches so SES throttling is handled
+    // in the email lambda without spiking request/response invokes here.
+    const BATCH_SIZE = 10;
+    const INTER_BATCH_DELAY_MS = 1200;
     for (let i = 0; i < guests.length; i += BATCH_SIZE) {
       const batch = guests.slice(i, i + BATCH_SIZE);
 
@@ -48,56 +91,35 @@ export const handler = async (event: any) => {
             const pngUrl = (guest as any)?.pngUrl || "";
 
             const finalQrUrl = pngUrl || guest.qrCode;
-            // Prepare attachments array for IV (using S3 keys like import Lambda)
-            const attachments = [];
-            if (eventDoc.iv) {
-              try {
-                // Check if it's an S3 URL and extract S3 key
-                if (eventDoc.iv.includes(".s3.")) {
-                  const url = new URL(eventDoc.iv);
-                  const s3Key = decodeURIComponent(url.pathname.slice(1));
-
-                  attachments.push({
-                    filename: `${eventDoc.name.replace(
-                      /[^a-zA-Z0-9]/g,
-                      "_"
-                    )}_invitation.jpg`,
-                    s3Key: s3Key,
-                    contentType: "image/jpeg",
-                  });
-                  console.log(`Using S3 key for attachment: ${s3Key}`);
-                } else {
-                  console.warn(
-                    "⚠️ IV URL is not an S3 URL, skipping attachment"
-                  );
-                }
-              } catch (attachmentError) {
-                console.error(
-                  `Failed to prepare IV attachment for ${guest.fullname}:`,
-                  attachmentError
-                );
-              }
-            }
 
             // Send email using same template as addGuest/updateGuest
             console.log(`Sending email to ${guest.email}`);
-            await invokeLambda(EMAIL_LAMBDA_FUNCTION_NAME!, {
-              to: guest.email,
-              from: `SoftInvites <info@softinvite.com>`,
-              subject: `You're Invited to ${eventDoc.name}`,
-              htmlContent: buildInvitationEmail({
-                fullname: guest.fullname,
-                message: guest.message || "You're invited!",
-                eventName: eventDoc.name,
-                eventDate: eventDoc.date || "",
-                qrCodeCenterColor: guest.qrCodeCenterColor,
-                finalQrUrl: finalQrUrl,
-              }),
-              attachments: attachments.length > 0 ? attachments : undefined,
-            });
+            await safeInvoke(
+              EMAIL_LAMBDA_FUNCTION_NAME!,
+              {
+                to: guest.email,
+                from: `SoftInvites <info@softinvite.com>`,
+                subject: `${eventDoc.name}`,
+                htmlContent: buildInvitationEmail({
+                  fullname: guest.fullname,
+                  message: guest.message || "You're invited!",
+                  eventName: eventDoc.name,
+                  eventDate: eventDoc.date || "",
+                  qrCodeCenterColor: guest.qrCodeCenterColor,
+                  finalQrUrl: finalQrUrl,
+                }),
+                attachments: attachments.length > 0 ? attachments : undefined,
+                eventId,
+                messageType: "guest-resend-invitation",
+                diagnosticContext: {
+                  source: "resendEmailsLambda",
+                  guestId: guest._id.toString(),
+                  trigger: "manual-resend",
+                },
+              },
+              true,
+            );
             console.log(`Email sent to ${guest.email}`);
-            // Add delay to respect SES rate limit (5 emails per batch = ~10/sec)
-            await new Promise((resolve) => setTimeout(resolve, 500));
 
             successCount++;
             return { success: true, guest: guest.fullname };
@@ -116,15 +138,20 @@ export const handler = async (event: any) => {
       );
 
       console.log(`Batch ${Math.floor(i / BATCH_SIZE) + 1} completed`);
+      if (i + BATCH_SIZE < guests.length) {
+        await sleep(INTER_BATCH_DELAY_MS);
+      }
     }
 
     // Send success notification to admin
     try {
-      await invokeLambda(EMAIL_LAMBDA_FUNCTION_NAME!, {
-        to: ADMIN_EMAIL,
-        from: `SoftInvites <info@softinvite.com>`,
-        subject: `Email Resend Complete - ${eventDoc.name}`,
-        htmlContent: `
+      await safeInvoke(
+        EMAIL_LAMBDA_FUNCTION_NAME!,
+        {
+          to: ADMIN_EMAIL,
+          from: `SoftInvites <info@softinvite.com>`,
+          subject: `Email Resend Complete - ${eventDoc.name}`,
+          htmlContent: `
 
         <div style="font-family: Arial, sans-serif; padding: 20px; background: #f7f8fc;">
           <div style="max-width: 600px; margin: 0 auto; background: white; border-radius: 10px; padding: 30px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
@@ -214,7 +241,15 @@ export const handler = async (event: any) => {
           </div>
         </div>
         `,
-      });
+          eventId,
+          messageType: "guest-resend-admin-summary",
+          diagnosticContext: {
+            source: "resendEmailsLambda",
+            trigger: "resend-summary",
+          },
+        },
+        true,
+      );
     } catch (adminEmailError) {
       console.error("Failed to send admin notification:", adminEmailError);
     }

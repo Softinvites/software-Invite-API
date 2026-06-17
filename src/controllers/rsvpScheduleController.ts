@@ -1,6 +1,25 @@
 import { Request, Response } from "express";
 import { MessageSchedule } from "../models/messageSchedule";
 
+const normalizeTemplateVariables = (value: any): Record<string, string> | null => {
+  if (!value || typeof value !== "object") return null;
+  const raw = value as Record<string, unknown>;
+  const normalized: Record<string, string> = {};
+
+  for (const [key, entry] of Object.entries(raw)) {
+    const index = Number.parseInt(key, 10);
+    if (!Number.isInteger(index) || index <= 0) continue;
+
+    const trimmed =
+      typeof entry === "string" ? entry.trim() : String(entry ?? "").trim();
+    if (!trimmed) continue;
+
+    normalized[String(index)] = trimmed;
+  }
+
+  return Object.keys(normalized).length ? normalized : null;
+};
+
 const normalizeAttachment = (attachment: any) => {
   if (!attachment || typeof attachment !== "object") return null;
   const url = typeof attachment.url === "string" ? attachment.url.trim() : "";
@@ -29,11 +48,18 @@ const normalizeTargetAudience = (value: any) => {
     value === "yes" ||
     value === "no" ||
     value === "pending" ||
-    value === "pending-and-no"
+    value === "pending-and-no" ||
+    value === "tag"
   ) {
     return value;
   }
   return "all";
+};
+
+const normalizeTargetTag = (value: any) => {
+  if (value === null || value === undefined) return null;
+  const trimmed = String(value).replace(/\s+/g, " ").trim();
+  return trimmed || null;
 };
 
 export const listSchedules = async (req: Request, res: Response) => {
@@ -59,26 +85,41 @@ export const createSchedule = async (req: Request, res: Response) => {
       messageBody,
       scheduledDate,
       targetAudience = "all",
+      targetTag,
       channel = "email",
       templateId,
+      templateVariables,
       attachment,
     } = req.body || {};
 
     if (!scheduledDate) {
       return res.status(400).json({ message: "scheduledDate is required" });
     }
+    const normalizedBody =
+      typeof messageBody === "string" ? messageBody.trim() : "";
+    if (messageType === "custom" && !normalizedBody) {
+      return res.status(400).json({
+        message: "messageBody is required for custom schedules",
+      });
+    }
 
+    const normalizedAudience = normalizeTargetAudience(targetAudience);
+    const normalizedTemplateVariables =
+      channel === "whatsapp" ? normalizeTemplateVariables(templateVariables) : null;
     const schedule = await MessageSchedule.create({
       eventId,
       messageType,
       messageName,
       messageTitle,
-      messageBody,
+      messageBody: normalizedBody || null,
       attachment: normalizeAttachment(attachment),
       scheduledDate: new Date(scheduledDate),
-      targetAudience: normalizeTargetAudience(targetAudience),
+      targetAudience: normalizedAudience,
+      targetTag:
+        normalizedAudience === "tag" ? normalizeTargetTag(targetTag) : null,
       channel,
       templateId: templateId || null,
+      ...(normalizedTemplateVariables ? { templateVariables: normalizedTemplateVariables } : {}),
       status: "pending",
     });
 
@@ -98,8 +139,10 @@ export const updateSchedule = async (req: Request, res: Response) => {
       messageName,
       messageTitle,
       messageBody,
+      templateVariables,
       attachment,
       targetAudience,
+      targetTag,
     } = req.body || {};
 
     const update: any = {};
@@ -107,12 +150,32 @@ export const updateSchedule = async (req: Request, res: Response) => {
     if (scheduledDate) update.scheduledDate = new Date(scheduledDate);
     if (messageName !== undefined) update.messageName = messageName;
     if (messageTitle !== undefined) update.messageTitle = messageTitle;
-    if (messageBody !== undefined) update.messageBody = messageBody;
+    if (messageBody !== undefined) {
+      const normalizedBody =
+        typeof messageBody === "string" ? messageBody.trim() : "";
+      if (!normalizedBody) {
+        return res.status(400).json({
+          message: "messageBody cannot be empty",
+        });
+      }
+      update.messageBody = normalizedBody;
+    }
     if (attachment !== undefined) {
       update.attachment = normalizeAttachment(attachment);
     }
+    if (templateVariables !== undefined) {
+      const schedule = await MessageSchedule.findById(scheduleId).select({ channel: 1 }).lean();
+      if (schedule?.channel === "whatsapp") {
+        update.templateVariables = normalizeTemplateVariables(templateVariables);
+      }
+    }
     if (targetAudience !== undefined) {
-      update.targetAudience = normalizeTargetAudience(targetAudience);
+      const normalizedAudience = normalizeTargetAudience(targetAudience);
+      update.targetAudience = normalizedAudience;
+      update.targetTag =
+        normalizedAudience === "tag" ? normalizeTargetTag(targetTag) : null;
+    } else if (targetTag !== undefined) {
+      update.targetTag = normalizeTargetTag(targetTag);
     }
 
     const schedule = await MessageSchedule.findByIdAndUpdate(

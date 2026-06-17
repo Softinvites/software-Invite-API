@@ -48,6 +48,16 @@ export const sendEmail = async (
     htmlContent,
     attachments: s3Attachments,
     replyTo: options?.replyTo,
+    eventId: options?.eventId,
+    rsvpId: options?.rsvpId,
+    messageType: options?.messageType,
+    diagnosticContext:
+      options?.eventId || options?.rsvpId || options?.messageType
+        ? {
+            source: "rsvpSchedulerLambda",
+            trigger: "scheduled-email",
+          }
+        : undefined,
   };
 
   return invokeLambda(process.env.EMAIL_LAMBDA_FUNCTION_NAME, payload, false);

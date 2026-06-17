@@ -3,6 +3,8 @@ import {
   sendBulkWhatsApp,
   sendSingleWhatsApp,
   getWhatsAppStatus,
+  getWhatsAppReplies,
+  sendWhatsAppReply,
 } from "../controllers/whatsappController.js";
 // import { authenticateToken } from '../library/middlewares/authMiddleware.js';
 import auth from "../library/middlewares/auth";
@@ -17,5 +19,7 @@ router.post("/send-single", auth, sendSingleWhatsApp);
 
 // Get WhatsApp delivery status for event
 router.get("/status/:eventId", auth, getWhatsAppStatus);
+router.get("/replies/:eventId", auth, getWhatsAppReplies);
+router.post("/reply", auth, sendWhatsAppReply);
 
 export default router;

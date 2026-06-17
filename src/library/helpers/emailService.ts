@@ -13,6 +13,74 @@ type EmailSendOptions = {
   trackingEnabled?: boolean;
   provider?: 'ses' | 'sendgrid' | 'smtp';
   replyTo?: string;
+  asyncInvoke?: boolean;
+  retries?: number;
+  diagnosticContext?: Record<string, unknown>;
+};
+
+const parseEmailProvider = (
+  value?: string,
+): EmailSendOptions["provider"] | undefined => {
+  if (!value) return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "ses" || normalized === "sendgrid" || normalized === "smtp") {
+    return normalized;
+  }
+  return undefined;
+};
+
+const resolveEmailProvider = (
+  options?: EmailSendOptions,
+): NonNullable<EmailSendOptions["provider"]> => {
+  const explicitProvider = options?.provider || parseEmailProvider(process.env.EMAIL_PROVIDER);
+  if (explicitProvider) {
+    return explicitProvider;
+  }
+
+  // Default to the SES Lambda path when it is configured. This is the delivery
+  // path the rest of the app already uses for imports and scheduled emails.
+  if (process.env.EMAIL_LAMBDA_FUNCTION_NAME) {
+    return "ses";
+  }
+
+  if (process.env.SMTP_HOST) {
+    return "smtp";
+  }
+
+  if (process.env.SENDGRID_API_KEY) {
+    return "sendgrid";
+  }
+
+  return "ses";
+};
+
+const delay = (ms: number) =>
+  new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+const invokeEmailLambdaWithRetry = async (
+  functionName: string,
+  payload: Record<string, unknown>,
+  asyncInvoke = false,
+  retries = 3,
+) => {
+  for (let attempt = 1; attempt <= retries; attempt += 1) {
+    try {
+      return await invokeLambda(functionName, payload, asyncInvoke);
+    } catch (error) {
+      if (attempt >= retries) {
+        throw error;
+      }
+
+      const backoff = Math.min(8000, 500 * Math.pow(2, attempt - 1));
+      const jitter = Math.floor(Math.random() * 200);
+      console.warn(
+        `Email lambda invoke failed (${attempt}/${retries}) for ${functionName}. Retrying in ${backoff + jitter}ms`,
+      );
+      await delay(backoff + jitter);
+    }
+  }
+
+  throw new Error(`Email lambda invoke failed for ${functionName}`);
 };
 
 const resolveTrackingBaseUrl = () => {
@@ -60,11 +128,9 @@ export const sendEmail = async (
 ) => {
   let trackingRecord: EmailMessageDocument | null = null;
   try {
-    const provider =
-      options?.provider ||
-      (process.env.EMAIL_PROVIDER as 'ses' | 'sendgrid' | 'smtp' | undefined) ||
-      (process.env.SMTP_HOST ? 'smtp' : undefined) ||
-      (process.env.SENDGRID_API_KEY ? 'sendgrid' : 'ses');
+    const provider = resolveEmailProvider(options);
+    const asyncInvoke = options?.asyncInvoke === true;
+    const retries = Math.max(1, options?.retries || 3);
     const trackingEnabled = options?.trackingEnabled !== false;
     const trackingBaseUrl = resolveTrackingBaseUrl();
     const trackingId = trackingEnabled ? uuidv4() : null;
@@ -83,7 +149,10 @@ export const sendEmail = async (
           guestEmail: to,
           subject,
           messageType: options?.messageType || null,
+          provider,
           status: 'pending',
+          deliveryStatus: 'pending',
+          diagnosticContext: options?.diagnosticContext || null,
         })
       : null;
 
@@ -112,7 +181,12 @@ export const sendEmail = async (
       });
 
       if (trackingRecord) {
+        trackingRecord.provider = 'sendgrid';
         trackingRecord.status = 'sent';
+        trackingRecord.deliveryStatus = 'accepted';
+        trackingRecord.acceptedAt = new Date();
+        trackingRecord.lastEventType = 'accepted';
+        trackingRecord.lastEventAt = new Date();
         trackingRecord.sentAt = new Date();
         await trackingRecord.save();
       }
@@ -147,7 +221,12 @@ export const sendEmail = async (
       });
 
       if (trackingRecord) {
+        trackingRecord.provider = 'smtp';
         trackingRecord.status = 'sent';
+        trackingRecord.deliveryStatus = 'accepted';
+        trackingRecord.acceptedAt = new Date();
+        trackingRecord.lastEventType = 'accepted';
+        trackingRecord.lastEventAt = new Date();
         trackingRecord.sentAt = new Date();
         await trackingRecord.save();
       }
@@ -156,6 +235,10 @@ export const sendEmail = async (
     }
 
     // Default: SES via Lambda (existing path)
+    if (!process.env.EMAIL_LAMBDA_FUNCTION_NAME) {
+      throw new Error("EMAIL_LAMBDA_FUNCTION_NAME is not configured");
+    }
+
     const attachmentPromises = (attachments || []).map(async (attachment) => {
       const s3Key = `email-attachments/${Date.now()}_${attachment.filename}`;
       await uploadToS3(attachment.content, s3Key, attachment.contentType);
@@ -178,20 +261,36 @@ export const sendEmail = async (
       },
     });
 
-    const result = await invokeLambda(process.env.EMAIL_LAMBDA_FUNCTION_NAME!, {
-      from: from || process.env.EMAIL_FROM,
-      to,
-      subject,
-      htmlContent: finalHtml,
-      attachments: emailAttachments,
-      replyTo: options?.replyTo,
-    });
+    const result = await invokeEmailLambdaWithRetry(
+      process.env.EMAIL_LAMBDA_FUNCTION_NAME!,
+      {
+        from: from || process.env.EMAIL_FROM,
+        to,
+        subject,
+        htmlContent: finalHtml,
+        attachments: emailAttachments,
+        replyTo: options?.replyTo,
+        trackingId,
+        eventId: options?.eventId,
+        rsvpId: options?.rsvpId,
+        messageType: options?.messageType,
+        diagnosticContext: options?.diagnosticContext,
+      },
+      asyncInvoke,
+      retries,
+    );
 
-    if (trackingRecord) {
-      trackingRecord.status = 'sent';
-      trackingRecord.sentAt = new Date();
-      await trackingRecord.save();
-    }
+      if (trackingRecord) {
+        trackingRecord.status = 'sent';
+        trackingRecord.deliveryStatus = asyncInvoke ? 'pending' : 'accepted';
+        trackingRecord.lastEventType = asyncInvoke ? 'queued' : 'accepted';
+        trackingRecord.lastEventAt = new Date();
+        if (!asyncInvoke) {
+          trackingRecord.acceptedAt = new Date();
+        }
+        trackingRecord.sentAt = new Date();
+        await trackingRecord.save();
+      }
 
     console.log('Lambda invocation result:', result);
     return { provider: 'ses', status: 'sent', trackingId, result };
@@ -201,6 +300,11 @@ export const sendEmail = async (
     if (trackingRecord) {
       try {
         trackingRecord.status = 'failed';
+        trackingRecord.deliveryStatus = 'failed';
+        trackingRecord.failureReason =
+          error instanceof Error ? error.message : String(error);
+        trackingRecord.lastEventType = 'failed';
+        trackingRecord.lastEventAt = new Date();
         await trackingRecord.save();
       } catch {}
     }

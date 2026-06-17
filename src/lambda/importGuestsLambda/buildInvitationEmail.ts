@@ -111,7 +111,7 @@ export const buildInvitationEmail = ({
 
         <!-- Footer -->
         <div style="background: #f7f8fc; padding: 25px 30px; text-align: center; border-top: 1px solid #e2e8f0;">
-          <p style="font-size: 12px; color: #718096; margin: 0;">© 2025 <strong style="color: #4a5568;">SoftInvites</strong> • All rights reserved</p>
+          <p style="font-size: 12px; color: #718096; margin: 0;">© 2026 <strong style="color: #4a5568;">SoftInvites</strong> • All rights reserved</p>
         </div>
       </div>
     </div>

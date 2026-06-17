@@ -4,6 +4,8 @@ interface EventDocument extends Document {
   name: string;
   date?: string;
   description?: string;
+  location?: string;
+  iv?: string;
   rsvpMessage?: string;
   rsvpBgColor?: string;
   rsvpAccentColor?: string;
@@ -29,6 +31,8 @@ const EventSchema = new Schema<EventDocument>(
     name: { type: String, required: true },
     date: { type: String, required: false },
     description: { type: String, required: false },
+    location: { type: String, required: false },
+    iv: { type: String, required: false },
     rsvpMessage: { type: String, required: false },
     rsvpBgColor: { type: String, required: false },
     rsvpAccentColor: { type: String, required: false },

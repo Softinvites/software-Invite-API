@@ -4,7 +4,14 @@ const whatsAppMessageSchema = new mongoose.Schema({
   guestId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Guest',
-    required: true
+    required: false,
+    default: null,
+  },
+  rsvpId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'RSVP',
+    required: false,
+    default: null,
   },
   eventId: {
     type: mongoose.Schema.Types.ObjectId,

@@ -21,6 +21,40 @@ const resolveServicePackage = (event: any) =>
 const DEFAULT_ATTENDANCE_LABEL = "Will you attend?";
 const DEFAULT_ATTENDANCE_YES_LABEL = "YES, I WILL ATTEND";
 const DEFAULT_ATTENDANCE_NO_LABEL = "UNABLE TO ATTEND";
+const RSVP_FORM_TOKEN_BYTES = 12;
+
+const normalizeGuestCount = (value: any, fallback = 1) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(1, Math.trunc(parsed));
+};
+
+const normalizeTag = (value: any) => {
+  if (value === null || value === undefined) return "";
+  return String(value).replace(/\s+/g, " ").trim();
+};
+
+const slugifyLinkTitle = (value: any) =>
+  String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+
+const getRsvpGuestWeight = (rsvp: any) => normalizeGuestCount(rsvp?.guestCount, 1);
+
+const buildRsvpSummary = (rsvps: any[]) =>
+  rsvps.reduce(
+    (acc, r) => {
+      const key = r.attendanceStatus || "pending";
+      const weight = getRsvpGuestWeight(r);
+      acc[key] = (acc[key] || 0) + weight;
+      acc.total += weight;
+      return acc;
+    },
+    { yes: 0, no: 0, pending: 0, total: 0 } as Record<string, number>,
+  );
 
 const shouldIncludeInitialResponseButtons = (event: any) => {
   const sequence = Array.isArray((event as any)?.customMessageSequence)
@@ -121,6 +155,14 @@ function normalizeRow(obj: any) {
     qrCodeBgColor: clean(
       obj["qrCodeBgColor"] || obj["qr_code_bg_color"] || "",
     ),
+    guestCount: normalizeGuestCount(
+      obj["guestCount"] ||
+        obj["guest_count"] ||
+        obj["Guest Count"] ||
+        obj["guest count"] ||
+        1,
+    ),
+    tag: normalizeTag(obj["tag"] || obj["Tag"] || ""),
   };
 }
 
@@ -371,15 +413,7 @@ export const getRsvpGuests = async (req: Request, res: Response) => {
     }
 
     const rsvps = await RSVP.find({ eventId }).sort({ createdAt: -1 });
-    const summary = rsvps.reduce(
-      (acc, r) => {
-        const key = r.attendanceStatus || "pending";
-        acc[key] = (acc[key] || 0) + 1;
-        acc.total += 1;
-        return acc;
-      },
-      { yes: 0, no: 0, pending: 0, total: 0 } as Record<string, number>,
-    );
+    const summary = buildRsvpSummary(rsvps);
     res.json({ rsvps, summary, mode: "rsvp" });
   } catch (error: any) {
     console.error("getRsvpGuests error", error);
@@ -391,6 +425,8 @@ export const addRsvpGuest = async (req: Request, res: Response) => {
   try {
     const { eventId } = req.params;
     const { guestName, email, phone } = req.body;
+    const guestCount = normalizeGuestCount(req.body?.guestCount, 1);
+    const tag = normalizeTag(req.body?.tag);
 
     if (!guestName) {
       return res.status(400).json({ message: "Guest name is required" });
@@ -423,6 +459,8 @@ export const addRsvpGuest = async (req: Request, res: Response) => {
       guestName: String(guestName).trim(),
       email: email || null,
       phone: phone || null,
+      guestCount,
+      tag: tag || null,
       attendanceStatus: "pending",
       source: "imported",
       isEditable: true,
@@ -486,6 +524,8 @@ export const importRsvpGuests = async (req: Request, res: Response) => {
           guestName: row.guestName,
           email: row.email || null,
           phone: row.phone || null,
+          guestCount: normalizeGuestCount(row.guestCount, 1),
+          tag: normalizeTag(row.tag) || null,
           attendanceStatus: "pending",
           source: "imported",
           isEditable: true,
@@ -518,7 +558,7 @@ export const importRsvpGuests = async (req: Request, res: Response) => {
 export const sendRsvpInvites = async (req: Request, res: Response) => {
   try {
     const { eventId } = req.params;
-    const { publicBaseUrl, rsvpIds } = req.body || {};
+    const { rsvpIds } = req.body || {};
 
     const event = await Event.findById(eventId);
     if (!event) {
@@ -542,32 +582,10 @@ export const sendRsvpInvites = async (req: Request, res: Response) => {
       });
     }
 
-    const baseUrl =
-      publicBaseUrl ||
-      process.env.RSVP_PUBLIC_BASE_URL ||
-      process.env.FRONTEND_URL ||
-      "";
-    if (!baseUrl) {
-      return res.status(400).json({ message: "Missing public RSVP base URL" });
-    }
-
-    const filter: any = { eventId, attendanceStatus: "pending" };
-    if (Array.isArray(rsvpIds) && rsvpIds.length > 0) {
-      filter._id = { $in: rsvpIds };
-    }
-
-    const rsvps = await RSVP.find(filter);
-    const result = await sendRsvpEmailsBatch(event, rsvps as any, baseUrl);
-
-    if (servicePackage !== "invitation-only") {
-      await scheduleFullMessages(event);
-    }
-
-    return res.json({
-      message: "RSVP invites sent",
-      sent: result.sent,
-      skipped: result.skipped,
-      total: rsvps.length,
+    return res.status(400).json({
+      message:
+        "Direct RSVP email sending is disabled. Use the message builder to schedule RSVP emails.",
+      total: Array.isArray(rsvpIds) ? rsvpIds.length : 0,
     });
   } catch (error: any) {
     console.error("sendRsvpInvites error", error);
@@ -611,6 +629,8 @@ export const updateRsvpGuest = async (req: Request, res: Response) => {
       typeof req.body?.email === "string" ? req.body.email.trim() : "";
     const cleanedPhone =
       typeof req.body?.phone === "string" ? req.body.phone.trim() : "";
+    const guestCount = normalizeGuestCount(req.body?.guestCount, 1);
+    const tag = normalizeTag(req.body?.tag);
     const nextStatus =
       typeof req.body?.attendanceStatus === "string"
         ? req.body.attendanceStatus.trim().toLowerCase()
@@ -645,6 +665,8 @@ export const updateRsvpGuest = async (req: Request, res: Response) => {
     rsvp.guestName = cleanedGuestName;
     rsvp.email = cleanedEmail || null;
     rsvp.phone = cleanedPhone || null;
+    rsvp.guestCount = guestCount;
+    rsvp.tag = tag || undefined;
 
     if (nextStatus !== undefined) {
       rsvp.attendanceStatus = nextStatus as AttendanceStatus;
@@ -745,6 +767,8 @@ export const exportRsvpCsv = async (req: Request, res: Response) => {
       "guestName",
       "email",
       "phone",
+      "guestCount",
+      "tag",
       "attendanceStatus",
       "comments",
       "source",
@@ -757,6 +781,8 @@ export const exportRsvpCsv = async (req: Request, res: Response) => {
         r.guestName || "",
         r.email || "",
         r.phone || "",
+        getRsvpGuestWeight(r),
+        r.tag || "",
         r.attendanceStatus || "pending",
         r.comments || "",
         r.source || "",
@@ -790,19 +816,38 @@ export const generateRsvpFormLink = async (req: Request, res: Response) => {
         .json({ message: "RSVP form is disabled for invitation-only events" });
     }
 
-    const token = generateRsvpToken();
-    const link = await RSVPFormLink.create({ eventId, token });
+    const token = generateRsvpToken(RSVP_FORM_TOKEN_BYTES);
+    const slug = slugifyLinkTitle(
+      req.body?.customLinkTitle || req.body?.customEventTitle || "",
+    );
+    const redirectUrl =
+      typeof req.body?.redirectUrl === "string"
+        ? req.body.redirectUrl.trim()
+        : null;
+    const link = await RSVPFormLink.create({
+      eventId,
+      token,
+      slug: slug || null,
+      redirectUrl: redirectUrl || null,
+    });
     const baseUrl =
       req.body?.publicBaseUrl ||
       process.env.RSVP_PUBLIC_BASE_URL ||
       process.env.FRONTEND_URL ||
       "";
+    const relativePath = link.slug
+      ? `/r/${link.slug}/${link.token}`
+      : `/r/${link.token}`;
 
     return res.json({
       token: link.token,
+      slug: link.slug || null,
+      path: relativePath,
       url: baseUrl
-        ? `${baseUrl.replace(/\/$/, "")}/rsvp/form/${link.token}`
-        : link.token,
+        ? `${baseUrl.replace(/\/$/, "")}${relativePath}`
+        : link.slug
+          ? relativePath
+          : link.token,
     });
   } catch (error: any) {
     console.error("generateRsvpFormLink error", error);

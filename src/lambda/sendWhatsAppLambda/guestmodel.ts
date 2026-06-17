@@ -3,12 +3,14 @@ import { Schema, model, Document, Types } from "mongoose";
 interface GuestDocument extends Document {
   _id: Types.ObjectId;
   fullname: string;
+  normalizedFullname: string;
   TableNo: string;
   email: string;
   phone: string;
-  message:string;
-  others:string;
+  message: string;
+  others: string;
   qrCode: string;
+  pngUrl?: string;
   qrCodeData: string;
   qrCodeBgColor: string;
   qrCodeCenterColor: string;
@@ -19,20 +21,24 @@ interface GuestDocument extends Document {
   createdAt: Date;
   updatedAt: Date;
   checkedIn: boolean;
+  checkedInAt?: Date;
+  checkedInBy?: string;
 }
 
 const GuestSchema = new Schema<GuestDocument>(
   {
     fullname: { type: String, required: true },
+    normalizedFullname: { type: String, required: false },
     TableNo: { type: String, required: false },
-    email: { type: String, required: false, },
+    email: { type: String, required: false },
     phone: { type: String, required: false },
-    message: { type: String, required: true },
+    message: { type: String, required: false },
     others: { type: String, required: false },
     qrCode: { type: String, required: false },
+    pngUrl: { type: String, required: false },
     qrCodeData: { type: String, required: false },
-    qrCodeBgColor: { type: String, default: "255,255,255" }, 
-    qrCodeCenterColor: { type: String, default: "0,0,0" }, 
+    qrCodeBgColor: { type: String, default: "255,255,255" },
+    qrCodeCenterColor: { type: String, default: "0,0,0" },
     qrCodeEdgeColor: { type: String, default: "0,0,0" },
     eventId: { type: Schema.Types.ObjectId, ref: "Event", required: true },
     status: {
@@ -41,6 +47,8 @@ const GuestSchema = new Schema<GuestDocument>(
       default: "pending",
     },
     checkedIn: { type: Boolean, default: false },
+    checkedInAt: { type: Date, default: null },
+    checkedInBy: { type: String, default: null },
     imported: { type: Boolean, default: false },
   },
   { timestamps: true }

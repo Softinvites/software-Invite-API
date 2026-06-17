@@ -5,6 +5,9 @@ export const buildRawEmail = (options) => {
     msg.setSender(options.from);
     msg.setRecipient(options.to);
     msg.setSubject(options.subject);
+    if (options.replyTo) {
+        msg.setHeader('Reply-To', options.replyTo);
+    }
     // Add HTML content
     msg.addMessage({
         contentType: 'text/html',

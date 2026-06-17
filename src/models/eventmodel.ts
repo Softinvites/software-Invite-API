@@ -45,9 +45,14 @@ interface EventDocument extends Document {
       contentType?: string;
     };
     channels?: {
-      email?: { enabled?: boolean; templateId?: Schema.Types.ObjectId };
-      whatsapp?: { enabled?: boolean; templateId?: Schema.Types.ObjectId };
-      bulkSms?: { enabled?: boolean; templateId?: Schema.Types.ObjectId };
+      email?: { enabled?: boolean; templateId?: string | null };
+      whatsapp?: {
+        enabled?: boolean;
+        templateId?: string | null;
+        templateVariables?: Record<string, string> | null;
+        redirectUrl?: string | null;
+      };
+      bulkSms?: { enabled?: boolean; templateId?: string | null };
     };
     conditions?: {
       audienceType?:
@@ -57,7 +62,9 @@ interface EventDocument extends Document {
         | "yes"
         | "no"
         | "pending"
-        | "pending-and-no";
+        | "pending-and-no"
+        | "tag";
+      targetTag?: string;
       delayAfterPrevious?: number;
       sendWindow?: { start?: string; end?: string };
     };
@@ -129,15 +136,19 @@ const EventSchema = new Schema(
         channels: {
           email: {
             enabled: { type: Boolean, default: true },
-            templateId: { type: Schema.Types.ObjectId, default: null },
+            // String so it can hold either a Mongo ObjectId or a template
+            // friendlyName (e.g. "rsvp_stalo") from the Content Template Manager.
+            templateId: { type: String, default: null },
           },
           whatsapp: {
             enabled: { type: Boolean, default: false },
-            templateId: { type: Schema.Types.ObjectId, default: null },
+            templateId: { type: String, default: null },
+            templateVariables: { type: Schema.Types.Mixed, default: null },
+            redirectUrl: { type: String, default: null },
           },
           bulkSms: {
             enabled: { type: Boolean, default: false },
-            templateId: { type: Schema.Types.ObjectId, default: null },
+            templateId: { type: String, default: null },
           },
         },
         conditions: {
@@ -151,9 +162,11 @@ const EventSchema = new Schema(
               "no",
               "pending",
               "pending-and-no",
+              "tag",
             ],
             default: "all",
           },
+          targetTag: { type: String, default: null },
           delayAfterPrevious: { type: Number, default: 0 },
           sendWindow: {
             start: { type: String, default: null },

@@ -10,6 +10,31 @@ export interface EmailMessageDocument extends Document {
   messageType?: string;
   channel: "email";
   status: "pending" | "sent" | "failed";
+  provider?: "ses" | "sendgrid" | "smtp";
+  providerMessageId?: string;
+  deliveryStatus?:
+    | "pending"
+    | "accepted"
+    | "delivered"
+    | "bounced"
+    | "complained"
+    | "rejected"
+    | "failed";
+  lastEventType?: string;
+  lastEventAt?: Date;
+  deliveryAttempts?: number;
+  acceptedAt?: Date;
+  deliveredAt?: Date;
+  bouncedAt?: Date;
+  complainedAt?: Date;
+  failureReason?: string;
+  diagnosticContext?: Record<string, any> | null;
+  diagnosticEvents?: Array<{
+    type: string;
+    timestamp?: Date | null;
+    providerMessageId?: string | null;
+    payload?: Record<string, any> | null;
+  }>;
   sentAt?: Date;
   openCount: number;
   clickCount: number;
@@ -33,6 +58,42 @@ const EmailMessageSchema = new Schema<EmailMessageDocument>(
       enum: ["pending", "sent", "failed"],
       default: "pending",
     },
+    provider: {
+      type: String,
+      enum: ["ses", "sendgrid", "smtp"],
+      default: "ses",
+    },
+    providerMessageId: { type: String, default: null },
+    deliveryStatus: {
+      type: String,
+      enum: [
+        "pending",
+        "accepted",
+        "delivered",
+        "bounced",
+        "complained",
+        "rejected",
+        "failed",
+      ],
+      default: "pending",
+    },
+    lastEventType: { type: String, default: null },
+    lastEventAt: { type: Date, default: null },
+    deliveryAttempts: { type: Number, default: 0 },
+    acceptedAt: { type: Date, default: null },
+    deliveredAt: { type: Date, default: null },
+    bouncedAt: { type: Date, default: null },
+    complainedAt: { type: Date, default: null },
+    failureReason: { type: String, default: null },
+    diagnosticContext: { type: Schema.Types.Mixed, default: null },
+    diagnosticEvents: [
+      {
+        type: { type: String, required: true },
+        timestamp: { type: Date, default: null },
+        providerMessageId: { type: String, default: null },
+        payload: { type: Schema.Types.Mixed, default: null },
+      },
+    ],
     sentAt: { type: Date, default: null },
     openCount: { type: Number, default: 0 },
     clickCount: { type: Number, default: 0 },
@@ -43,6 +104,8 @@ const EmailMessageSchema = new Schema<EmailMessageDocument>(
 );
 
 EmailMessageSchema.index({ eventId: 1, createdAt: -1 });
+EmailMessageSchema.index({ providerMessageId: 1 }, { sparse: true });
+EmailMessageSchema.index({ guestEmail: 1, createdAt: -1 });
 
 export const EmailMessage = model<EmailMessageDocument>(
   "EmailMessage",

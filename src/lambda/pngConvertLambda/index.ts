@@ -51,17 +51,34 @@ export const handler = async (event: any) => {
     // Convert SVG to PNG using the same method as downloadZipLambdaFunction
     const pngBuffer = await sharp(Buffer.from(svg)).png().toBuffer();
 
-    // Upload PNG to S3
-    // Store PNGs under the standard path so download/zip lambdas can find them
+    // Upload PNG to S3 at BOTH known paths:
+    //   qr_codes/png/...        used by download/zip lambdas and guest.pngUrl
+    //   qr_codes/email_png/...  used by WhatsApp template "View Digital Pass"
+    //                           buttons (wedding_invite, rsvp_followup, and
+    //                           any DB-created template with that URL prefix)
+    // Same bytes, two keys — keeps existing templates working without a
+    // separate backfill for new events.
     const pngKey = `qr_codes/png/${eventId}/${guestId}.png`;
-    await s3.send(
-      new PutObjectCommand({
-        Bucket: process.env.S3_BUCKET,
-        Key: pngKey,
-        Body: pngBuffer,
-        ContentType: "image/png",
-      })
-    );
+    const emailPngKey = `qr_codes/email_png/${eventId}/${guestId}.png`;
+
+    await Promise.all([
+      s3.send(
+        new PutObjectCommand({
+          Bucket: process.env.S3_BUCKET,
+          Key: pngKey,
+          Body: pngBuffer,
+          ContentType: "image/png",
+        })
+      ),
+      s3.send(
+        new PutObjectCommand({
+          Bucket: process.env.S3_BUCKET,
+          Key: emailPngKey,
+          Body: pngBuffer,
+          ContentType: "image/png",
+        })
+      ),
+    ]);
 
     const pngUrl = `https://${process.env.S3_BUCKET}.s3.${process.env.AWS_REGION}.amazonaws.com/${pngKey}`;
 

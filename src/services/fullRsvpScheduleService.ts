@@ -13,64 +13,19 @@ const normalizeTargetAudience = (value: any) => {
     value === "yes" ||
     value === "no" ||
     value === "pending" ||
-    value === "pending-and-no"
+    value === "pending-and-no" ||
+    value === "tag"
   ) {
     return value;
   }
   return "all";
 };
 
-const buildDefaultFullSequence = (baseDate: Date) => [
-  {
-    scheduledDate: new Date(baseDate.getTime() + 1 * DAY_MS),
-    messageName: "Initial Invitation",
-    messageTitle: "Initial Invitation",
-    messageBody: "",
-    channels: { email: { enabled: true } },
-  },
-  {
-    scheduledDate: new Date(baseDate.getTime() + 4 * DAY_MS),
-    messageName: "Event Details",
-    messageTitle: "Event Details",
-    messageBody: "",
-    channels: { email: { enabled: true } },
-  },
-  {
-    scheduledDate: new Date(baseDate.getTime() + 7 * DAY_MS),
-    messageName: "Reminder",
-    messageTitle: "Reminder",
-    messageBody: "",
-    channels: { email: { enabled: true } },
-  },
-  {
-    scheduledDate: new Date(baseDate.getTime() + 14 * DAY_MS),
-    messageName: "Follow Up",
-    messageTitle: "Follow Up",
-    messageBody: "",
-    channels: { email: { enabled: true } },
-  },
-  {
-    scheduledDate: new Date(baseDate.getTime() + 21 * DAY_MS),
-    messageName: "Last Call",
-    messageTitle: "Last Call",
-    messageBody: "",
-    channels: { email: { enabled: true } },
-  },
-  {
-    scheduledDate: new Date(baseDate.getTime() + 28 * DAY_MS),
-    messageName: "Final Logistics",
-    messageTitle: "Final Logistics",
-    messageBody: "",
-    channels: { email: { enabled: true } },
-  },
-  {
-    scheduledDate: new Date(baseDate.getTime() + 31 * DAY_MS),
-    messageName: "Post Event Thanks",
-    messageTitle: "Post Event Thanks",
-    messageBody: "",
-    channels: { email: { enabled: true } },
-  },
-];
+const normalizeTargetTag = (value: any) => {
+  if (value === null || value === undefined) return null;
+  const trimmed = String(value).replace(/\s+/g, " ").trim();
+  return trimmed || null;
+};
 
 const normalizeSequenceDate = (item: any, baseDate: Date): Date | null => {
   if (item?.scheduledDate) {
@@ -86,6 +41,25 @@ const normalizeSequenceDate = (item: any, baseDate: Date): Date | null => {
     }
   }
   return null;
+};
+
+const normalizeStepMessageBody = (value: any) => {
+  if (typeof value !== "string") return "";
+  return value.trim();
+};
+
+const IMAGE_ATTACHMENT_CONTENT_TYPES = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/jpg",
+  "image/webp",
+  "image/gif",
+]);
+
+const isImageAttachmentUrl = (value?: string | null) => {
+  const raw = String(value || "").trim();
+  if (!raw) return false;
+  return /\.(png|jpe?g|webp|gif)([?#].*)?$/i.test(raw);
 };
 
 const normalizeSequenceAttachment = (attachment: any) => {
@@ -104,6 +78,41 @@ const normalizeSequenceAttachment = (attachment: any) => {
         ? attachment.contentType.trim()
         : null,
   };
+};
+
+const normalizeWhatsAppSequenceAttachment = (attachment: any) => {
+  const normalizedAttachment = normalizeSequenceAttachment(attachment);
+  if (!normalizedAttachment) return null;
+
+  const normalizedType = String(normalizedAttachment.contentType || "")
+    .trim()
+    .toLowerCase();
+  if (normalizedType && IMAGE_ATTACHMENT_CONTENT_TYPES.has(normalizedType)) {
+    return normalizedAttachment;
+  }
+
+  return isImageAttachmentUrl(normalizedAttachment.url)
+    ? normalizedAttachment
+    : null;
+};
+
+const normalizeTemplateVariables = (value: any): Record<string, string> | null => {
+  if (!value || typeof value !== "object") return null;
+  const raw = value as Record<string, unknown>;
+  const normalized: Record<string, string> = {};
+
+  for (const [key, entry] of Object.entries(raw)) {
+    const index = Number.parseInt(key, 10);
+    if (!Number.isInteger(index) || index <= 0) continue;
+
+    const trimmed =
+      typeof entry === "string" ? entry.trim() : String(entry ?? "").trim();
+    if (!trimmed) continue;
+
+    normalized[String(index)] = trimmed;
+  }
+
+  return Object.keys(normalized).length ? normalized : null;
 };
 
 type FullScheduleSyncOptions = {
@@ -138,10 +147,23 @@ export const syncFullRsvpPendingSchedules = async (
   }
 
   const now = new Date();
-  const sequence =
-    Array.isArray(event.customMessageSequence) && event.customMessageSequence.length
-      ? event.customMessageSequence
-      : buildDefaultFullSequence(now);
+  const sequence = Array.isArray(event.customMessageSequence)
+    ? event.customMessageSequence
+    : [];
+
+  if (!sequence.length) {
+    if (replacePending || existingPendingCount > 0) {
+      const deletionResult = await MessageSchedule.deleteMany(pendingFilter);
+      return {
+        inserted: 0,
+        deleted: deletionResult.deletedCount || 0,
+        existingPendingCount,
+        skipped: true,
+      };
+    }
+    return { inserted: 0, deleted: 0, existingPendingCount, skipped: true };
+  }
+
   const schedules: any[] = [];
 
   for (const item of sequence) {
@@ -151,15 +173,18 @@ export const syncFullRsvpPendingSchedules = async (
     const messageTitle = String(
       item?.messageTitle || item?.messageName || "Custom Message",
     ).trim();
-    const messageBody =
-      typeof item?.messageBody === "string" && item.messageBody.trim()
-        ? item.messageBody
-        : (event as any).rsvpMessage ||
-          event.description ||
-          "You're invited! Please let us know if you will attend.";
+    const messageBody = normalizeStepMessageBody(item?.messageBody);
+    if (!messageBody) {
+      continue;
+    }
     const messageName = String(item?.messageName || messageTitle || "Custom Message").trim();
     const attachment = normalizeSequenceAttachment(item?.attachment);
     const channels = item.channels || { email: { enabled: true } };
+    const targetAudience = normalizeTargetAudience(item?.conditions?.audienceType);
+    const targetTag =
+      targetAudience === "tag"
+        ? normalizeTargetTag(item?.conditions?.targetTag)
+        : null;
     const eventChannelConfig = (event as any)?.channelConfig || {};
     const channelEntries: Array<{ channel: "email" | "whatsapp" | "bulkSms"; enabled?: boolean }> = [
       { channel: "email", enabled: channels?.email?.enabled !== false },
@@ -177,6 +202,16 @@ export const syncFullRsvpPendingSchedules = async (
 
     for (const ch of channelEntries) {
       if (!ch.enabled) continue;
+      const templateVariables =
+        ch.channel === "whatsapp"
+          ? normalizeTemplateVariables(channels?.whatsapp?.templateVariables)
+          : null;
+      const redirectUrl =
+        ch.channel === "whatsapp" &&
+        typeof channels?.whatsapp?.redirectUrl === "string" &&
+        channels.whatsapp.redirectUrl.trim()
+          ? channels.whatsapp.redirectUrl.trim()
+          : null;
       schedules.push({
         eventId: event._id,
         messageType: "custom",
@@ -184,10 +219,14 @@ export const syncFullRsvpPendingSchedules = async (
         messageTitle: messageTitle || "Custom Message",
         messageBody,
         includeResponseButtons: item?.includeResponseButtons !== false,
-        attachment,
+        attachment:
+          ch.channel === "whatsapp"
+            ? normalizeWhatsAppSequenceAttachment(attachment)
+            : attachment,
         scheduledDate,
         status: "pending",
-        targetAudience: normalizeTargetAudience(item?.conditions?.audienceType),
+        targetAudience,
+        targetTag,
         channel: ch.channel,
         templateId:
           ch.channel === "email"
@@ -195,6 +234,8 @@ export const syncFullRsvpPendingSchedules = async (
             : ch.channel === "whatsapp"
               ? channels?.whatsapp?.templateId || null
               : channels?.bulkSms?.templateId || null,
+        ...(templateVariables ? { templateVariables } : {}),
+        ...(redirectUrl ? { redirectUrl } : {}),
         servicePackage: "full-rsvp",
       });
     }

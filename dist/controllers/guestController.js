@@ -15,23 +15,13 @@ var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (
 }) : function(o, v) {
     o["default"] = v;
 });
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -42,13 +32,13 @@ const eventmodel_1 = require("../models/eventmodel");
 const lambdaUtils_1 = require("../utils/lambdaUtils");
 const s3Utils_1 = require("../utils/s3Utils");
 const utils_1 = require("../utils/utils");
-const emailService_1 = require("../library/helpers/emailService");
-const colorUtils_1 = require("../utils/colorUtils");
+const buildInvitationEmail_js_1 = require("../utils/buildInvitationEmail.js");
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const mongoose_1 = __importStar(require("mongoose"));
 const sanitize_html_1 = __importDefault(require("sanitize-html"));
 const client_lambda_1 = require("@aws-sdk/client-lambda");
 const client_s3_1 = require("@aws-sdk/client-s3");
+const sharp_1 = __importDefault(require("sharp"));
 const node_fetch_1 = __importDefault(require("node-fetch"));
 const s3 = new client_s3_1.S3Client({ region: process.env.AWS_REGION || "us-east-2" });
 const lambdaClient = new client_lambda_1.LambdaClient({ region: process.env.AWS_REGION });
@@ -60,20 +50,143 @@ const buildPngUrl = (eventId, guestId) => {
         return "";
     return `https://${bucket}.s3.${region}.amazonaws.com/qr_codes/png/${eventId}/${guestId}.png`;
 };
-// Helper function to adjust color brightness
-const adjustColorBrightness = (hex, percent) => {
-    const num = parseInt(hex.replace("#", ""), 16);
-    const amt = Math.round(2.55 * percent);
-    const R = (num >> 16) + amt;
-    const G = ((num >> 8) & 0x00ff) + amt;
-    const B = (num & 0x0000ff) + amt;
-    return ("#" +
-        (0x1000000 +
-            (R < 255 ? (R < 1 ? 0 : R) : 255) * 0x10000 +
-            (G < 255 ? (G < 1 ? 0 : G) : 255) * 0x100 +
-            (B < 255 ? (B < 1 ? 0 : B) : 255))
-            .toString(16)
-            .slice(1));
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const inferImageContentType = (url) => {
+    const pathname = (() => {
+        try {
+            return new URL(url).pathname.toLowerCase();
+        }
+        catch {
+            return String(url || "").toLowerCase();
+        }
+    })();
+    if (pathname.endsWith(".png"))
+        return "image/png";
+    if (pathname.endsWith(".webp"))
+        return "image/webp";
+    if (pathname.endsWith(".gif"))
+        return "image/gif";
+    return "image/jpeg";
+};
+const resolveAttachmentExtension = (contentType) => {
+    if (contentType === "image/png")
+        return "png";
+    if (contentType === "image/webp")
+        return "webp";
+    if (contentType === "image/gif")
+        return "gif";
+    return "jpg";
+};
+const extractS3KeyFromUrl = (url) => {
+    if (!url)
+        return null;
+    try {
+        const parsed = new URL(url);
+        if (!parsed.hostname.includes(".s3.")) {
+            return null;
+        }
+        return decodeURIComponent(parsed.pathname).replace(/^\/+/, "");
+    }
+    catch {
+        return null;
+    }
+};
+const isHttpUrl = (value) => {
+    if (!value)
+        return false;
+    try {
+        const parsed = new URL(value);
+        return parsed.protocol === "http:" || parsed.protocol === "https:";
+    }
+    catch {
+        return false;
+    }
+};
+const resolveGuestEmailQrUrl = (pngUrl, qrValue) => {
+    if (isHttpUrl(pngUrl))
+        return pngUrl || "";
+    if (isHttpUrl(qrValue))
+        return qrValue || "";
+    return "";
+};
+const prepareEmailLambdaAttachments = async (ivUrl, eventId, eventName) => {
+    if (!ivUrl || !eventId)
+        return [];
+    const safeEventName = eventName.replace(/[^a-zA-Z0-9-_]/g, "_");
+    const compressedKey = `events/${eventId}/email_attachment.jpg`;
+    try {
+        await s3.send(new client_s3_1.HeadObjectCommand({
+            Bucket: process.env.S3_BUCKET,
+            Key: compressedKey,
+        }));
+        return [
+            {
+                filename: `${safeEventName}_invitation.jpg`,
+                s3Key: compressedKey,
+                contentType: "image/jpeg",
+            },
+        ];
+    }
+    catch {
+        // Cache miss, continue to compress and upload.
+    }
+    const existingS3Key = extractS3KeyFromUrl(ivUrl);
+    try {
+        const response = await (0, node_fetch_1.default)(ivUrl);
+        if (!response.ok) {
+            throw new Error(`Failed to fetch IV attachment: ${response.status}`);
+        }
+        const buffer = Buffer.from(await response.arrayBuffer());
+        const compressedBuffer = await (0, sharp_1.default)(buffer)
+            .resize(800, 600, { fit: "inside", withoutEnlargement: true })
+            .jpeg({ quality: 60 })
+            .toBuffer();
+        await s3.send(new client_s3_1.PutObjectCommand({
+            Bucket: process.env.S3_BUCKET,
+            Key: compressedKey,
+            Body: compressedBuffer,
+            ContentType: "image/jpeg",
+        }));
+        return [
+            {
+                filename: `${safeEventName}_invitation.jpg`,
+                s3Key: compressedKey,
+                contentType: "image/jpeg",
+            },
+        ];
+    }
+    catch (error) {
+        console.error("❌ Failed to prepare IV attachment for email lambda:", error);
+        if (!existingS3Key) {
+            return [];
+        }
+        return [
+            {
+                filename: `${safeEventName}_invitation.${resolveAttachmentExtension(inferImageContentType(ivUrl))}`,
+                s3Key: existingS3Key,
+                contentType: inferImageContentType(ivUrl),
+            },
+        ];
+    }
+};
+const invokeEmailLambdaDirect = async (payload, retries = 5) => {
+    if (!process.env.EMAIL_LAMBDA_FUNCTION_NAME) {
+        throw new Error("EMAIL_LAMBDA_FUNCTION_NAME is not configured");
+    }
+    for (let attempt = 1; attempt <= retries; attempt += 1) {
+        try {
+            await (0, lambdaUtils_1.invokeLambda)(process.env.EMAIL_LAMBDA_FUNCTION_NAME, payload, true);
+            return;
+        }
+        catch (error) {
+            if (attempt >= retries) {
+                throw error;
+            }
+            const backoff = Math.min(8000, 500 * Math.pow(2, attempt - 1));
+            const jitter = Math.floor(Math.random() * 200);
+            await sleep(backoff + jitter);
+        }
+    }
 };
 const addGuest = async (req, res) => {
     try {
@@ -207,130 +320,42 @@ const addGuest = async (req, res) => {
             }
         }
         // --- Email Sending ---
+        let emailSent = false;
+        let emailErrorMessage = null;
         if (email) {
             try {
-                const sanitizedMessage = (0, sanitize_html_1.default)(message, {
-                    allowedTags: [
-                        "p",
-                        "b",
-                        "i",
-                        "strong",
-                        "em",
-                        "ul",
-                        "li",
-                        "br",
-                        "h1",
-                        "h2",
-                    ],
-                    allowedAttributes: {},
+                const finalQrUrl = resolveGuestEmailQrUrl(savedGuest.pngUrl, savedGuest.qrCode);
+                const attachments = await prepareEmailLambdaAttachments(iv, eventId, eventName);
+                const downloadUrl = `https://292x833w13.execute-api.us-east-2.amazonaws.com/guest/download-emailcode/${savedGuest._id.toString()}`;
+                const emailContent = (0, buildInvitationEmail_js_1.buildInvitationEmail)({
+                    fullname,
+                    message,
+                    eventName,
+                    eventDate,
+                    qrCodeCenterColor,
+                    finalQrUrl,
+                    downloadUrl,
                 });
-                const finalQrUrl = savedGuest.pngUrl || "";
-                // Get QR center color for header and determine text color
-                const centerColorHex = (0, colorUtils_1.rgbToHex)(qrCodeCenterColor || "0,0,0");
-                const darkerCenterColor = adjustColorBrightness(centerColorHex, -20);
-                // Simple text color logic: white for dark colors, black for light colors
-                const num = parseInt(centerColorHex.replace("#", ""), 16);
-                const r = (num >> 16) & 255;
-                const g = (num >> 8) & 255;
-                const b = num & 255;
-                const brightness = (r * 299 + g * 587 + b * 114) / 1000;
-                const textColor = brightness > 180 ? "#000000" : "#ffffff";
-                // Create beautiful, mature invitation email design
-                const emailContent = `
-          <div style="font-family: 'Segoe UI', 'Arial', sans-serif; background: #f7f8fc; padding: 20px 10px; margin: 0; line-height: 1.6;">
-            <div style="width: 100%; margin: 0 auto; background: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 8px 32px rgba(0,0,0,0.08);">
-              
-              <!-- Header Section -->
-              <div style="background: linear-gradient(135deg, ${centerColorHex} 0%, ${darkerCenterColor} 100%); padding: 40px 20px; text-align: center;">
-                <h1 style="color: ${textColor}; font-size: clamp(24px, 5vw, 32px); font-weight: 600; margin: 0 0 8px 0; letter-spacing: 0.5px;">${eventName}</h1>
-                <p style="color: ${textColor}; font-size: clamp(14px, 3vw, 18px); margin: 0; opacity: 0.9;">${eventDate}</p>
-              </div>
-
-              <!-- Main Content -->
-              <div style="padding: 30px 20px;">
-                
-                <!-- Personal Greeting -->
-                <div style="margin-bottom: 30px;">
-                  <div style="background: #f8faff; padding: 20px; border-radius: 8px;">
-                    <p style="font-size: clamp(16px, 4vw, 18px); margin: 0 0 12px 0; font-weight: 600; color: ${darkerCenterColor};">Dear ${fullname},</p>
-                    <div style="font-size: clamp(14px, 3.5vw, 16px); color: #4a5568; line-height: 1.7;">
-                      ${sanitizedMessage}
-                    </div>
-                  </div>
-                </div>
-
-                <!-- QR Code Section -->
-                <div style="text-align: center; background: linear-gradient(135deg, #f8faff 0%, #e8f2ff 100%); padding: 30px 15px; border-radius: 12px; border: 1px solid #e2e8f0;">
-                  <h2 style="color: ${centerColorHex}; font-size: clamp(18px, 4vw, 22px); font-weight: 600; margin: 0 0 25px 0;">Your Digital Pass</h2>
-                  
-                  <div style="background: #ffffff; padding: clamp(30px, 6vw, 50px); border-radius: 12px; display: inline-block; box-shadow: 0 4px 16px rgba(30,60,114,0.1); border: 1px solid #e2e8f0;">
-                    ${finalQrUrl
-                    ? `
-                      <img src="${finalQrUrl}" 
-                           alt="Your Event QR Code" 
-                           width="300" height="300"
-                           style="display: block; border-radius: 8px; max-width: 100%; height: auto;" />
-                    `
-                    : `
-                      <div style="width: 300px; height: 300px; background: #f7f8fc; border-radius: 8px; display: flex; align-items: center; justify-content: center; border: 2px dashed #cbd5e0; max-width: 100%;">
-                        <p style="color: #718096; margin: 0; font-size: 14px; text-align: center;">Loading QR Code...</p>
-                      </div>
-                    `}
-                  </div>
-                  
-                  <p style="color: #718096; font-size: clamp(12px, 3vw, 14px); margin: 20px 0 25px 0;">Present this code at the event entrance for quick check-in</p>
-                  
-                  ${finalQrUrl
-                    ? `
-                    <a href="${finalQrUrl}" 
-                       style="display: inline-block; background: linear-gradient(135deg, ${centerColorHex} 0%, ${darkerCenterColor} 100%); color: ${textColor}; padding: 12px 28px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: clamp(12px, 3vw, 14px); box-shadow: 0 4px 12px rgba(30,60,114,0.3); transition: all 0.3s ease;">
-                       Download QR Code
-                    </a>
-                  `
-                    : ""}
-                </div>
-
-                <!-- Important Notice -->
-                <div style="background: linear-gradient(135deg, #48bb78 0%, #38a169 100%); color: #ffffff; padding: 20px; border-radius: 10px; margin: 30px 0 0 0; text-align: center;">
-                  <p style="font-size: 15px; font-weight: 600; margin: 0 0 5px 0;">Invitation Confirmed</p>
-                  <p style="font-size: 13px; margin: 0; opacity: 0.9;">This invitation is exclusively for you. Please keep your QR code secure.</p>
-                </div>
-              </div>
-
-              <!-- Footer -->
-              <div style="background: #f7f8fc; padding: 25px 30px; text-align: center; border-top: 1px solid #e2e8f0;">
-                <p style="font-size: 12px; color: #718096; margin: 0;">© 2025 <strong style="color: #4a5568;">SoftInvites</strong> • All rights reserved</p>
-              </div>
-            </div>
-          </div>
-`;
-                // console.log("📤 Sending email to:", email);
-                // Prepare attachments array
-                const attachments = [];
-                // Add event IV as attachment if it exists
-                if (iv) {
-                    try {
-                        // Download the image from URL to get Buffer
-                        const imageResponse = await (0, node_fetch_1.default)(iv);
-                        if (imageResponse.ok) {
-                            const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
-                            attachments.push({
-                                filename: `${eventName.replace(/[^a-zA-Z0-9]/g, "_")}_invitation.jpg`,
-                                content: imageBuffer,
-                                contentType: "image/jpeg",
-                            });
-                        }
-                    }
-                    catch (attachmentError) {
-                        console.error("❌ Failed to download event IV for attachment:", attachmentError);
-                    }
-                }
-                // Send email with event IV attachment
-                await (0, emailService_1.sendEmail)(email, `Invitation to ${eventName}`, emailContent, `SoftInvites <info@softinvite.com>`, attachments.length > 0 ? attachments : undefined);
-                // console.log(`✅ Email sent to ${email}`);
+                await invokeEmailLambdaDirect({
+                    to: email,
+                    from: `SoftInvites <info@softinvite.com>`,
+                    subject: `${eventName}`,
+                    htmlContent: emailContent,
+                    attachments: attachments.length > 0 ? attachments : undefined,
+                    eventId: String(eventId),
+                    messageType: "guest-invitation",
+                    diagnosticContext: {
+                        source: "guestController.addGuest",
+                        guestId: savedGuest._id.toString(),
+                        trigger: "guest-created",
+                    },
+                });
+                emailSent = true;
             }
             catch (emailError) {
                 console.error("Failed to send email:", emailError);
+                emailErrorMessage =
+                    emailError instanceof Error ? emailError.message : String(emailError);
             }
         }
         // --- Trigger Backup Lambda (async) ---
@@ -347,6 +372,8 @@ const addGuest = async (req, res) => {
         res.status(201).json({
             message: "Guest created successfully",
             guest: savedGuest,
+            emailSent,
+            ...(emailErrorMessage ? { emailError: emailErrorMessage } : {}),
         });
     }
     catch (error) {
@@ -562,165 +589,53 @@ const updateGuest = async (req, res) => {
         // Use QR code URL (either existing or newly generated)
         qrCodeUrl = guest.qrCode;
         // console.log("📄 Final QR code URL:", qrCodeUrl);
-        // --- Email Sending (ONLY if email is updated) ---
+        // --- Email Sending ---
         let emailSent = false;
-        if (emailChanged && guest.email) {
+        let emailErrorMessage = null;
+        const shouldSendUpdatedEmail = !!guest.email &&
+            (emailChanged ||
+                qrCodeRegenerated ||
+                fullname !== undefined ||
+                TableNo !== undefined ||
+                phone !== undefined ||
+                message !== undefined ||
+                others !== undefined ||
+                eventId !== undefined ||
+                qrColorsChanged);
+        if (shouldSendUpdatedEmail && guest.email) {
             try {
-                const sanitizedMessage = (0, sanitize_html_1.default)(guest.message, {
-                    allowedTags: [
-                        "p",
-                        "b",
-                        "i",
-                        "strong",
-                        "em",
-                        "ul",
-                        "li",
-                        "br",
-                        "h1",
-                        "h2",
-                    ],
-                    allowedAttributes: {},
+                const finalQrUrl = resolveGuestEmailQrUrl(guest.pngUrl, guest.qrCode);
+                const attachments = await prepareEmailLambdaAttachments(iv, String(targetEventId), eventName);
+                const downloadUrl = `https://292x833w13.execute-api.us-east-2.amazonaws.com/guest/download-emailcode/${guest._id.toString()}`;
+                const emailContent = (0, buildInvitationEmail_js_1.buildInvitationEmail)({
+                    fullname: guest.fullname,
+                    message: guest.message || "You're invited!",
+                    eventName,
+                    eventDate,
+                    qrCodeCenterColor: guest.qrCodeCenterColor || "0,0,0",
+                    finalQrUrl,
+                    downloadUrl,
                 });
-                let qrImgTag;
-                // Use S3 URL directly in email (updated to match addGuest)
-                if (qrCodeUrl) {
-                    qrImgTag = `
-            <div style="background: #fff; padding: 20px; border-radius: 12px; display: inline-block; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
-              <img src="${qrCodeUrl}" 
-                   alt="Your Event QR Code" 
-                   width="180" height="180" 
-                   style="display: block; border-radius: 8px;" />
-            </div>
-            
-            <div style="margin-top: 20px;">
-              <a href="${qrCodeUrl}" 
-                 style="display: inline-block; background: #3498db; color: #fff; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: 500; font-size: 14px;">
-                 Download QR Code
-              </a>
-            </div>
-          `;
-                    // console.log("✅ Using S3 URL in email HTML");
-                }
-                else {
-                    qrImgTag = `
-            <div style="border: 2px solid #ff6b6b; padding: 15px; margin: 10px 0; text-align: center; background: #fff5f5;">
-              <p style="color: #d63031; margin: 0; font-weight: bold;">QR CODE NOT AVAILABLE</p>
-              <p style="color: #d63031; margin: 5px 0 0 0; font-size: 12px;">Please contact the event organizer</p>
-            </div>
-          `;
-                    // console.error("❌ No QR code URL available for email");
-                }
-                // Prefer pre-generated PNG URL; otherwise use the SVG URL
-                const finalQrUrl = guest.pngUrl || "";
-                // Get QR center color for header and determine text color
-                const centerColorHex = (0, colorUtils_1.rgbToHex)(guest.qrCodeCenterColor || "0,0,0");
-                const darkerCenterColor = adjustColorBrightness(centerColorHex, -20);
-                // Simple text color logic: white for dark colors, black for light colors
-                const num = parseInt(centerColorHex.replace("#", ""), 16);
-                const r = (num >> 16) & 255;
-                const g = (num >> 8) & 255;
-                const b = num & 255;
-                const brightness = (r * 299 + g * 587 + b * 114) / 1000;
-                const textColor = brightness > 180 ? "#000000" : "#ffffff";
-                // Create beautiful, mature invitation email design
-                const emailContent = `
-          <div style="font-family: 'Segoe UI', 'Arial', sans-serif; background: #f7f8fc; padding: 20px 10px; margin: 0; line-height: 1.6;">
-            <div style="width: 100%; margin: 0 auto; background: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 8px 32px rgba(0,0,0,0.08);">
-              
-              <!-- Header Section -->
-              <div style="background: linear-gradient(135deg, ${centerColorHex} 0%, ${darkerCenterColor} 100%); padding: 40px 20px; text-align: center;">
-                <h1 style="color: ${textColor}; font-size: clamp(24px, 5vw, 32px); font-weight: 600; margin: 0 0 8px 0; letter-spacing: 0.5px;">${eventName}</h1>
-                <p style="color: ${textColor}; font-size: clamp(14px, 3vw, 18px); margin: 0; opacity: 0.9;">${eventDate}</p>
-              </div>
-
-              <!-- Main Content -->
-              <div style="padding: 30px 20px;">
-                
-                <!-- Personal Greeting -->
-                <div style="margin-bottom: 30px;">
-                  <div style="background: #f8faff; padding: 20px; border-radius: 8px;">
-                    <p style="font-size: clamp(16px, 4vw, 18px); margin: 0 0 12px 0; font-weight: 600; color: ${darkerCenterColor};">Dear ${guest.fullname},</p>
-                    <div style="font-size: clamp(14px, 3.5vw, 16px); color: #4a5568; line-height: 1.7;">
-                      ${sanitizedMessage}
-                    </div>
-                  </div>
-                </div>
-
-                <!-- QR Code Section -->
-                <div style="text-align: center; background: linear-gradient(135deg, #f8faff 0%, #e8f2ff 100%); padding: 30px 15px; border-radius: 12px; border: 1px solid #e2e8f0;">
-                  <h2 style="color: ${centerColorHex}; font-size: clamp(18px, 4vw, 22px); font-weight: 600; margin: 0 0 25px 0;">Your Digital Pass</h2>
-                  
-                  <div style="background: #ffffff; padding: clamp(30px, 6vw, 50px); border-radius: 12px; display: inline-block; box-shadow: 0 4px 16px rgba(30,60,114,0.1); border: 1px solid #e2e8f0;">
-                    ${finalQrUrl
-                    ? `
-                      <a href="${finalQrUrl}">
-                        <img src="${finalQrUrl}" 
-                             alt="Your Event QR Code" 
-                             width="300" height="300"
-                             style="display: block; border-radius: 8px; max-width: 100%; height: auto; cursor: pointer;" />
-                      </a>
-                    `
-                    : `
-                      <div style="width: 300px; height: 300px; background: #f7f8fc; border-radius: 8px; display: flex; align-items: center; justify-content: center; border: 2px dashed #cbd5e0; max-width: 100%;">
-                        <p style="color: #718096; margin: 0; font-size: 14px; text-align: center;">Loading QR Code...</p>
-                      </div>
-                    `}
-                  </div>
-                  
-                  <p style="color: #718096; font-size: clamp(12px, 3vw, 14px); margin: 20px 0 25px 0;">Present this code at the event entrance for quick check-in</p>
-                  
-                  ${finalQrUrl
-                    ? `
-                    <a href="${finalQrUrl}" 
-                       style="display: inline-block; background: linear-gradient(135deg, ${centerColorHex} 0%, ${darkerCenterColor} 100%); color: ${textColor}; padding: 12px 28px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: clamp(12px, 3vw, 14px); box-shadow: 0 4px 12px rgba(30,60,114,0.3); transition: all 0.3s ease;">
-                       Download QR Code
-                    </a>
-                  `
-                    : ""}
-                </div>
-
-                <!-- Important Notice -->
-                <div style="background: linear-gradient(135deg, #48bb78 0%, #38a169 100%); color: #ffffff; padding: 20px; border-radius: 10px; margin: 30px 0 0 0; text-align: center;">
-                  <p style="font-size: 15px; font-weight: 600; margin: 0 0 5px 0;">Invitation Confirmed</p>
-                  <p style="font-size: 13px; margin: 0; opacity: 0.9;">This invitation is exclusively for you. Please keep your QR code secure.</p>
-                </div>
-              </div>
-
-              <!-- Footer -->
-              <div style="background: #f7f8fc; padding: 25px 30px; text-align: center; border-top: 1px solid #e2e8f0;">
-                <p style="font-size: 12px; color: #718096; margin: 0;">© 2025 <strong style="color: #4a5568;">SoftInvites</strong> • All rights reserved</p>
-              </div>
-            </div>
-          </div>
-        `;
-                // console.log("📤 Sending email to:", guest.email);
-                // Prepare attachments array
-                const attachments = [];
-                // Add event IV as attachment if it exists
-                if (iv) {
-                    try {
-                        // Download the image from URL to get Buffer
-                        const imageResponse = await (0, node_fetch_1.default)(iv);
-                        if (imageResponse.ok) {
-                            const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
-                            attachments.push({
-                                filename: `${eventName.replace(/[^a-zA-Z0-9]/g, "_")}_invitation.jpg`,
-                                content: imageBuffer,
-                                contentType: "image/jpeg",
-                            });
-                        }
-                    }
-                    catch (attachmentError) {
-                        console.error("❌ Failed to download event IV for attachment:", attachmentError);
-                    }
-                }
-                // Send email with event IV attachment
-                await (0, emailService_1.sendEmail)(guest.email, `Invitation to ${eventName}`, emailContent, `SoftInvites <info@softinvite.com>`, attachments.length > 0 ? attachments : undefined);
+                await invokeEmailLambdaDirect({
+                    to: guest.email,
+                    from: `SoftInvites <info@softinvite.com>`,
+                    subject: `${eventName}`,
+                    htmlContent: emailContent,
+                    attachments: attachments.length > 0 ? attachments : undefined,
+                    eventId: String(targetEventId),
+                    messageType: "guest-invitation-update",
+                    diagnosticContext: {
+                        source: "guestController.updateGuest",
+                        guestId: guest._id.toString(),
+                        trigger: qrCodeRegenerated ? "qr-regenerated" : "guest-updated",
+                    },
+                });
                 emailSent = true;
-                // console.log(`✅ Email sent to ${guest.email}`);
             }
             catch (emailError) {
                 console.error("❌ Failed to send email:", emailError);
+                emailErrorMessage =
+                    emailError instanceof Error ? emailError.message : String(emailError);
             }
         }
         // --- Trigger Backup Lambda (async) ---
@@ -740,6 +655,7 @@ const updateGuest = async (req, res) => {
                 : "Guest updated successfully",
             guest,
             emailSent: emailSent,
+            ...(emailErrorMessage ? { emailError: emailErrorMessage } : {}),
             qrCodeAvailable: !!qrCodeUrl,
             qrCodeRegenerated: qrCodeRegenerated,
         });

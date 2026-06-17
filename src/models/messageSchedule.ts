@@ -14,7 +14,7 @@ export interface MessageScheduleDocument extends Document {
     contentType?: string;
   };
   scheduledDate: Date;
-  status: "pending" | "sent" | "failed" | "cancelled";
+  status: "pending" | "processing" | "sent" | "failed" | "cancelled";
   targetAudience:
     | "all"
     | "non-responders"
@@ -22,9 +22,15 @@ export interface MessageScheduleDocument extends Document {
     | "yes"
     | "no"
     | "pending"
-    | "pending-and-no";
+    | "pending-and-no"
+    | "tag";
+  targetTag?: string;
   channel: "email" | "whatsapp" | "bulkSms";
-  templateId?: Types.ObjectId;
+  // String so it can hold either a Mongo ObjectId (legacy per-event template)
+  // or a friendlyName like "rsvp_stalo" from the Content Template Manager.
+  templateId?: string | null;
+  templateVariables?: Record<string, any> | null;
+  redirectUrl?: string | null;
   servicePackage?: string;
   attempts: number;
   lastAttemptAt?: Date;
@@ -58,7 +64,7 @@ const MessageScheduleSchema = new Schema<MessageScheduleDocument>(
     scheduledDate: { type: Date, required: true, index: true },
     status: {
       type: String,
-      enum: ["pending", "sent", "failed", "cancelled"],
+      enum: ["pending", "processing", "sent", "failed", "cancelled"],
       default: "pending",
       index: true,
     },
@@ -72,15 +78,19 @@ const MessageScheduleSchema = new Schema<MessageScheduleDocument>(
         "no",
         "pending",
         "pending-and-no",
+        "tag",
       ],
       default: "all",
     },
+    targetTag: { type: String, default: null },
     channel: {
       type: String,
       enum: ["email", "whatsapp", "bulkSms"],
       default: "email",
     },
-    templateId: { type: Schema.Types.ObjectId, default: null },
+    templateId: { type: String, default: null },
+    templateVariables: { type: Schema.Types.Mixed, default: null },
+    redirectUrl: { type: String, default: null },
     servicePackage: { type: String, default: null },
     attempts: { type: Number, default: 0 },
     lastAttemptAt: { type: Date, default: null },

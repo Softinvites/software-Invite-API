@@ -8,12 +8,24 @@ const whatsAppTemplateSchema = new mongoose.Schema({
   },
   name: {
     type: String,
-    required: true,
-    unique: true
+    required: true
   },
   displayName: {
     type: String,
     required: true
+  },
+  provider: {
+    type: String,
+    enum: ['meta', 'twilio', 'termii', null],
+    default: null
+  },
+  contentSid: {
+    type: String,
+    default: null
+  },
+  statusCallbackUrl: {
+    type: String,
+    default: null
   },
   language: {
     type: String,
@@ -45,5 +57,8 @@ const whatsAppTemplateSchema = new mongoose.Schema({
 }, {
   timestamps: true
 });
+
+// One logical template name per event.
+whatsAppTemplateSchema.index({ eventId: 1, name: 1 }, { unique: true });
 
 export const WhatsAppTemplate = mongoose.model('WhatsAppTemplate', whatsAppTemplateSchema);

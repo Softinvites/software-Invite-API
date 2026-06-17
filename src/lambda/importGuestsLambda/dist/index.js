@@ -8,6 +8,10 @@ import { S3Client, PutObjectCommand, GetObjectCommand, } from "@aws-sdk/client-s
 import sharp from "sharp";
 import fetch from "node-fetch";
 const s3 = new S3Client({ region: process.env.AWS_REGION });
+const normalizeGuestFullname = (value) => String(value || "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase();
 // Helper to normalize various S3 GetObject Body shapes to a Buffer
 async function streamToBuffer(body) {
     if (!body)
@@ -134,6 +138,10 @@ export const handler = async (event) => {
         if (!guests.length) {
             return { statusCode: 400, body: "No guests found in file" };
         }
+        const existingGuests = await Guest.find({ eventId }, { normalizedFullname: 1, _id: 0 }).lean();
+        const seenNormalizedNames = new Set(existingGuests
+            .map((guest) => normalizeGuestFullname(guest?.normalizedFullname))
+            .filter(Boolean));
         /* ------------------------------ */
         /* ✅ 2. PROCESS IN BATCHES */
         /* ------------------------------ */
@@ -143,6 +151,7 @@ export const handler = async (event) => {
         for (let i = 0; i < guests.length; i += BATCH_SIZE) {
             const batch = guests.slice(i, i + BATCH_SIZE);
             const batchResults = await Promise.allSettled(batch.map(async (guestData) => {
+                let reservationAdded = false;
                 try {
                     // Skip empty rows
                     if (!guestData.fullname || !guestData.fullname.trim()) {
@@ -156,7 +165,19 @@ export const handler = async (event) => {
                     const cleanedFullname = String(guestData.fullname)
                         .trim()
                         .replace(/\s+/g, " ");
-                    const normalizedFullname = cleanedFullname.toLowerCase();
+                    const normalizedFullname = normalizeGuestFullname(cleanedFullname);
+                    if (seenNormalizedNames.has(normalizedFullname)) {
+                        return {
+                            ...guestData,
+                            fullname: cleanedFullname,
+                            success: false,
+                            error: "Duplicate fullname for this event - row skipped",
+                            skipped: true,
+                            email: guestData.email || null,
+                        };
+                    }
+                    seenNormalizedNames.add(normalizedFullname);
+                    reservationAdded = true;
                     const guest = await Guest.create({
                         ...guestData,
                         fullname: cleanedFullname,
@@ -308,7 +329,7 @@ export const handler = async (event) => {
                     await safeInvoke(EMAIL_LAMBDA_FUNCTION_NAME, {
                         to: guest.email,
                         from: `SoftInvites <info@softinvite.com>`,
-                        subject: `You're Invited to ${eventDoc.name}`,
+                        subject: `${eventDoc.name}`,
                         htmlContent: buildInvitationEmail({
                             fullname: guest.fullname,
                             message: guest.message || "You're invited!",
@@ -319,6 +340,13 @@ export const handler = async (event) => {
                             downloadUrl: downloadUrl,
                         }),
                         attachments: attachments,
+                        eventId,
+                        messageType: "guest-import-invitation",
+                        diagnosticContext: {
+                            source: "importGuestsLambda",
+                            guestId: guest._id.toString(),
+                            trigger: "guest-import",
+                        },
                     }, true);
                     return {
                         guestId: guest._id,
@@ -328,11 +356,29 @@ export const handler = async (event) => {
                     };
                 }
                 catch (err) {
+                    if (reservationAdded) {
+                        seenNormalizedNames.delete(normalizeGuestFullname(guestData?.fullname));
+                    }
+                    const errorMessage = err?.message || String(err);
+                    const isDuplicateKeyError = err?.code === 11000 ||
+                        /E11000 duplicate key error/i.test(errorMessage);
+                    if (isDuplicateKeyError) {
+                        return {
+                            ...guestData,
+                            fullname: String(guestData?.fullname || "")
+                                .trim()
+                                .replace(/\s+/g, " "),
+                            success: false,
+                            error: "Duplicate fullname for this event - row skipped",
+                            skipped: true,
+                            email: guestData.email || null,
+                        };
+                    }
                     console.error("❌ Guest processing error:", guestData, err);
                     return {
                         ...guestData,
                         success: false,
-                        error: err?.message || String(err),
+                        error: errorMessage,
                         email: guestData.email || null,
                     };
                 }
@@ -346,9 +392,11 @@ export const handler = async (event) => {
             .filter((r) => r.status === "fulfilled")
             .map((r) => r.value);
         const successCount = fulfilled.filter((g) => g.success).length;
-        const failedCount = fulfilled.filter((g) => !g.success).length;
-        const failed = fulfilled.filter((g) => !g.success);
-        console.log(`📊 Import Summary: ${successCount} successful, ${failedCount} failed`);
+        const skipped = fulfilled.filter((g) => g.skipped);
+        const skippedCount = skipped.length;
+        const failed = fulfilled.filter((g) => !g.success && !g.skipped);
+        const failedCount = failed.length;
+        console.log(`📊 Import Summary: ${successCount} successful, ${skippedCount} skipped, ${failedCount} failed`);
         console.log(`📧 Sending admin summary email to: ${ADMIN_EMAIL}`);
         const adminEmailHtml = `
       <div style="font-family: Arial, sans-serif; padding: 20px; background: #f7f8fc;">
@@ -383,6 +431,14 @@ export const handler = async (event) => {
               <p style="font-size: 32px; font-weight: bold; margin: 0;">${successCount}</p>
             </div>
           </div>
+
+          ${skippedCount > 0
+            ? `
+            <div style="background: #fff7e6; color: #9c4221; padding: 12px 16px; border-radius: 8px; margin-bottom: 20px; text-align: center; font-weight: 600;">
+              Skipped duplicate rows: ${skippedCount}
+            </div>
+          `
+            : ""}
           
           ${failedCount > 0
             ? `
@@ -437,6 +493,12 @@ export const handler = async (event) => {
             subject: `Guest Import Complete: ${eventDoc.name}`,
             htmlContent: adminEmailHtml,
             attachments: adminAttachments,
+            eventId,
+            messageType: "guest-import-admin-summary",
+            diagnosticContext: {
+                source: "importGuestsLambda",
+                trigger: "import-summary",
+            },
         }, true);
         console.log("✅ Import Completed Successfully");
         return {
@@ -445,6 +507,7 @@ export const handler = async (event) => {
                 message: "Guests imported, QR generated, PNG converted & emails sent",
                 total: guests.length,
                 successful: successCount,
+                skipped: skippedCount,
                 failed: failedCount,
             }),
         };

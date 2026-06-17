@@ -41,6 +41,12 @@ const isRsvpResponded = (rsvp: any) =>
   rsvp?.attendanceStatus === "yes" ||
   rsvp?.attendanceStatus === "no";
 
+const getGuestCountWeight = (rsvp: any) => {
+  const parsed = Number(rsvp?.guestCount);
+  if (!Number.isFinite(parsed)) return 1;
+  return Math.max(1, Math.trunc(parsed));
+};
+
 export const getAnalyticsOverview = async (req: Request, res: Response) => {
   try {
     const { eventId } = req.params;
@@ -52,13 +58,22 @@ export const getAnalyticsOverview = async (req: Request, res: Response) => {
     const filteredRsvps = rsvps.filter((r) =>
       matchesDateFilter(r.submissionDate || r.createdAt, dateFilter),
     );
-    const totalInvited = filteredRsvps.length;
-    const totalResponses = filteredRsvps.filter((r) => isRsvpResponded(r)).length;
-    const yes = filteredRsvps.filter((r) => r.attendanceStatus === "yes").length;
-    const no = filteredRsvps.filter((r) => r.attendanceStatus === "no").length;
-    const pending = filteredRsvps.filter(
-      (r) => r.attendanceStatus === "pending",
-    ).length;
+    const totalInvited = filteredRsvps.reduce(
+      (acc, r) => acc + getGuestCountWeight(r),
+      0,
+    );
+    const totalResponses = filteredRsvps
+      .filter((r) => isRsvpResponded(r))
+      .reduce((acc, r) => acc + getGuestCountWeight(r), 0);
+    const yes = filteredRsvps
+      .filter((r) => r.attendanceStatus === "yes")
+      .reduce((acc, r) => acc + getGuestCountWeight(r), 0);
+    const no = filteredRsvps
+      .filter((r) => r.attendanceStatus === "no")
+      .reduce((acc, r) => acc + getGuestCountWeight(r), 0);
+    const pending = filteredRsvps
+      .filter((r) => r.attendanceStatus === "pending")
+      .reduce((acc, r) => acc + getGuestCountWeight(r), 0);
 
     const emailQuery: any = { eventId };
     if (dateFilter) emailQuery.createdAt = dateFilter;
@@ -152,7 +167,7 @@ export const getTimelineAnalytics = async (req: Request, res: Response) => {
           return;
         }
         const key = new Date(date).toISOString().slice(0, 10);
-        bucket[key] = (bucket[key] || 0) + 1;
+        bucket[key] = (bucket[key] || 0) + getGuestCountWeight(r);
       });
     const timeline = Object.keys(bucket)
       .sort()

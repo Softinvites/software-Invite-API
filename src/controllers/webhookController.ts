@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import crypto from "crypto";
 import whatsappService from "../utils/whatsappService.js";
+import { persistInboundWhatsAppMessage } from "../services/whatsappInboundService.js";
 
 const WHATSAPP_WEBHOOK_VERIFY_TOKEN =
   process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN || "softinvites_webhook_2025";
@@ -82,11 +83,32 @@ export const handleWebhook = async (req: Request, res: Response) => {
         // Handle incoming messages
         const messages = change.value?.messages;
         if (Array.isArray(messages)) {
+          const contactsByWaId = new Map<string, any>();
+          if (Array.isArray(change.value?.contacts)) {
+            for (const contact of change.value.contacts) {
+              const waId = String(contact?.wa_id || "").trim();
+              if (waId) contactsByWaId.set(waId, contact);
+            }
+          }
           for (const message of messages) {
             console.log(
               `📩 Incoming message from ${message.from}: ${message.text?.body || "Media message"}`,
             );
-            // Handle incoming messages here if needed
+            const waId = String(message?.from || "").trim();
+            const contact = waId ? contactsByWaId.get(waId) : null;
+            await persistInboundWhatsAppMessage({
+              provider: "meta",
+              from: waId,
+              to: change.value?.metadata?.display_phone_number || null,
+              body: message?.text?.body || "",
+              profileName: contact?.profile?.name || null,
+              waId: waId || null,
+              providerMessageId: message?.id || null,
+              payload: message,
+              receivedAt: message?.timestamp
+                ? new Date(Number(message.timestamp) * 1000)
+                : new Date(),
+            });
           }
         }
       }

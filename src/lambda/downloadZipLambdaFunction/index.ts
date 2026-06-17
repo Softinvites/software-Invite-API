@@ -1,8 +1,9 @@
-import AWS from "aws-sdk";
+import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
+import { Upload } from "@aws-sdk/lib-storage";
 import archiver from "archiver";
-import { PassThrough } from "stream";
+import { PassThrough, Readable } from "stream";
 
-const s3 = new AWS.S3();
+const s3 = new S3Client({ region: process.env.AWS_REGION || "us-east-2" });
 
 /* ------------------------------ */
 /* 🔧 HELPERS */
@@ -45,14 +46,15 @@ export const handler = async (event: any) => {
 
     const zipKey = `qr_zips/event_${eventId}_${Date.now()}.zip`;
 
-    const uploadPromise = s3
-      .upload({
+    const uploadPromise = new Upload({
+      client: s3,
+      params: {
         Bucket: bucket,
         Key: zipKey,
         Body: zipStream,
         ContentType: "application/zip",
-      })
-      .promise();
+      },
+    }).done();
 
     const streamErrorPromise = new Promise<void>((_, reject) => {
       archive.on("error", reject);
@@ -99,10 +101,8 @@ export const handler = async (event: any) => {
           )}_${safeName(others)}_${guestId}.png`;
 
           try {
-            const s3Stream = s3
-              .getObject({ Bucket: bucket, Key: pngKey })
-              .createReadStream();
-            archive.append(s3Stream, { name: filename });
+            const response = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: pngKey }));
+            archive.append(response.Body as Readable, { name: filename });
             addedFiles.push(filename);
           } catch (err: any) {
             console.error("❌ PNG not found in S3:", pngKey, err);

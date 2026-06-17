@@ -61,6 +61,20 @@ GuestSchema.index(
     partialFilterExpression: { normalizedFullname: { $exists: true } },
   },
 );
+// Email-level uniqueness per event. Same address may not appear on two
+// different guests of the same event. Phone duplicates are explicitly
+// allowed (couples and families often share a single phone number) — the
+// bulk-send path dedupes by phone at send time so nobody receives multiple
+// messages.
+// Partial filter: only enforce when email is a non-empty string. Empty or
+// missing emails (often '-' or absent on phone-only imports) are unaffected.
+GuestSchema.index(
+  { eventId: 1, email: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { email: { $type: "string", $ne: "" } },
+  },
+);
 
 function normalizeName(value?: string) {
   return (value || "").trim().replace(/\s+/g, " ").toLowerCase();

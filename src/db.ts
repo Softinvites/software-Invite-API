@@ -67,12 +67,13 @@
 
 import mongoose from "mongoose";
 import dotenv from "dotenv";
+import { dropLegacyWhatsAppTemplateIndex } from "./utils/migrations.js";
 
 dotenv.config();
 
 let cachedConnection: typeof mongoose | null = null;
 
-mongoose.set("bufferCommands", false); // 👈 important for Lambda
+mongoose.set("bufferCommands", false);
 
 export async function connectDB() {
   if (cachedConnection) {
@@ -82,13 +83,17 @@ export async function connectDB() {
   try {
     const connection = await mongoose.connect(process.env.MONGODB_URI!, {
       family: 4,
-      serverSelectionTimeoutMS: 30000, // wait up to 30s for MongoDB
+      serverSelectionTimeoutMS: 30000,
       socketTimeoutMS: 45000,
       maxPoolSize: 10,
     });
 
     cachedConnection = connection;
     console.log("✅ Database connected");
+
+    // Run one-time migrations
+    await dropLegacyWhatsAppTemplateIndex();
+
     return connection;
   } catch (error) {
     console.error("❌ Database connection error:", error);

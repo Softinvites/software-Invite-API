@@ -117,6 +117,13 @@ export const handler = async (event: any) => {
               from: `SoftInvites <info@softinvite.com>`,
               subject,
               htmlContent,
+              eventId: eventInfo.id,
+              rsvpId: recipient._id,
+              messageType: "rsvp-initial",
+              diagnosticContext: {
+                source: "rsvpEmailLambda",
+                trigger: "rsvp-initial",
+              },
             },
             true,
           );

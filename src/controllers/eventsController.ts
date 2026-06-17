@@ -2,10 +2,16 @@ import { Request, Response } from "express";
 import { Event } from "../models/eventmodel";
 import { createEventSchema, updateEventSchema, option } from "../utils/utils";
 import { sendEmail } from "../library/helpers/emailService";
-import { deleteFromS3, uploadToS3 } from "../utils/s3Utils";
+import {
+  createPresignedUploadUrl,
+  deleteFromS3,
+  uploadToS3,
+} from "../utils/s3Utils";
 import { syncFullRsvpPendingSchedules } from "../services/fullRsvpScheduleService";
 import { LambdaClient, InvokeCommand } from "@aws-sdk/client-lambda";
 const lambdaClient = new LambdaClient({ region: process.env.AWS_REGION });
+
+import sharp from "sharp";
 
 const parseMaybeJson = (value: any) => {
   if (typeof value === "string") {
@@ -21,16 +27,49 @@ const parseMaybeJson = (value: any) => {
 const normalizeRsvpServicePackage = (value: any) =>
   value === "invitation-only" ? "invitation-only" : "full-rsvp";
 
+// WhatsApp card templates require JPEG for header images.
+// Accept common image formats and convert to JPEG on upload.
+const IV_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/jpg", "image/webp"]);
 const STEP_ATTACHMENT_MIME_TYPES = new Set([
   "image/png",
+  "image/jpg",
   "image/jpeg",
+  "image/webp",
+  "image/gif",
   "application/pdf",
 ]);
+const WHATSAPP_IMAGE_ATTACHMENT_MIME_TYPES = new Set([
+  "image/png",
+  "image/jpg",
+  "image/jpeg",
+  "image/webp",
+  "image/gif",
+]);
+const EVENT_ASSET_TYPES = new Set(["iv", "sequence-attachment"]);
+const BASE64_DATA_URI_PATTERN = /^data:([^;,]+);base64,([\s\S]+)$/i;
+const BASE64_CONTENT_PATTERN = /^[A-Za-z0-9+/=\s]+$/;
+const HTML_TAG_PATTERN = /<[^>]+>/;
+
+type BufferedUpload = {
+  buffer: Buffer;
+  mimetype: string;
+  originalname: string;
+};
+
+// Convert any image buffer to JPEG for WhatsApp card header compatibility.
+// WhatsApp rejects PNG/WEBP headers (error 63049).
+const convertToJpeg = async (buffer: Buffer): Promise<Buffer> =>
+  sharp(buffer).jpeg({ quality: 90 }).toBuffer();
 
 const sanitizeFileName = (name: string) =>
   String(name || "attachment")
     .replace(/[^a-zA-Z0-9._-]/g, "_")
     .slice(0, 180);
+
+const sanitizeEventRef = (value: any) =>
+  String(value || "event")
+    .replace(/[^a-zA-Z0-9-_]/g, "_")
+    .slice(0, 120) || "event";
 
 const getUploadedFiles = (req: Request): Express.Multer.File[] => {
   const files = (req as any).files;
@@ -45,6 +84,202 @@ const getUploadedFileByField = (
   files: Express.Multer.File[],
   fieldName: string,
 ) => files.find((f) => f.fieldname === fieldName);
+
+const resolveIvUrlFromBody = (body: Record<string, any>): string | null => {
+  const candidates = [body?.ivUrl, body?.iv];
+  for (const candidate of candidates) {
+    if (typeof candidate !== "string") continue;
+    const trimmed = candidate.trim();
+    if (!trimmed || !trimmed.includes("://")) continue;
+    return trimmed;
+  }
+  return null;
+};
+
+const parseBase64Iv = (value: any): BufferedUpload | null => {
+  if (typeof value !== "string") return null;
+
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  let mimeType = "image/png";
+  let encodedPayload = trimmed;
+  const dataUriMatch = trimmed.match(BASE64_DATA_URI_PATTERN);
+
+  if (dataUriMatch) {
+    mimeType = dataUriMatch[1].toLowerCase();
+    encodedPayload = dataUriMatch[2];
+  } else {
+    if (trimmed.includes("://") || trimmed.length < 128) {
+      return null;
+    }
+  }
+
+  if (!IV_MIME_TYPES.has(mimeType)) {
+    throw new Error("Only PNG, JPEG, or WEBP images are allowed for the invitation image");
+  }
+
+  const normalizedPayload = encodedPayload.replace(/\s+/g, "");
+  if (
+    !normalizedPayload ||
+    !BASE64_CONTENT_PATTERN.test(normalizedPayload) ||
+    normalizedPayload.length % 4 !== 0
+  ) {
+    throw new Error(
+      "Invalid base64 IV image. Send a PNG file via multipart/form-data or provide a valid base64 PNG payload.",
+    );
+  }
+
+  const buffer = Buffer.from(normalizedPayload, "base64");
+  if (!buffer.length) {
+    throw new Error(
+      "Invalid base64 IV image. Send a PNG file via multipart/form-data or provide a valid base64 PNG payload.",
+    );
+  }
+
+  return {
+    buffer,
+    mimetype: mimeType,
+    originalname: "iv.png",
+  };
+};
+
+const resolveIvUpload = (
+  req: Request,
+  files: Express.Multer.File[],
+): BufferedUpload | null => {
+  const uploadedFile = getUploadedFileByField(files, "iv");
+  if (uploadedFile?.buffer) {
+    return {
+      buffer: uploadedFile.buffer,
+      mimetype: uploadedFile.mimetype || "image/png",
+      originalname: uploadedFile.originalname || "iv.png",
+    };
+  }
+
+  return parseBase64Iv((req.body as Record<string, any>)?.iv);
+};
+
+const classifyEventRequestError = (error: unknown) => {
+  if (!(error instanceof Error)) {
+    return null;
+  }
+
+  if (
+    error.message === "Only PNG is allowed for IV image" ||
+    error.message === "Only PNG, JPEG, or WEBP images are allowed for the invitation image"
+  ) {
+    return {
+      status: 400,
+      message: error.message,
+      code: "INVALID_IV_IMAGE",
+    };
+  }
+
+  if (
+    error.message ===
+    "Attachment must be image (PNG, JPG, JPEG, WEBP, GIF) or PDF"
+  ) {
+    return {
+      status: 400,
+      message: error.message,
+      code: "INVALID_ATTACHMENT",
+    };
+  }
+
+  if (
+    error.message ===
+    "WhatsApp message body must be plain text without HTML tags"
+  ) {
+    return {
+      status: 400,
+      message: error.message,
+      code: "INVALID_WHATSAPP_MESSAGE_BODY",
+    };
+  }
+
+  if (
+    error.message ===
+    "WhatsApp-enabled steps only support image attachments (PNG/JPG/JPEG/WEBP/GIF)"
+  ) {
+    return {
+      status: 400,
+      message: error.message,
+      code: "INVALID_WHATSAPP_ATTACHMENT",
+    };
+  }
+
+  if (error.message.startsWith("Invalid base64 IV image")) {
+    return {
+      status: 400,
+      message: error.message,
+      code: "INVALID_IV_IMAGE",
+    };
+  }
+  return null;
+};
+
+export const createEventAssetUpload = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
+  try {
+    const { assetType, fileName, contentType, eventRef } = req.body || {};
+
+    if (
+      typeof assetType !== "string" ||
+      !EVENT_ASSET_TYPES.has(assetType) ||
+      typeof fileName !== "string" ||
+      !fileName.trim() ||
+      typeof contentType !== "string" ||
+      !contentType.trim()
+    ) {
+      res.status(400).json({
+        message: "assetType, fileName, and contentType are required",
+      });
+      return;
+    }
+
+    if (assetType === "iv" && !IV_MIME_TYPES.has(contentType)) {
+      res.status(400).json({ message: "Only PNG, JPEG, or WEBP images are allowed for the invitation image" });
+      return;
+    }
+
+    if (
+      assetType === "sequence-attachment" &&
+      !STEP_ATTACHMENT_MIME_TYPES.has(contentType)
+    ) {
+      res.status(400).json({
+        message:
+          "Step attachment must be image (PNG, JPG, JPEG, WEBP, GIF) or PDF",
+      });
+      return;
+    }
+
+    const safeEventRef = sanitizeEventRef(eventRef);
+    const safeFileName = sanitizeFileName(fileName);
+    const prefix =
+      assetType === "iv"
+        ? `invitations/${safeEventRef}`
+        : `events/${safeEventRef}/rsvp-step-attachments`;
+    const key = `${prefix}/${Date.now()}_${safeFileName}`;
+    const signedUpload = await createPresignedUploadUrl(key, contentType);
+
+    res.status(200).json({
+      message: "Upload URL created successfully",
+      ...signedUpload,
+      assetType,
+      contentType,
+      expiresIn: 900,
+    });
+  } catch (error: any) {
+    console.error("Error creating event asset upload URL:", error);
+    res.status(500).json({
+      message: "Failed to create upload URL",
+      error: error?.message || "Unknown error",
+    });
+  }
+};
 
 const normalizeAttachmentObject = (input: any) => {
   if (!input || typeof input !== "object") return null;
@@ -63,6 +298,65 @@ const normalizeAttachmentObject = (input: any) => {
   };
 };
 
+const normalizeTemplateVariables = (
+  value: any,
+): Record<string, string> | null => {
+  if (!value || typeof value !== "object") return null;
+  const raw = value as Record<string, unknown>;
+  const normalized: Record<string, string> = {};
+
+  for (const [key, entry] of Object.entries(raw)) {
+    const index = Number.parseInt(key, 10);
+    if (!Number.isInteger(index) || index <= 0) continue;
+
+    const trimmed =
+      typeof entry === "string" ? entry.trim() : String(entry ?? "").trim();
+    if (!trimmed) continue;
+
+    normalized[String(index)] = trimmed;
+  }
+
+  return Object.keys(normalized).length ? normalized : null;
+};
+
+const hasImageFileExtension = (value?: string | null) =>
+  /\.(png|jpe?g|webp|gif)([?#].*)?$/i.test(String(value || "").trim());
+
+const isWhatsAppCompatibleAttachment = (attachment: any) => {
+  if (!attachment || typeof attachment !== "object") return true;
+
+  const contentType = String(attachment.contentType || "")
+    .trim()
+    .toLowerCase();
+  if (contentType) {
+    return WHATSAPP_IMAGE_ATTACHMENT_MIME_TYPES.has(contentType);
+  }
+
+  return (
+    hasImageFileExtension(attachment.url) ||
+    hasImageFileExtension(attachment.filename)
+  );
+};
+
+const validateWhatsAppSequenceStep = (step: any, attachment: any) => {
+  const whatsappEnabled = Boolean(step?.channels?.whatsapp?.enabled);
+  if (!whatsappEnabled) return;
+
+  const messageBody =
+    typeof step?.messageBody === "string" ? step.messageBody : "";
+  if (HTML_TAG_PATTERN.test(messageBody)) {
+    throw new Error(
+      "WhatsApp message body must be plain text without HTML tags",
+    );
+  }
+
+  if (attachment && !isWhatsAppCompatibleAttachment(attachment)) {
+    throw new Error(
+      "WhatsApp-enabled steps only support image attachments (PNG/JPG/JPEG/WEBP/GIF)",
+    );
+  }
+};
+
 const normalizeMessageAudience = (value: any) => {
   if (value === "non-responders") return "pending";
   if (value === "pending-no" || value === "pending_and_no") {
@@ -74,11 +368,18 @@ const normalizeMessageAudience = (value: any) => {
     value === "yes" ||
     value === "no" ||
     value === "pending" ||
-    value === "pending-and-no"
+    value === "pending-and-no" ||
+    value === "tag"
   ) {
     return value;
   }
   return "all";
+};
+
+const normalizeMessageTargetTag = (value: any) => {
+  if (value === null || value === undefined) return null;
+  const trimmed = String(value).replace(/\s+/g, " ").trim();
+  return trimmed || null;
 };
 
 const resolveCustomMessageSequence = async (
@@ -96,7 +397,10 @@ const resolveCustomMessageSequence = async (
     fileMap.set(file.fieldname, file);
   });
 
-  const safeEventRef = String(eventRef || "event").replace(/[^a-zA-Z0-9-_]/g, "_");
+  const safeEventRef = String(eventRef || "event").replace(
+    /[^a-zA-Z0-9-_]/g,
+    "_",
+  );
   const nextSequence: any[] = [];
 
   for (const rawStep of parsed) {
@@ -116,7 +420,9 @@ const resolveCustomMessageSequence = async (
 
     if (uploadedFile) {
       if (!STEP_ATTACHMENT_MIME_TYPES.has(uploadedFile.mimetype)) {
-        throw new Error("Attachment must be PNG, JPG, or PDF");
+        throw new Error(
+          "Attachment must be image (PNG, JPG, JPEG, WEBP, GIF) or PDF",
+        );
       }
       const safeFile = sanitizeFileName(uploadedFile.originalname);
       const key = `events/${safeEventRef}/rsvp-step-attachments/${Date.now()}_${safeFile}`;
@@ -132,11 +438,37 @@ const resolveCustomMessageSequence = async (
       };
     }
 
+    const audienceType = normalizeMessageAudience(
+      step?.conditions?.audienceType,
+    );
+    const targetTag =
+      audienceType === "tag"
+        ? normalizeMessageTargetTag(step?.conditions?.targetTag)
+        : null;
+
     step.attachment = attachment;
     step.conditions = {
-      ...(step.conditions && typeof step.conditions === "object" ? step.conditions : {}),
-      audienceType: normalizeMessageAudience(step?.conditions?.audienceType),
+      ...(step.conditions && typeof step.conditions === "object"
+        ? step.conditions
+        : {}),
+      audienceType,
+      targetTag,
     };
+    if (
+      step?.channels?.whatsapp &&
+      typeof step.channels.whatsapp === "object"
+    ) {
+      const normalizedTemplateVariables = normalizeTemplateVariables(
+        (step.channels.whatsapp as any).templateVariables,
+      );
+      if (normalizedTemplateVariables) {
+        (step.channels.whatsapp as any).templateVariables =
+          normalizedTemplateVariables;
+      } else {
+        delete (step.channels.whatsapp as any).templateVariables;
+      }
+    }
+    validateWhatsAppSequenceStep(step, attachment);
     nextSequence.push(step);
   }
 
@@ -145,7 +477,7 @@ const resolveCustomMessageSequence = async (
 
 export const createEvent = async (
   req: Request,
-  res: Response
+  res: Response,
 ): Promise<void> => {
   try {
     // Log environment configuration
@@ -161,6 +493,7 @@ export const createEvent = async (
       date,
       location,
       description,
+      ivUrl,
       rsvpMessage,
       rsvpBgColor,
       rsvpAccentColor,
@@ -171,7 +504,8 @@ export const createEvent = async (
       rsvpDeadline,
       eventEndDate,
     } = req.body;
-    const normalizedServicePackage = normalizeRsvpServicePackage(servicePackage);
+    const normalizedServicePackage =
+      normalizeRsvpServicePackage(servicePackage);
 
     // ✅ Validate event fields
     const validateEvent = createEventSchema.validate(
@@ -190,7 +524,7 @@ export const createEvent = async (
         rsvpDeadline,
         eventEndDate,
       },
-      option
+      option,
     );
     if (validateEvent.error) {
       res.status(400).json({ error: validateEvent.error.details[0].message });
@@ -198,8 +532,8 @@ export const createEvent = async (
     }
 
     const uploadedFiles = getUploadedFiles(req);
-    const ivFile = getUploadedFileByField(uploadedFiles, "iv");
-    let ivImageUrl: string | null = null;
+    const ivUpload = resolveIvUpload(req, uploadedFiles);
+    let ivImageUrl: string | null = resolveIvUrlFromBody(req.body) || null;
     const resolvedCustomMessageSequence =
       customMessageSequence !== undefined
         ? await resolveCustomMessageSequence(
@@ -209,29 +543,13 @@ export const createEvent = async (
           )
         : undefined;
 
-    // ✅ Upload IV image if provided
-    if (ivFile) {
-      try {
-        const safeName = name.replace(/[^a-zA-Z0-9-_]/g, "_");
-        ivImageUrl = await uploadToS3(
-          ivFile.buffer,
-          `events/${safeName}_iv_${Date.now()}.png`,
-          ivFile.mimetype
-        );
-        console.log("✅ Image uploaded successfully:", ivImageUrl);
-      } catch (uploadError) {
-        console.error("❌ Image upload failed:", uploadError);
-        // Continue without image if upload fails
-      }
-    }
-
-    // ✅ Create event in DB
+    // ✅ Create event in DB first to get _id
     const newEvent = await Event.create({
       name,
       date,
       location,
       description,
-      iv: ivImageUrl,
+      iv: ivImageUrl, // will set/overwrite after upload if iv file included
       ...(rsvpMessage !== undefined ? { rsvpMessage } : {}),
       ...(rsvpBgColor !== undefined ? { rsvpBgColor } : {}),
       ...(rsvpAccentColor !== undefined ? { rsvpAccentColor } : {}),
@@ -251,23 +569,54 @@ export const createEvent = async (
         : {}),
     });
 
+    // ✅ Upload IV image if provided — always convert to JPEG for WhatsApp card header compatibility
+    if (ivUpload) {
+      try {
+        const jpegBuffer = await convertToJpeg(ivUpload.buffer);
+        const filename = `${newEvent._id}.jpg`;
+        ivImageUrl = await uploadToS3(
+          jpegBuffer,
+          `invitations/${newEvent._id}/${filename}`,
+          "image/jpeg",
+        );
+        // Update event with iv
+        await Event.findByIdAndUpdate(newEvent._id, { iv: ivImageUrl });
+        (newEvent as any).iv = ivImageUrl;
+        console.log("✅ Image uploaded successfully:", ivImageUrl);
+      } catch (uploadError) {
+        console.error("❌ Image upload failed:", uploadError);
+        // Continue without image if upload fails
+      }
+    }
+
     console.log("✅ Event created successfully:", newEvent.id);
 
     let scheduleSync: any = null;
-    if (newEvent.servicePackage !== "invitation-only" && customMessageSequence !== undefined) {
+    if (
+      newEvent.servicePackage !== "invitation-only" &&
+      customMessageSequence !== undefined
+    ) {
       try {
         scheduleSync = await syncFullRsvpPendingSchedules(newEvent, {
           replacePending: true,
         });
       } catch (scheduleError) {
-        console.error("Failed to sync full RSVP schedules after create:", scheduleError);
+        console.error(
+          "Failed to sync full RSVP schedules after create:",
+          scheduleError,
+        );
       }
     }
 
     // ✅ Respond immediately so frontend doesn't break
     res.status(201).json({
       message: "Event created successfully",
-      event: newEvent,
+      event: {
+        ...(typeof (newEvent as any).toObject === "function"
+          ? (newEvent as any).toObject()
+          : newEvent),
+        iv: ivImageUrl,
+      },
       ...(scheduleSync ? { scheduleSync } : {}),
     });
 
@@ -304,6 +653,15 @@ export const createEvent = async (
       }
     }
   } catch (error: any) {
+    const requestError = classifyEventRequestError(error);
+    if (requestError) {
+      res.status(requestError.status).json({
+        message: requestError.message,
+        code: requestError.code,
+      });
+      return;
+    }
+
     console.error("❌ Error creating event:", {
       error: error.message,
       stack: error.stack,
@@ -325,6 +683,7 @@ export const updateEvent = async (req: Request, res: Response) => {
       date,
       location,
       description,
+      ivUrl,
       rsvpMessage,
       rsvpBgColor,
       rsvpAccentColor,
@@ -350,14 +709,16 @@ export const updateEvent = async (req: Request, res: Response) => {
 
     const updateData: any = {};
     const uploadedFiles = getUploadedFiles(req);
-    const ivFile = getUploadedFileByField(uploadedFiles, "iv");
+    const ivUpload = resolveIvUpload(req, uploadedFiles);
+    const resolvedIvUrl = resolveIvUrlFromBody(req.body);
     if (name) updateData.name = name;
     if (date) updateData.date = date;
     if (location) updateData.location = location;
     if (description) updateData.description = description;
     if (rsvpMessage !== undefined) updateData.rsvpMessage = rsvpMessage;
     if (rsvpBgColor !== undefined) updateData.rsvpBgColor = rsvpBgColor;
-    if (rsvpAccentColor !== undefined) updateData.rsvpAccentColor = rsvpAccentColor;
+    if (rsvpAccentColor !== undefined)
+      updateData.rsvpAccentColor = rsvpAccentColor;
     if (servicePackage !== undefined) {
       updateData.servicePackage = normalizeRsvpServicePackage(servicePackage);
     }
@@ -374,9 +735,10 @@ export const updateEvent = async (req: Request, res: Response) => {
       updateData.rsvpDeadline = new Date(rsvpDeadline);
     if (eventEndDate !== undefined)
       updateData.eventEndDate = new Date(eventEndDate);
+    if (resolvedIvUrl) updateData.iv = resolvedIvUrl;
 
-    // Handle new IV upload (if provided via multipart/form-data)
-    if (ivFile?.buffer) {
+    // Handle new IV upload — always convert to JPEG for WhatsApp card header compatibility
+    if (ivUpload?.buffer) {
       try {
         // Delete old IV from S3 if it was an S3 URL
         if (existingEvent.iv) {
@@ -388,20 +750,17 @@ export const updateEvent = async (req: Request, res: Response) => {
           }
         }
 
-        const safeName = (name || existingEvent.name || "event").replace(
-          /[^a-zA-Z0-9-_]/g,
-          "_"
-        );
+        const jpegBuffer = await convertToJpeg(ivUpload.buffer);
+        const filename = `${id}.jpg`;
         const ivImageUrl = await uploadToS3(
-          ivFile.buffer,
-          `events/${safeName}_iv_${Date.now()}.png`,
-          ivFile.mimetype || "image/png"
+          jpegBuffer,
+          `invitations/${id}/${filename}`,
+          "image/jpeg",
         );
 
         updateData.iv = ivImageUrl;
       } catch (uploadErr) {
         console.error("Error uploading new IV:", uploadErr);
-        // continue without failing the whole request; we'll still update other fields
       }
     }
 
@@ -413,19 +772,24 @@ export const updateEvent = async (req: Request, res: Response) => {
       return res.status(404).json({ message: "Event not found" });
     }
 
-    const effectiveServicePackage =
-      normalizeRsvpServicePackage(
-        updateData.servicePackage ?? existingEvent.servicePackage,
-      );
+    const effectiveServicePackage = normalizeRsvpServicePackage(
+      updateData.servicePackage ?? existingEvent.servicePackage,
+    );
+    const hasSavedSequenceBodies = Array.isArray(
+      (updatedEvent as any).customMessageSequence,
+    )
+      ? (updatedEvent as any).customMessageSequence.some(
+          (step: any) =>
+            typeof step?.messageBody === "string" &&
+            step.messageBody.trim().length > 0,
+        )
+      : false;
     const shouldSyncFullSchedules =
       effectiveServicePackage !== "invitation-only" &&
-      (
-        customMessageSequence !== undefined ||
+      hasSavedSequenceBodies &&
+      (customMessageSequence !== undefined ||
         servicePackage !== undefined ||
-        channelConfig !== undefined ||
-        rsvpMessage !== undefined ||
-        description !== undefined
-      );
+        channelConfig !== undefined);
 
     let scheduleSync: any = null;
     if (shouldSyncFullSchedules) {
@@ -441,6 +805,15 @@ export const updateEvent = async (req: Request, res: Response) => {
       ...(scheduleSync ? { scheduleSync } : {}),
     });
   } catch (error) {
+    const requestError = classifyEventRequestError(error);
+    if (requestError) {
+      res.status(requestError.status).json({
+        message: requestError.message,
+        code: requestError.code,
+      });
+      return;
+    }
+
     console.error("Error updating event:", error);
     res.status(500).json({
       message: "Error updating event",
@@ -509,7 +882,8 @@ export const updateRsvpSettings = async (req: Request, res: Response) => {
 
     const updateData: any = {};
     if (rsvpBgColor !== undefined) updateData.rsvpBgColor = rsvpBgColor;
-    if (rsvpAccentColor !== undefined) updateData.rsvpAccentColor = rsvpAccentColor;
+    if (rsvpAccentColor !== undefined)
+      updateData.rsvpAccentColor = rsvpAccentColor;
 
     const updatedEvent = await Event.findByIdAndUpdate(id, updateData, {
       new: true,
@@ -561,6 +935,29 @@ export const updateRsvpFormSettings = async (req: Request, res: Response) => {
       message: "Error updating RSVP form settings",
       error: error instanceof Error ? error.message : error,
     });
+  }
+};
+
+export const saveEventIvUrl = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id, ivUrl } = req.body;
+    if (!id || typeof ivUrl !== 'string' || !ivUrl.trim().includes('://')) {
+      res.status(400).json({ message: 'id and a valid ivUrl are required' });
+      return;
+    }
+    const updated = await Event.findByIdAndUpdate(
+      id,
+      { iv: ivUrl.trim() },
+      { new: true },
+    );
+    if (!updated) {
+      res.status(404).json({ message: 'Event not found' });
+      return;
+    }
+    res.status(200).json({ message: 'Event invitation image URL saved', iv: updated.iv });
+  } catch (error: any) {
+    console.error('Error saving event iv URL:', error);
+    res.status(500).json({ message: 'Failed to save event iv URL', error: error?.message });
   }
 };
 

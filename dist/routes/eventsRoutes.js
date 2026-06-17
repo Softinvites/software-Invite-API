@@ -10,23 +10,33 @@ const emailTemplateController_1 = require("../controllers/emailTemplateControlle
 const whatsappTemplateController_1 = require("../controllers/whatsappTemplateController");
 const auth_1 = __importDefault(require("../library/middlewares/auth"));
 const multer_1 = __importDefault(require("multer"));
+const requestLimits_1 = require("../config/requestLimits");
 const router = express_1.default.Router();
 const storage = multer_1.default.memoryStorage();
-const IV_MIME_TYPES = new Set(["image/png"]);
+const IV_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/jpg", "image/webp"]);
 const STEP_ATTACHMENT_MIME_TYPES = new Set([
     "image/png",
+    "image/jpg",
     "image/jpeg",
+    "image/webp",
+    "image/gif",
     "application/pdf",
 ]);
 const upload = (0, multer_1.default)({
     storage,
+    limits: {
+        files: requestLimits_1.EVENT_FILE_COUNT_LIMIT,
+        fields: requestLimits_1.EVENT_FIELD_COUNT_LIMIT,
+        fieldSize: requestLimits_1.EVENT_FIELD_SIZE_LIMIT_BYTES,
+        parts: requestLimits_1.EVENT_PART_COUNT_LIMIT,
+    },
     fileFilter: (req, file, cb) => {
         if (file.fieldname === "iv") {
             if (IV_MIME_TYPES.has(file.mimetype)) {
                 cb(null, true);
             }
             else {
-                cb(new Error("Only PNG is allowed for IV image"));
+                cb(new Error("Only PNG, JPEG, or WEBP images are allowed for the invitation image"));
             }
             return;
         }
@@ -35,13 +45,15 @@ const upload = (0, multer_1.default)({
                 cb(null, true);
             }
             else {
-                cb(new Error("Step attachment must be PNG, JPG, or PDF"));
+                cb(new Error("Step attachment must be image (PNG, JPG, JPEG, WEBP, GIF) or PDF"));
             }
             return;
         }
         cb(new Error("Unsupported file field"));
     }
 });
+router.post("/assets/presign", auth_1.default, eventsController_1.createEventAssetUpload);
+router.post("/assets/iv-url", auth_1.default, eventsController_1.saveEventIvUrl);
 router.post("/create", auth_1.default, upload.any(), eventsController_1.createEvent);
 // router.put("/update/:id", auth, upload.any(), updateEvent);
 router.put("/update", auth_1.default, upload.any(), eventsController_1.updateEvent);
@@ -70,6 +82,7 @@ router.put("/email/templates/:templateId", auth_1.default, emailTemplateControll
 router.delete("/email/templates/:templateId", auth_1.default, emailTemplateController_1.deleteEmailTemplate);
 router.post("/events/:eventId/whatsapp/templates", auth_1.default, whatsappTemplateController_1.createWhatsAppTemplate);
 router.get("/events/:eventId/whatsapp/templates", auth_1.default, whatsappTemplateController_1.listWhatsAppTemplates);
+router.get("/events/:eventId/whatsapp/template-samples", auth_1.default, whatsappTemplateController_1.getRecommendedWhatsAppTemplateSamples);
 router.post("/events/:eventId/whatsapp/broadcast", auth_1.default, whatsappTemplateController_1.sendWhatsAppBroadcast);
 router.post("/events/:eventId/whatsapp/opt-in", whatsappTemplateController_1.optInWhatsApp);
 router.delete("/events", auth_1.default, eventsController_1.deleteAllEvents);

@@ -14,6 +14,28 @@ import fetch from "node-fetch";
 
 const s3 = new S3Client({ region: process.env.AWS_REGION });
 
+const normalizeGuestFullname = (value: unknown) =>
+  String(value || "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+
+const normalizeGuestPhone = (value: unknown) =>
+  String(value || "")
+    .trim()
+    .replace(/\s+/g, "")
+    .replace(/[^\d+]/g, "");
+
+const normalizeGuestEmail = (value: unknown) =>
+  String(value || "").trim().toLowerCase();
+
+const buildPhoneEmailKey = (phone: unknown, email: unknown) => {
+  const normalizedPhone = normalizeGuestPhone(phone);
+  const normalizedEmail = normalizeGuestEmail(email);
+  if (!normalizedPhone || !normalizedEmail) return "";
+  return `${normalizedPhone}|${normalizedEmail}`;
+};
+
 // Helper to normalize various S3 GetObject Body shapes to a Buffer
 async function streamToBuffer(body: any): Promise<Buffer> {
   if (!body) throw new Error("S3 object body is empty");
@@ -187,6 +209,17 @@ export const handler = async (event: any) => {
       return { statusCode: 400, body: "No guests found in file" };
     }
 
+    const existingGuests = await Guest.find(
+      { eventId },
+      { normalizedFullname: 1, phone: 1, email: 1, _id: 0 },
+    ).lean();
+    const seenNormalizedNames = new Set(
+      existingGuests
+        .map((guest: any) => normalizeGuestFullname(guest?.normalizedFullname))
+        .filter(Boolean),
+    );
+
+
     /* ------------------------------ */
     /* ✅ 2. PROCESS IN BATCHES */
     /* ------------------------------ */
@@ -199,6 +232,7 @@ export const handler = async (event: any) => {
 
       const batchResults = await Promise.allSettled(
         batch.map(async (guestData) => {
+          let reservationAdded = false;
           try {
             // Skip empty rows
             if (!guestData.fullname || !guestData.fullname.trim()) {
@@ -213,14 +247,49 @@ export const handler = async (event: any) => {
             const cleanedFullname = String(guestData.fullname)
               .trim()
               .replace(/\s+/g, " ");
-            const normalizedFullname = cleanedFullname.toLowerCase();
+            const normalizedFullname = normalizeGuestFullname(cleanedFullname);
 
-            const guest = await Guest.create({
-              ...guestData,
-              fullname: cleanedFullname,
-              normalizedFullname,
-              eventId,
-            });
+            if (seenNormalizedNames.has(normalizedFullname)) {
+              return {
+                ...guestData,
+                fullname: cleanedFullname,
+                success: false,
+                error: "Duplicate fullname for this event - row skipped",
+                skipped: true,
+                email: guestData.email || null,
+              };
+            }
+
+            seenNormalizedNames.add(normalizedFullname);
+            reservationAdded = true;
+
+            // Belt-and-braces dedup: the in-memory Set + DB unique index together
+            // prevent same-phone or same-name duplicates per event. If the DB
+            // rejects with E11000 (duplicate key) — e.g. because another concurrent
+            // batch or another invocation already inserted this phone/name —
+            // skip cleanly instead of failing the whole row.
+            let guest;
+            try {
+              guest = await Guest.create({
+                ...guestData,
+                fullname: cleanedFullname,
+                normalizedFullname,
+                eventId,
+              });
+            } catch (insertErr: any) {
+              if (insertErr?.code === 11000) {
+                const dupField = Object.keys(insertErr?.keyPattern || {}).join(", ");
+                return {
+                  ...guestData,
+                  fullname: cleanedFullname,
+                  success: false,
+                  error: `Duplicate guest (${dupField || "unique key"}) for this event - row skipped`,
+                  skipped: true,
+                  email: guestData.email || null,
+                };
+              }
+              throw insertErr;
+            }
 
             const fullnameSafe = guest.fullname.replace(/[^a-zA-Z0-9-_]/g, "_");
 
@@ -360,15 +429,28 @@ export const handler = async (event: any) => {
                     throw new Error("Generated PNG buffer is empty");
                   }
 
+                  // Upload to BOTH paths so WhatsApp "View Digital Pass"
+                  // buttons (which use qr_codes/email_png/...) resolve.
                   const pngKey = `qr_codes/png/${eventId}/${guest._id.toString()}.png`;
-                  await s3.send(
-                    new PutObjectCommand({
-                      Bucket: process.env.S3_BUCKET,
-                      Key: pngKey,
-                      Body: pngBuffer,
-                      ContentType: "image/png",
-                    }),
-                  );
+                  const emailPngKey = `qr_codes/email_png/${eventId}/${guest._id.toString()}.png`;
+                  await Promise.all([
+                    s3.send(
+                      new PutObjectCommand({
+                        Bucket: process.env.S3_BUCKET,
+                        Key: pngKey,
+                        Body: pngBuffer,
+                        ContentType: "image/png",
+                      }),
+                    ),
+                    s3.send(
+                      new PutObjectCommand({
+                        Bucket: process.env.S3_BUCKET,
+                        Key: emailPngKey,
+                        Body: pngBuffer,
+                        ContentType: "image/png",
+                      }),
+                    ),
+                  ]);
 
                   pngUrl = `https://${process.env.S3_BUCKET}.s3.${process.env.AWS_REGION}.amazonaws.com/${pngKey}`;
                 }
@@ -412,7 +494,7 @@ export const handler = async (event: any) => {
               {
                 to: guest.email,
                 from: `SoftInvites <info@softinvite.com>`,
-                subject: `You're Invited to ${eventDoc.name}`,
+                subject: `${eventDoc.name}`,
                 htmlContent: buildInvitationEmail({
                   fullname: guest.fullname,
                   message: guest.message || "You're invited!",
@@ -423,6 +505,13 @@ export const handler = async (event: any) => {
                   downloadUrl: downloadUrl,
                 }),
                 attachments: attachments,
+                eventId,
+                messageType: "guest-import-invitation",
+                diagnosticContext: {
+                  source: "importGuestsLambda",
+                  guestId: guest._id.toString(),
+                  trigger: "guest-import",
+                },
               },
               true,
             );
@@ -434,11 +523,36 @@ export const handler = async (event: any) => {
               email: guest.email,
             };
           } catch (err: any) {
+            if (reservationAdded) {
+              seenNormalizedNames.delete(
+                normalizeGuestFullname(guestData?.fullname),
+              );
+            }
+
+
+            const errorMessage = (err as any)?.message || String(err);
+            const isDuplicateKeyError =
+              (err as any)?.code === 11000 ||
+              /E11000 duplicate key error/i.test(errorMessage);
+
+            if (isDuplicateKeyError) {
+              return {
+                ...guestData,
+                fullname: String(guestData?.fullname || "")
+                  .trim()
+                  .replace(/\s+/g, " "),
+                success: false,
+                error: "Duplicate fullname for this event - row skipped",
+                skipped: true,
+                email: guestData.email || null,
+              };
+            }
+
             console.error("❌ Guest processing error:", guestData, err);
             return {
               ...guestData,
               success: false,
-              error: (err as any)?.message || String(err),
+              error: errorMessage,
               email: guestData.email || null,
             };
           }
@@ -455,11 +569,13 @@ export const handler = async (event: any) => {
       .filter((r) => r.status === "fulfilled")
       .map((r: any) => r.value);
     const successCount = fulfilled.filter((g) => g.success).length;
-    const failedCount = fulfilled.filter((g) => !g.success).length;
-    const failed = fulfilled.filter((g) => !g.success);
+    const skipped = fulfilled.filter((g) => g.skipped);
+    const skippedCount = skipped.length;
+    const failed = fulfilled.filter((g) => !g.success && !g.skipped);
+    const failedCount = failed.length;
 
     console.log(
-      `📊 Import Summary: ${successCount} successful, ${failedCount} failed`,
+      `📊 Import Summary: ${successCount} successful, ${skippedCount} skipped, ${failedCount} failed`,
     );
     console.log(`📧 Sending admin summary email to: ${ADMIN_EMAIL}`);
 
@@ -500,6 +616,16 @@ export const handler = async (event: any) => {
               <p style="font-size: 32px; font-weight: bold; margin: 0;">${successCount}</p>
             </div>
           </div>
+
+          ${
+            skippedCount > 0
+              ? `
+            <div style="background: #fff7e6; color: #9c4221; padding: 12px 16px; border-radius: 8px; margin-bottom: 20px; text-align: center; font-weight: 600;">
+              Skipped duplicate rows: ${skippedCount}
+            </div>
+          `
+              : ""
+          }
           
           ${
             failedCount > 0
@@ -573,6 +699,12 @@ export const handler = async (event: any) => {
         subject: `Guest Import Complete: ${eventDoc.name}`,
         htmlContent: adminEmailHtml,
         attachments: adminAttachments,
+        eventId,
+        messageType: "guest-import-admin-summary",
+        diagnosticContext: {
+          source: "importGuestsLambda",
+          trigger: "import-summary",
+        },
       },
       true,
     );
@@ -585,6 +717,7 @@ export const handler = async (event: any) => {
         message: "Guests imported, QR generated, PNG converted & emails sent",
         total: guests.length,
         successful: successCount,
+        skipped: skippedCount,
         failed: failedCount,
       }),
     };

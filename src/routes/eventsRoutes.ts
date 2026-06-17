@@ -1,6 +1,7 @@
 import express from "express";
 import {
   createEvent,
+  createEventAssetUpload,
   updateEvent,
   getAllEvents,
   getEventById,
@@ -8,6 +9,7 @@ import {
   deleteSingleEvent,
   updateRsvpSettings,
   updateRsvpFormSettings,
+  saveEventIvUrl,
 } from "../controllers/eventsController";
 import {
   getAnalyticsOverview,
@@ -28,28 +30,44 @@ import {
   createWhatsAppTemplate,
   listWhatsAppTemplates,
   sendWhatsAppBroadcast,
+  getRecommendedWhatsAppTemplateSamples,
   optInWhatsApp,
 } from "../controllers/whatsappTemplateController";
 import auth from "../library/middlewares/auth";
 import multer from "multer";
+import {
+  EVENT_FIELD_COUNT_LIMIT,
+  EVENT_FIELD_SIZE_LIMIT_BYTES,
+  EVENT_FILE_COUNT_LIMIT,
+  EVENT_PART_COUNT_LIMIT,
+} from "../config/requestLimits";
 
 const router = express.Router();
 
 const storage = multer.memoryStorage(); 
-const IV_MIME_TYPES = new Set(["image/png"]);
+const IV_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/jpg", "image/webp"]);
 const STEP_ATTACHMENT_MIME_TYPES = new Set([
   "image/png",
+  "image/jpg",
   "image/jpeg",
+  "image/webp",
+  "image/gif",
   "application/pdf",
 ]);
 const upload = multer({ 
   storage,
+  limits: {
+    files: EVENT_FILE_COUNT_LIMIT,
+    fields: EVENT_FIELD_COUNT_LIMIT,
+    fieldSize: EVENT_FIELD_SIZE_LIMIT_BYTES,
+    parts: EVENT_PART_COUNT_LIMIT,
+  },
   fileFilter: (req, file, cb) => {
     if (file.fieldname === "iv") {
       if (IV_MIME_TYPES.has(file.mimetype)) {
         cb(null, true);
       } else {
-        cb(new Error("Only PNG is allowed for IV image"));
+        cb(new Error("Only PNG, JPEG, or WEBP images are allowed for the invitation image"));
       }
       return;
     }
@@ -58,7 +76,11 @@ const upload = multer({
       if (STEP_ATTACHMENT_MIME_TYPES.has(file.mimetype)) {
         cb(null, true);
       } else {
-        cb(new Error("Step attachment must be PNG, JPG, or PDF"));
+        cb(
+          new Error(
+            "Step attachment must be image (PNG, JPG, JPEG, WEBP, GIF) or PDF",
+          ),
+        );
       }
       return;
     }
@@ -67,6 +89,8 @@ const upload = multer({
   }
 });
 
+router.post("/assets/presign", auth, createEventAssetUpload);
+router.post("/assets/iv-url", auth, saveEventIvUrl);
 router.post("/create", auth, upload.any(), createEvent);
 // router.put("/update/:id", auth, upload.any(), updateEvent);
 router.put("/update", auth, upload.any(), updateEvent);
@@ -95,6 +119,11 @@ router.put("/email/templates/:templateId", auth, updateEmailTemplate);
 router.delete("/email/templates/:templateId", auth, deleteEmailTemplate);
 router.post("/events/:eventId/whatsapp/templates", auth, createWhatsAppTemplate);
 router.get("/events/:eventId/whatsapp/templates", auth, listWhatsAppTemplates);
+router.get(
+  "/events/:eventId/whatsapp/template-samples",
+  auth,
+  getRecommendedWhatsAppTemplateSamples,
+);
 router.post("/events/:eventId/whatsapp/broadcast", auth, sendWhatsAppBroadcast);
 router.post("/events/:eventId/whatsapp/opt-in", optInWhatsApp);
 router.delete("/events", auth, deleteAllEvents);
