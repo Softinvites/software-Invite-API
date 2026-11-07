@@ -644,6 +644,10 @@ interface Guest {
   phone?: string;
   qrCode?: string;
   pngUrl?: string;
+  /** Guest.TableNo — feeds the guest_table_no template variable. Callers that
+   *  project a subset of guest fields MUST carry this through, or the variable
+   *  silently renders "TBA". */
+  TableNo?: string;
 }
 
 interface EventData {
@@ -1108,7 +1112,13 @@ class WhatsAppService {
     };
 
     const BATCH_SIZE = 10;
-    const DELAY_MS = 250;
+    // Was a flat 250ms between every message, capping this bulk path at
+    // ~4 msg/sec before Twilio's own round-trip. The batch already runs
+    // concurrently, so pacing belongs there; keep an opt-in knob for
+    // accounts that genuinely need spacing.
+    const DELAY_MS = Number.isFinite(Number(process.env.WHATSAPP_SEND_DELAY_MS))
+      ? Math.max(0, Number(process.env.WHATSAPP_SEND_DELAY_MS))
+      : 0;
     for (let i = 0; i < guests.length; i += BATCH_SIZE) {
       const batch = guests.slice(i, i + BATCH_SIZE);
       
@@ -1163,7 +1173,9 @@ class WhatsAppService {
             });
           }
 
-          await new Promise(resolve => setTimeout(resolve, DELAY_MS));
+          if (DELAY_MS > 0) {
+            await new Promise(resolve => setTimeout(resolve, DELAY_MS));
+          }
         })
       );
 
@@ -1213,10 +1225,16 @@ class WhatsAppService {
       );
       const dbDoc = await (WhatsAppContentTemplate as any)
         .findOne({ friendlyName: templateName, approvalStatus: 'approved' })
-        .select({ variableDefinitions: 1 })
+        .select({ variableDefinitions: 1, headerMediaUrl: 1 })
         .lean();
+      const { applyHeaderMediaDefaults } = await import(
+        './dynamicTemplateBuilder.js'
+      );
       dbDefinitions = Array.isArray(dbDoc?.variableDefinitions)
-        ? dbDoc.variableDefinitions
+        ? applyHeaderMediaDefaults(
+            dbDoc.variableDefinitions as any,
+            (dbDoc as any)?.headerMediaUrl,
+          )
         : null;
     } catch {
       /* ignore - best-effort DB template lookup */
@@ -1227,6 +1245,7 @@ class WhatsAppService {
       recipientName: guest.fullname,
       eventName: eventData.name,
       location: (eventData as any).location || (eventData as any).venue || 'TBA',
+      tableNo: guest.TableNo || null,
       eventDate: eventData.date || 'TBA',
       passUrl: qrCodeUrl,
       eventIv: eventData.iv || null,

@@ -67,7 +67,10 @@
 
 import mongoose from "mongoose";
 import dotenv from "dotenv";
-import { dropLegacyWhatsAppTemplateIndex } from "./utils/migrations.js";
+import {
+  dropLegacyWhatsAppTemplateIndex,
+  dropGuestEmailUniqueIndex,
+} from "./utils/migrations.js";
 
 dotenv.config();
 
@@ -93,6 +96,7 @@ export async function connectDB() {
 
     // Run one-time migrations
     await dropLegacyWhatsAppTemplateIndex();
+    await dropGuestEmailUniqueIndex();
 
     return connection;
   } catch (error) {

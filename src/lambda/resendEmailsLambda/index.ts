@@ -2,7 +2,8 @@ import { connectDB } from "./db.js";
 import { Guest } from "./guestmodel.js";
 import { Event } from "./eventmodel.js";
 import { invokeLambda } from "./lambdaUtils.js";
-import { buildInvitationEmail } from "./buildInvitationEmail.js";
+import { buildInvitationEmail, versionedImageUrl } from "./buildInvitationEmail.js";
+import { buildEventEmailFrom } from "./emailSender.js";
 
 const { EMAIL_LAMBDA_FUNCTION_NAME, ADMIN_EMAIL } = process.env;
 
@@ -40,7 +41,7 @@ export const handler = async (event: any) => {
   try {
     console.log("✅ Resend Emails Started");
 
-    const { eventId } = event;
+    const { eventId, guestIds } = event;
     if (!eventId) {
       return { statusCode: 400, body: "Missing eventId" };
     }
@@ -52,9 +53,13 @@ export const handler = async (event: any) => {
       return { statusCode: 404, body: "Event not found" };
     }
 
+    // guestIds narrows the send to guests the admin selected on the guest page.
     const guests = await Guest.find({
       eventId,
       email: { $exists: true, $ne: "" },
+      ...(Array.isArray(guestIds) && guestIds.length > 0
+        ? { _id: { $in: guestIds } }
+        : {}),
     });
     if (!guests.length) {
       return { statusCode: 404, body: "No guests with email found" };
@@ -62,16 +67,11 @@ export const handler = async (event: any) => {
 
     console.log(`Found ${guests.length} guests with emails`);
 
-    const attachments =
-      eventDoc.iv && eventDoc.iv.includes(".s3.")
-        ? [
-            {
-              filename: `${eventDoc.name.replace(/[^a-zA-Z0-9]/g, "_")}_invitation.jpg`,
-              s3Key: decodeURIComponent(new URL(eventDoc.iv).pathname.slice(1)),
-              contentType: "image/jpeg",
-            },
-          ]
-        : [];
+    const guestFrom = buildEventEmailFrom(eventDoc);
+    const invitationImageUrl = versionedImageUrl(
+      eventDoc.iv,
+      (eventDoc as any).updatedAt,
+    );
 
     let successCount = 0;
     let failureCount = 0;
@@ -98,7 +98,7 @@ export const handler = async (event: any) => {
               EMAIL_LAMBDA_FUNCTION_NAME!,
               {
                 to: guest.email,
-                from: `SoftInvites <info@softinvite.com>`,
+                from: guestFrom,
                 subject: `${eventDoc.name}`,
                 htmlContent: buildInvitationEmail({
                   fullname: guest.fullname,
@@ -106,9 +106,10 @@ export const handler = async (event: any) => {
                   eventName: eventDoc.name,
                   eventDate: eventDoc.date || "",
                   qrCodeCenterColor: guest.qrCodeCenterColor,
+                  tableNo: (guest as any).TableNo,
                   finalQrUrl: finalQrUrl,
+                  invitationImageUrl,
                 }),
-                attachments: attachments.length > 0 ? attachments : undefined,
                 eventId,
                 messageType: "guest-resend-invitation",
                 diagnosticContext: {
@@ -150,12 +151,12 @@ export const handler = async (event: any) => {
         {
           to: ADMIN_EMAIL,
           from: `SoftInvites <info@softinvite.com>`,
-          subject: `Email Resend Complete - ${eventDoc.name}`,
+          subject: `Email Send Complete - ${eventDoc.name}`,
           htmlContent: `
 
         <div style="font-family: Arial, sans-serif; padding: 20px; background: #f7f8fc;">
           <div style="max-width: 600px; margin: 0 auto; background: white; border-radius: 10px; padding: 30px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
-            <h2 style="color: #2d3748; border-bottom: 3px solid #4a5568; padding-bottom: 10px;">Email Resend Completed Successfully</h2>
+            <h2 style="color: #2d3748; border-bottom: 3px solid #4a5568; padding-bottom: 10px;">Email Send Completed Successfully</h2>
             
             <div style="background: #f8faff; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
               <h3 style="color: #4a5568; margin-top: 0;">Event Details</h3>

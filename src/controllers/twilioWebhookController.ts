@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import twilio from "twilio";
 import whatsappService from "../utils/whatsappService.js";
 import { persistInboundWhatsAppMessage } from "../services/whatsappInboundService.js";
+import { respondFromWhatsAppButton } from "./rsvpController.js";
 
 const buildTwilioWebhookUrl = (req: Request) => {
   const explicitBase = process.env.TWILIO_WEBHOOK_BASE_URL?.replace(/\/$/, "");
@@ -91,7 +92,11 @@ export const handleTwilioWhatsAppInbound = async (
       rsvpId: (saved as any)?.rsvpId,
     });
 
-    res.type("text/xml").status(200).send("<Response></Response>");
+    const twiml = new twilio.twiml.MessagingResponse();
+    const buttonReply = await respondFromWhatsAppButton(req.body?.ButtonPayload);
+    if (buttonReply) twiml.message(buttonReply);
+
+    res.type("text/xml").status(200).send(twiml.toString());
   } catch (error: any) {
     console.error("Twilio WhatsApp inbound webhook error:", error);
     res.status(500).json({
@@ -99,6 +104,22 @@ export const handleTwilioWhatsAppInbound = async (
       error: error.message || String(error),
     });
   }
+};
+
+const WHATSAPP_ERROR_REASONS: Record<string, string> = {
+  "63049":
+    "Meta did not deliver this marketing message (per-person marketing limit or Meta's engagement rules). Usually affects numbers that received many messages recently.",
+  "63016": "Outside WhatsApp's 24-hour window; only approved templates can be sent.",
+  "63024": "Invalid recipient for WhatsApp.",
+  "63003": "This number is not reachable on WhatsApp.",
+  "63032": "The recipient has stopped marketing messages from this business.",
+  "63018": "Rate limit reached for this WhatsApp sender.",
+  "63019": "Media in the message could not be downloaded or is invalid.",
+  "63051": "The recipient's WhatsApp account is temporarily locked.",
+  "63112": "The WhatsApp Business account is disabled or restricted by Meta.",
+  "63013": "Meta rejected the message under its policy.",
+  "63027": "The template could not be delivered (template or variables mismatch).",
+  "30008": "Unknown delivery error from the carrier.",
 };
 
 export const handleTwilioWhatsAppStatusCallback = async (
@@ -119,11 +140,21 @@ export const handleTwilioWhatsAppStatusCallback = async (
       return res.status(200).json({ message: "Ignored empty Twilio status callback" });
     }
 
+    // Twilio usually sends only ErrorCode, so store a readable reason for the
+    // WhatsApp Status dialog instead of leaving failures unexplained.
+    const errorCode = String(req.body?.ErrorCode || "").trim();
+    const reason =
+      req.body?.ErrorMessage ||
+      req.body?.ChannelStatusMessage ||
+      (errorCode
+        ? `${WHATSAPP_ERROR_REASONS[errorCode] || "WhatsApp could not deliver this message."} (error ${errorCode})`
+        : undefined);
+
     await whatsappService.updateMessageStatus(
       providerMessageId,
       status,
       undefined,
-      req.body?.ErrorMessage || req.body?.ChannelStatusMessage || undefined,
+      reason,
     );
 
     console.log("📊 Twilio WhatsApp status callback processed", {

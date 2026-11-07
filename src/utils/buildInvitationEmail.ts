@@ -1,13 +1,29 @@
 import sanitizeHtml from "sanitize-html";
 import { rgbToHex } from "./colorUtils.js";
 
+// The invitation image is shown in the email body rather than attached. Its S3
+// path stays the same when an event's image is replaced, so the version keeps
+// mail clients from showing a cached copy of the old one.
+export const versionedImageUrl = (
+  url?: string | null,
+  version?: Date | string | null,
+): string => {
+  const clean = String(url || "").trim();
+  if (!clean) return "";
+  const stamp = version ? new Date(version).getTime() : NaN;
+  if (!Number.isFinite(stamp)) return clean;
+  return `${clean}${clean.includes("?") ? "&" : "?"}v=${stamp}`;
+};
+
 export const buildInvitationEmail = ({
   fullname,
   message,
   eventName,
   eventDate,
   qrCodeCenterColor,
+  tableNo,
   finalQrUrl,
+  invitationImageUrl,
   downloadUrl,
 }: {
   fullname: string;
@@ -15,9 +31,19 @@ export const buildInvitationEmail = ({
   eventName: string;
   eventDate: string;
   qrCodeCenterColor: string;
+  /** Guest.TableNo. Omitted from the email entirely when blank. */
+  tableNo?: string | null;
   finalQrUrl: string;
+  /** Public URL of the event's invitation image, shown at the top. */
+  invitationImageUrl?: string;
   downloadUrl: string;
 }) => {
+  // Strip all markup: TableNo comes from admin input and CSV imports.
+  const tableLabel = sanitizeHtml(String(tableNo ?? ""), {
+    allowedTags: [],
+    allowedAttributes: {},
+  }).trim();
+
   const sanitizedMessage = sanitizeHtml(message || "", {
     allowedTags: ["p", "b", "i", "strong", "em", "ul", "li", "br", "h1", "h2"],
     allowedAttributes: {},
@@ -65,6 +91,15 @@ export const buildInvitationEmail = ({
         <!-- Main Content -->
         <div style="padding: 30px 20px;">
           
+          <!-- Invitation Image -->
+          ${invitationImageUrl ? `
+            <div style="margin-bottom: 30px; text-align: center;">
+              <img src="${invitationImageUrl.replace(/"/g, "%22")}"
+                   alt="${eventName} invitation"
+                   style="display: block; width: 100%; max-width: 600px; height: auto; margin: 0 auto; border-radius: 12px;" />
+            </div>
+          ` : ''}
+
           <!-- Personal Greeting -->
           <div style="margin-bottom: 30px;">
             <div style="background: #f8faff; padding: 20px; border-radius: 8px;">
@@ -74,6 +109,14 @@ export const buildInvitationEmail = ({
               </div>
             </div>
           </div>
+
+          <!-- Table Assignment (only rendered when the guest has one) -->
+          ${tableLabel ? `
+            <div style="background: #f8faff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 16px 20px; margin-bottom: 30px; text-align: center;">
+              <p style="margin: 0 0 6px 0; font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: #718096;">Your Table</p>
+              <p style="margin: 0; font-size: clamp(20px, 5vw, 26px); font-weight: 600; color: ${darkerCenterColor};">${tableLabel}</p>
+            </div>
+          ` : ''}
 
           <!-- QR Code Section -->
           <div style="text-align: center; background: linear-gradient(135deg, #f8faff 0%, #e8f2ff 100%); padding: 30px 15px; border-radius: 12px; border: 1px solid #e2e8f0;">

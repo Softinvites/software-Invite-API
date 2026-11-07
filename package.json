@@ -8,7 +8,8 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "compile": "tsc -w",
     "build": "tsc",
-    "dev": "nodemon dist/index.js"
+    "dev": "nodemon dist/index.js",
+    "deploy": "npm run build && AWS_REGION=us-east-2 npx sls deploy"
   },
   "keywords": [],
   "author": "",

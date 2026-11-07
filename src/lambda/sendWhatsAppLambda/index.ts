@@ -5,6 +5,10 @@ import { WhatsAppMessage } from "./whatsappmessagemodel.js";
 import { WhatsAppTemplate } from "./whatsapptemplatemodel.js";
 import { WhatsAppContentTemplate } from "./whatsappcontenttemplatemodel.js";
 import { RSVPFormLink } from "./rsvpFormLinkModel.js";
+import {
+  resolveExternalFormUrl,
+  applyHeaderMediaDefaults,
+} from "./dynamicTemplateBuilder.js";
 import { invokeLambda } from "./lambdaUtils.js";
 import {
   buildDynamicTemplateParams,
@@ -341,6 +345,7 @@ const buildTemplateParams = ({
   recipientName,
   eventName,
   location,
+  tableNo,
   eventDate,
   passUrl,
   eventIv,
@@ -352,6 +357,7 @@ const buildTemplateParams = ({
   recipientName: string;
   eventName: string;
   location?: string | null;
+  tableNo?: string | null;
   eventDate?: string | null;
   passUrl?: string | null;
   eventIv?: string | null;
@@ -372,6 +378,7 @@ const buildTemplateParams = ({
         recipientName: recipientName || "Guest",
         eventName: eventName || "Our Event",
         location: location || "TBA",
+        tableNo: tableNo || null,
         dateLabel,
         timeLabel,
         signoff: eventName || "SoftInvites",
@@ -740,7 +747,10 @@ export const handler = async (event: any) => {
     };
 
     const failed: any[] = [];
-    const seenPhoneEmailKeys = new Set<string>();
+    // Only a repeated guest name counts as a duplicate. Couples and families
+    // often share one WhatsApp number and email, and each guest still needs
+    // their own invitation and pass.
+    const seenNameKeys = new Set<string>();
 
     // Pre-compute shared values once for all guests to avoid repeated computation
     // and ensure consistency across the entire batch
@@ -765,7 +775,7 @@ export const handler = async (event: any) => {
           friendlyName: templateName,
           approvalStatus: "approved",
         })
-          .select({ variableDefinitions: 1 })
+          .select({ variableDefinitions: 1, headerMediaUrl: 1 })
           .lean()) as { variableDefinitions?: VariableDefinition[] } | null;
         precomputedDbDefinition = Array.isArray(dbDoc?.variableDefinitions)
           ? dbDoc!.variableDefinitions!
@@ -811,6 +821,13 @@ export const handler = async (event: any) => {
     const needsRsvpFormLink =
       /^rsvp_form/i.test(templateName) || dbHasRsvpFormPath;
 
+    // Bulk sends used to hardcode redirectUrl: null, silently dropping an
+    // event's external RSVP form and landing every guest on our own form.
+    const bulkRedirectUrl = resolveExternalFormUrl(
+      (event as any)?.redirectUrl,
+      eventDoc as any,
+    );
+
     let precomputedFormLinkPath: string | null = formLinkPath || null;
     if (needsRsvpFormLink && !precomputedFormLinkPath) {
       const fToken = generateRsvpToken(16);
@@ -818,7 +835,7 @@ export const handler = async (event: any) => {
         const link = await RSVPFormLink.create({
           eventId: eventDoc._id,
           token: fToken,
-          redirectUrl: null,
+          redirectUrl: bulkRedirectUrl,
         });
         precomputedFormLinkPath = link.token;
         console.log(
@@ -876,26 +893,22 @@ export const handler = async (event: any) => {
               return;
             }
 
-            const normalizedEmail =
-              typeof (guest as any)?.email === "string"
-                ? String((guest as any).email).trim().toLowerCase()
-                : "";
-            const phoneEmailKey =
-              normalizedEmail && normalizedPhone
-                ? `${normalizedPhone}|${normalizedEmail}`
-                : "";
-            if (phoneEmailKey) {
-              if (seenPhoneEmailKeys.has(phoneEmailKey)) {
+            const nameKey = String(guest.fullname || "")
+              .trim()
+              .replace(/\s+/g, " ")
+              .toLowerCase();
+            if (nameKey) {
+              if (seenNameKeys.has(nameKey)) {
                 results.skipped++;
                 results.details.push({
                   guestId: guest._id.toString(),
                   name: guest.fullname,
-                  error: "Duplicate phone+email - skipped",
+                  error: "Duplicate name - skipped",
                   status: "skipped",
                 });
                 return;
               }
-              seenPhoneEmailKeys.add(phoneEmailKey);
+              seenNameKeys.add(nameKey);
             }
 
             const normalizedTemplate = String(templateName || "")
@@ -933,6 +946,7 @@ export const handler = async (event: any) => {
               recipientName: guest.fullname,
               eventName: eventDoc.name,
               location: eventDoc.location || "TBA",
+              tableNo: (guest as any).TableNo || null,
               eventDate: eventDoc.date || "TBA",
               passUrl: qrCodeUrl,
               eventIv: eventDoc.iv || null,

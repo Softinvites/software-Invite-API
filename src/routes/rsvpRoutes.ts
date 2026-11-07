@@ -3,6 +3,7 @@ import {
   getRsvpFormByToken,
   submitRsvpForm,
   respondFromEmail,
+  confirmRsvpResponse,
   respondFromWhatsAppWithEmail,
   downloadRsvpCalendarInvite,
   getRsvpPreferences,
@@ -20,6 +21,7 @@ const router = Router();
 router.get("/form/:token", getRsvpFormByToken);
 router.post("/form/:token/submit", submitRsvpForm);
 router.get("/respond/:rsvpId", respondFromEmail);
+router.post("/respond/:rsvpId", confirmRsvpResponse);
 router.post("/respond/:rsvpId/email", respondFromWhatsAppWithEmail);
 router.get("/:rsvpId/calendar", downloadRsvpCalendarInvite);
 router.get("/preferences/:token", getRsvpPreferences);

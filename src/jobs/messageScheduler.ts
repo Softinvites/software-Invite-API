@@ -1,6 +1,7 @@
 import cron from "node-cron";
 import { MessageSchedule } from "../models/messageSchedule";
 import { Event } from "../models/eventmodel";
+import { buildEventEmailFrom } from "../utils/emailSender";
 import { RSVP } from "../models/rsvpmodel";
 import { sendEmail } from "../library/helpers/emailService";
 import { RSVPChannelPreference } from "../models/rsvpChannelPreference";
@@ -428,7 +429,7 @@ export const processPendingSchedules = async (
             email,
             subject,
             html,
-            `SoftInvites <info@softinvite.com>`,
+            buildEventEmailFrom(event),
             scheduleAttachment ? [scheduleAttachment] : undefined,
             {
               eventId: String(event._id),
@@ -480,6 +481,9 @@ export const processPendingSchedules = async (
               ? scheduleHeaderMediaUrl || (event as any).iv || null
               : null;
           const dbTemplateInfo = await loadDbTemplateByName(templateName);
+          // NOTE: this path is RSVP-driven and the RSVP model has no TableNo,
+          // so guest_table_no resolves to "TBA" here. Table numbers only reach
+          // guest-driven sends (whatsappController / sendWhatsAppLambda).
           const templateParams = buildWhatsAppTemplateParams({
             templateName,
             recipientName: rsvp.guestName || "Guest",
@@ -514,13 +518,13 @@ export const processPendingSchedules = async (
             rsvp,
             emailTemplate?.html || null,
           );
-          await smsService.sendSms({
+          const smsResult = await smsService.sendSms({
             to: rsvp.phone || "",
             message: smsMessage || `${event.name}: You're invited!`,
             eventId: String(event._id),
             rsvpId: String(rsvp._id),
           });
-          sentCount += 1;
+          if (smsResult.success) sentCount += 1;
         }
       }
 

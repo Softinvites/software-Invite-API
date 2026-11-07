@@ -1,5 +1,6 @@
 import { MessageSchedule } from "../models/messageSchedule.js";
 import { Event } from "../models/eventmodel.js";
+import { buildEventEmailFrom } from "../utils/emailSender.js";
 import { RSVP } from "../models/rsvpmodel.js";
 import { sendEmail } from "../library/helpers/emailService.js";
 import { RSVPChannelPreference } from "../models/rsvpChannelPreference.js";
@@ -11,6 +12,8 @@ import { WhatsAppContentTemplate } from "../models/whatsappContentTemplate.js";
 import { RSVPFormLink } from "../models/rsvpFormLinkModel.js";
 import {
   buildDynamicTemplateParams,
+  resolveExternalFormUrl,
+  applyHeaderMediaDefaults,
   VariableDefinition,
 } from "../utils/dynamicTemplateBuilder.js";
 import fetch from "node-fetch";
@@ -829,6 +832,50 @@ const canUseChannel = async (rsvpId: string, channel: string, event?: any) => {
   return true;
 };
 
+/**
+ * How many recipients to dispatch at once.
+ *
+ * Evidence from this account: Full (non-trial) Twilio account, observed median
+ * gap between sends of ~1.0s under the old serial loop, and zero rate-limit
+ * errors (63018 / HTTP 429) in recent traffic — so there is significant
+ * headroom. 10 concurrent lifts throughput to roughly 10-15 msg/sec while
+ * staying well inside typical Twilio WhatsApp limits.
+ *
+ * Tune with WHATSAPP_SEND_CONCURRENCY without a code change; sends that do hit
+ * a limit are retried with backoff below rather than lost.
+ */
+const whatsAppSendConcurrency = (): number => {
+  const raw = Number(process.env.WHATSAPP_SEND_CONCURRENCY);
+  if (Number.isInteger(raw) && raw >= 1 && raw <= 50) return raw;
+  return 10;
+};
+
+/**
+ * Runs `worker` over `items` with at most `limit` in flight.
+ *
+ * Each worker is isolated: one recipient failing must never abort the rest of
+ * the batch, so rejections are caught and logged here.
+ */
+const runWithConcurrency = async <T>(
+  items: T[],
+  limit: number,
+  worker: (item: T) => Promise<void>,
+): Promise<void> => {
+  const queue = [...items];
+  const runners = Array.from({ length: Math.min(limit, queue.length) }, async () => {
+    while (queue.length) {
+      const item = queue.shift();
+      if (item === undefined) return;
+      try {
+        await worker(item);
+      } catch (err) {
+        console.error("[Scheduler] recipient failed:", err);
+      }
+    }
+  });
+  await Promise.all(runners);
+};
+
 export const processPendingSchedules = async (
   options: SchedulerRunOptions = {},
 ): Promise<SchedulerRunSummary> => {
@@ -963,7 +1010,7 @@ export const processPendingSchedules = async (
               friendlyName: schedulerTemplateName,
               approvalStatus: "approved",
             })
-            .select({ variableDefinitions: 1 })
+            .select({ variableDefinitions: 1, headerMediaUrl: 1 })
             .lean();
           scheduleDbDefinition = Array.isArray(dbDoc?.variableDefinitions)
             ? dbDoc.variableDefinitions
@@ -986,10 +1033,11 @@ export const processPendingSchedules = async (
       let rsvpFormPassUrl = "";
       if (requiresRsvpFormLink) {
         const fToken = generateRsvpToken(16);
-        const schedRedirectUrl =
-          typeof (schedule as any).redirectUrl === "string"
-            ? (schedule as any).redirectUrl.trim() || null
-            : null;
+        // Schedule-level URL wins, then the event-level default.
+        const schedRedirectUrl = resolveExternalFormUrl(
+          (schedule as any).redirectUrl,
+          event as any,
+        );
         try {
           const formLink = await RSVPFormLink.create({
             eventId: event._id,
@@ -1027,21 +1075,27 @@ export const processPendingSchedules = async (
         summary.failed += 1;
         continue;
       }
-      for (const rsvp of rsvps) {
+      // Recipients are dispatched with bounded concurrency rather than one
+      // at a time. The serial loop plus a 250ms delay capped throughput at
+      // roughly 1 message/second, so a large list finished minutes after it
+      // started — the last guest on a 1000-person send waited ~20 minutes.
+      // Email was unaffected because it has no such delay, which is why only
+      // WhatsApp looked late.
+      await runWithConcurrency(rsvps, whatsAppSendConcurrency(), async (rsvp) => {
         const email = rsvp.email || "";
-        if (schedule.channel === "email" && !email) continue;
+        if (schedule.channel === "email" && !email) return;
         if (
           schedule.channel === "whatsapp" &&
           !String(rsvp.phone || "").trim()
         ) {
-          continue;
+          return;
         }
         const channelAllowed = await canUseChannel(
           String(rsvp._id),
           schedule.channel,
           event,
         );
-        if (!channelAllowed) continue;
+        if (!channelAllowed) return;
 
         if (schedule.channel === "email") {
           const html = await buildScheduleEmailHtml(
@@ -1059,7 +1113,7 @@ export const processPendingSchedules = async (
             email,
             subject,
             html,
-            `SoftInvites <info@softinvite.com>`,
+            buildEventEmailFrom(event),
             scheduleAttachment ? [scheduleAttachment] : undefined,
             {
               eventId: String(event._id),
@@ -1131,7 +1185,7 @@ export const processPendingSchedules = async (
             console.warn(
               `[Scheduler] Skipping WhatsApp send for rsvp ${rsvp._id} — templateParams is null (event.iv missing for wedding_invite)`,
             );
-            continue;
+            return;
           }
 
           console.log(
@@ -1169,15 +1223,21 @@ export const processPendingSchedules = async (
             rsvp,
             template?.html || null,
           );
-          await smsService.sendSms({
+          const smsResult = await smsService.sendSms({
             to: rsvp.phone || "",
             message: smsMessage || `${event.name}: You're invited!`,
             eventId: String(event._id),
             rsvpId: String(rsvp._id),
           });
-          sentCount += 1;
+          if (smsResult.success) {
+            sentCount += 1;
+          } else {
+            console.warn(
+              `[Scheduler] SMS failed for rsvp ${rsvp._id}: ${smsResult.error}`,
+            );
+          }
         }
-      }
+      });
 
       console.log(
         `[Scheduler] Schedule ${schedule._id} done | sentCount=${sentCount}`,

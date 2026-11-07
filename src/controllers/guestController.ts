@@ -4,7 +4,8 @@ import { Event } from "../models/eventmodel";
 import { invokeLambda } from "../utils/lambdaUtils";
 import { uploadToS3, deleteFromS3 } from "../utils/s3Utils";
 import { createGuestSchema, updateGuestSchema, option } from "../utils/utils";
-import { buildInvitationEmail } from "../utils/buildInvitationEmail.js";
+import { buildInvitationEmail, versionedImageUrl } from "../utils/buildInvitationEmail.js";
+import { buildEventEmailFrom } from "../utils/emailSender";
 import jwt from "jsonwebtoken";
 import mongoose, { Types } from "mongoose";
 import sanitizeHtml from "sanitize-html";
@@ -17,6 +18,7 @@ import {
 } from "@aws-sdk/client-s3";
 import sharp from "sharp";
 import fetch from "node-fetch";
+import { createHash } from "node:crypto";
 
 const s3 = new S3Client({ region: process.env.AWS_REGION || "us-east-2" });
 
@@ -87,81 +89,6 @@ const resolveGuestEmailQrUrl = (pngUrl?: string, qrValue?: string) => {
   if (isHttpUrl(pngUrl)) return pngUrl || "";
   if (isHttpUrl(qrValue)) return qrValue || "";
   return "";
-};
-
-const prepareEmailLambdaAttachments = async (
-  ivUrl: string | undefined,
-  eventId: string | undefined,
-  eventName: string,
-) => {
-  if (!ivUrl || !eventId) return [];
-
-  const safeEventName = eventName.replace(/[^a-zA-Z0-9-_]/g, "_");
-  const compressedKey = `events/${eventId}/email_attachment.jpg`;
-
-  try {
-    await s3.send(
-      new HeadObjectCommand({
-        Bucket: process.env.S3_BUCKET!,
-        Key: compressedKey,
-      }),
-    );
-
-    return [
-      {
-        filename: `${safeEventName}_invitation.jpg`,
-        s3Key: compressedKey,
-        contentType: "image/jpeg",
-      },
-    ];
-  } catch {
-    // Cache miss, continue to compress and upload.
-  }
-
-  const existingS3Key = extractS3KeyFromUrl(ivUrl);
-
-  try {
-    const response = await fetch(ivUrl);
-    if (!response.ok) {
-      throw new Error(`Failed to fetch IV attachment: ${response.status}`);
-    }
-
-    const buffer = Buffer.from(await response.arrayBuffer());
-    const compressedBuffer = await sharp(buffer)
-      .resize(800, 600, { fit: "inside", withoutEnlargement: true })
-      .jpeg({ quality: 60 })
-      .toBuffer();
-
-    await s3.send(
-      new PutObjectCommand({
-        Bucket: process.env.S3_BUCKET!,
-        Key: compressedKey,
-        Body: compressedBuffer,
-        ContentType: "image/jpeg",
-      }),
-    );
-
-    return [
-      {
-        filename: `${safeEventName}_invitation.jpg`,
-        s3Key: compressedKey,
-        contentType: "image/jpeg",
-      },
-    ];
-  } catch (error) {
-    console.error("❌ Failed to prepare IV attachment for email lambda:", error);
-    if (!existingS3Key) {
-      return [];
-    }
-
-    return [
-      {
-        filename: `${safeEventName}_invitation.${resolveAttachmentExtension(inferImageContentType(ivUrl))}`,
-        s3Key: existingS3Key,
-        contentType: inferImageContentType(ivUrl),
-      },
-    ];
-  }
 };
 
 const invokeEmailLambdaDirect = async (
@@ -352,53 +279,9 @@ export const addGuest = async (req: Request, res: Response): Promise<void> => {
       }
     }
 
-    // --- Email Sending ---
-    let emailSent = false;
-    let emailErrorMessage: string | null = null;
-    if (email) {
-      try {
-        const finalQrUrl = resolveGuestEmailQrUrl(
-          savedGuest.pngUrl,
-          savedGuest.qrCode,
-        );
-        const attachments = await prepareEmailLambdaAttachments(
-          iv,
-          eventId,
-          eventName,
-        );
-        const downloadUrl = `https://292x833w13.execute-api.us-east-2.amazonaws.com/guest/download-emailcode/${savedGuest._id.toString()}`;
-        const emailContent = buildInvitationEmail({
-          fullname,
-          message,
-          eventName,
-          eventDate,
-          qrCodeCenterColor,
-          finalQrUrl,
-          downloadUrl,
-        });
-
-        await invokeEmailLambdaDirect({
-          to: email,
-          from: `SoftInvites <info@softinvite.com>`,
-          subject: `${eventName}`,
-          htmlContent: emailContent,
-          attachments: attachments.length > 0 ? attachments : undefined,
-          eventId: String(eventId),
-          messageType: "guest-invitation",
-          diagnosticContext: {
-            source: "guestController.addGuest",
-            guestId: savedGuest._id.toString(),
-            trigger: "guest-created",
-          },
-        });
-
-        emailSent = true;
-      } catch (emailError) {
-        console.error("Failed to send email:", emailError);
-        emailErrorMessage =
-          emailError instanceof Error ? emailError.message : String(emailError);
-      }
-    }
+    // Emails are sent only from the guest page via "Send Emails".
+    const emailSent = false;
+    const emailErrorMessage: string | null = null;
 
     // --- Trigger Backup Lambda (async) ---
     try {
@@ -677,66 +560,9 @@ export const updateGuest = async (
     qrCodeUrl = guest.qrCode;
     // console.log("📄 Final QR code URL:", qrCodeUrl);
 
-    // --- Email Sending ---
-    let emailSent = false;
-    let emailErrorMessage: string | null = null;
-    const shouldSendUpdatedEmail =
-      !!guest.email &&
-      (
-        emailChanged ||
-        qrCodeRegenerated ||
-        fullname !== undefined ||
-        TableNo !== undefined ||
-        phone !== undefined ||
-        message !== undefined ||
-        others !== undefined ||
-        eventId !== undefined ||
-        qrColorsChanged
-      );
-    if (shouldSendUpdatedEmail && guest.email) {
-      try {
-        const finalQrUrl = resolveGuestEmailQrUrl(
-          guest.pngUrl,
-          guest.qrCode,
-        );
-        const attachments = await prepareEmailLambdaAttachments(
-          iv,
-          String(targetEventId),
-          eventName,
-        );
-        const downloadUrl = `https://292x833w13.execute-api.us-east-2.amazonaws.com/guest/download-emailcode/${guest._id.toString()}`;
-        const emailContent = buildInvitationEmail({
-          fullname: guest.fullname,
-          message: guest.message || "You're invited!",
-          eventName,
-          eventDate,
-          qrCodeCenterColor: guest.qrCodeCenterColor || "0,0,0",
-          finalQrUrl,
-          downloadUrl,
-        });
-
-        await invokeEmailLambdaDirect({
-          to: guest.email,
-          from: `SoftInvites <info@softinvite.com>`,
-          subject: `${eventName}`,
-          htmlContent: emailContent,
-          attachments: attachments.length > 0 ? attachments : undefined,
-          eventId: String(targetEventId),
-          messageType: "guest-invitation-update",
-          diagnosticContext: {
-            source: "guestController.updateGuest",
-            guestId: guest._id.toString(),
-            trigger: qrCodeRegenerated ? "qr-regenerated" : "guest-updated",
-          },
-        });
-
-        emailSent = true;
-      } catch (emailError) {
-        console.error("❌ Failed to send email:", emailError);
-        emailErrorMessage =
-          emailError instanceof Error ? emailError.message : String(emailError);
-      }
-    }
+    // Editing a guest never emails them; use "Send Emails" to (re)send.
+    const emailSent = false;
+    const emailErrorMessage: string | null = null;
 
     // --- Trigger Backup Lambda (async) ---
     try {
@@ -799,19 +625,23 @@ export const importGuests = async (
     await new Promise((resolve) => setTimeout(resolve, 3000));
 
     // Trigger import Lambda asynchronously
+    const forceResend = req.body.forceResend === 'true' || req.body.forceResend === true;
+
     await invokeLambda(
       process.env.IMPORT_LAMBDA_FUNCTION_NAME!,
       {
         fileUrl,
         eventId,
         userEmail,
+        forceResend,
       },
       true,
     );
 
     res.status(202).json({
-      message:
-        "Import job is running. You will receive an email when processing completes.",
+      message: forceResend
+        ? "Force re-import started. No emails are sent during import; use Send Emails on the guest page."
+        : "Import job is running. No emails are sent to guests during import; you will receive a summary when processing completes.",
       fileUrl,
     });
   } catch (error) {
@@ -926,59 +756,35 @@ export const downloadAllQRCodes = async (
   try {
     const { eventId } = req.params;
 
-    const guests = await Guest.find({ eventId });
+    const guestCount = await Guest.countDocuments({ eventId });
 
-    if (!guests.length) {
+    if (!guestCount) {
       res.status(404).json({ message: "No guests found" });
       return;
     }
 
-    const qrItems = guests.map((guest) => ({
-      guestId: guest._id.toString(),
-      guestName: guest.fullname || "Guest",
-      tableNo: guest.TableNo || "NoTable",
-      others: guest.others || "-",
-      pngUrl:
-        guest.pngUrl || buildPngUrl(eventId, guest._id.toString()) || "",
-    }));
+    const bucket = process.env.S3_BUCKET!;
+    const region = process.env.AWS_REGION || "us-east-2";
 
-    const lambdaResponse = await invokeLambda(
-      process.env.ZIP_LAMBDA_FUNCTION_NAME!,
-      {
-        qrItems,
-        eventId,
-      },
+    // Pre-compute a deterministic zip key so we can return it immediately
+    const zipKey = `qr_zips/event_${eventId}_pending.zip`;
+    const zipUrl = `https://${bucket}.s3.${region}.amazonaws.com/${zipKey}`;
+
+    // Pass eventId only — Lambda fetches its own guest list to stay under 256KB Payload limit
+    await lambdaClient.send(
+      new InvokeCommand({
+        FunctionName: process.env.ZIP_LAMBDA_FUNCTION_NAME!,
+        InvocationType: "Event",
+        Payload: Buffer.from(JSON.stringify({ eventId, zipKey })),
+      }),
     );
 
-    const statusCode = lambdaResponse?.statusCode || 500;
-
-    let parsedBody: any = {};
-    try {
-      parsedBody = lambdaResponse?.body ? JSON.parse(lambdaResponse.body) : {};
-    } catch {
-      parsedBody = { error: "Failed to parse Lambda response" };
-    }
-
-    const zipUrl =
-      parsedBody.zipUrl ||
-      parsedBody.zipDownloadLink ||
-      parsedBody.zipDownloadLink;
-
-    if (statusCode !== 200 || !zipUrl) {
-      res.status(statusCode).json({
-        message: "Lambda failed to create ZIP archive",
-        error: parsedBody?.error || parsedBody?.message || "Unknown Lambda error",
-        missingFiles: parsedBody?.missingFiles || [],
-      });
-      return;
-    }
-
-    res.status(200).json({
+    res.status(202).json({
+      message: "ZIP generation started. Poll the zipDownloadLink until it is available (usually 1–3 minutes for large events).",
       zipDownloadLink: zipUrl,
-      generatedAt: parsedBody.generatedAt,
-      eventId: parsedBody.eventId,
-      numberOfFiles: parsedBody.numberOfFiles,
-      missingFiles: parsedBody.missingFiles || [],
+      guestCount,
+      eventId,
+      async: true,
     });
   } catch (error) {
     console.error("Error in downloadAllQRCodes:", error);
@@ -1121,15 +927,50 @@ export const getGuestsByEvent = async (
 ): Promise<void> => {
   try {
     const { eventId } = req.params;
-    const guests = await Guest.find({ eventId: eventId });
-    if (guests.length == 0) {
-      res.status(400).json({ message: "No events found" });
+    const hasPagination = req.query.page !== undefined || req.query.limit !== undefined;
+
+    if (!hasPagination) {
+      // Return all guests at once (no pagination)
+      const guests = await Guest.find({ eventId })
+        .select('-qrCode -qrCodeData -normalizedFullname -message -qrCodeBgColor -qrCodeCenterColor -qrCodeEdgeColor -imported -__v')
+        .lean();
+
+      res.status(200).json({
+        message: "Successfully fetched all guests for the events",
+        guests,
+        pagination: {
+          total: guests.length,
+          page: 1,
+          limit: guests.length,
+          totalPages: 1,
+        },
+      });
       return;
     }
+
+    // Backward-compatible paginated path
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(500, Math.max(1, parseInt(req.query.limit as string) || 100));
+    const skip = (page - 1) * limit;
+
+    const [guests, total] = await Promise.all([
+      Guest.find({ eventId })
+        .select('-qrCode -qrCodeData -normalizedFullname -message -qrCodeBgColor -qrCodeCenterColor -qrCodeEdgeColor -imported -__v')
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      Guest.countDocuments({ eventId }),
+    ]);
 
     res.status(200).json({
       message: "Successfully fetched all guests for the events",
       guests,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
     });
   } catch (error) {
     res.status(500).json({ message: "Error fetching guests" });
@@ -1541,9 +1382,12 @@ export const generateEventAnalytics = async (
       return;
     }
 
-    const guests = await Guest.find({ eventId });
+    const [totalGuests, checkedInGuests] = await Promise.all([
+      Guest.countDocuments({ eventId }),
+      Guest.countDocuments({ eventId, checkedIn: true }),
+    ]);
 
-    if (!guests.length) {
+    if (!totalGuests) {
       res.status(200).json({
         eventId,
         totalGuests: 0,
@@ -1555,11 +1399,6 @@ export const generateEventAnalytics = async (
       return;
     }
 
-    const totalGuests = guests.length;
-    const checkedInGuests = await Guest.countDocuments({
-      eventId,
-      checkedIn: true,
-    });
     const unusedCodes = totalGuests - checkedInGuests;
 
     const guestStatusBreakdownRaw = await Guest.aggregate([
@@ -1949,6 +1788,27 @@ export const checkQRCodeStatus = async (req: Request, res: Response) => {
   }
 };
 
+export const checkZipReady = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
+  try {
+    const { eventId } = req.params;
+    const bucket = process.env.S3_BUCKET!;
+    const zipKey = `qr_zips/event_${eventId}_pending.zip`;
+
+    await s3.send(new HeadObjectCommand({ Bucket: bucket, Key: zipKey }));
+
+    const region = process.env.AWS_REGION || "us-east-2";
+    res.status(200).json({
+      ready: true,
+      zipDownloadLink: `https://${bucket}.s3.${region}.amazonaws.com/${zipKey}`,
+    });
+  } catch {
+    res.status(200).json({ ready: false });
+  }
+};
+
 export const resendAllEmails = async (
   req: Request,
   res: Response,
@@ -1967,25 +1827,40 @@ export const resendAllEmails = async (
       return;
     }
 
-    const guestsWithEmail = await Guest.countDocuments({
-      eventId,
-      email: { $exists: true, $ne: "" },
-    });
-
-    if (guestsWithEmail === 0) {
-      res.status(404).json({ message: "No guests with email addresses found" });
+    // Optional: only the guests selected on the guest page.
+    const guestIds: string[] | null = Array.isArray(req.body?.guestIds)
+      ? req.body.guestIds.filter((id: unknown) =>
+          typeof id === "string" && mongoose.Types.ObjectId.isValid(id),
+        )
+      : null;
+    if (Array.isArray(req.body?.guestIds) && !guestIds?.length) {
+      res.status(400).json({ message: "No valid guests selected" });
       return;
     }
 
-    // Trigger resend emails Lambda asynchronously
+    const guestsWithEmail = await Guest.countDocuments({
+      eventId,
+      email: { $exists: true, $ne: "" },
+      ...(guestIds ? { _id: { $in: guestIds } } : {}),
+    });
+
+    if (guestsWithEmail === 0) {
+      res.status(404).json({
+        message: guestIds
+          ? "None of the selected guests has an email address"
+          : "No guests with email addresses found",
+      });
+      return;
+    }
+
     await invokeLambda(
       process.env.RESEND_EMAILS_LAMBDA_FUNCTION_NAME!,
-      { eventId },
+      { eventId, ...(guestIds ? { guestIds } : {}) },
       true,
     );
 
     res.status(202).json({
-      message: `Email resend job started for ${guestsWithEmail} guests. Admin will receive notification when complete.`,
+      message: `Sending emails to ${guestsWithEmail} guest${guestsWithEmail === 1 ? "" : "s"}. Admin will receive a notification when complete.`,
       eventName: event.name,
       guestsWithEmail,
     });

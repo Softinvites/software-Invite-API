@@ -9,6 +9,10 @@ import {
   buildWhatsAppTemplateParams,
   getDefaultWhatsAppTemplateName,
 } from "../utils/whatsappTemplateParams.js";
+import {
+  isEffectivelyLocked,
+  applyHeaderMediaDefaults,
+} from "../utils/dynamicTemplateBuilder.js";
 
 // Locked variable indexes for the hardcoded templates — kept here so the
 // /template-samples response can advertise lockedVariableIndexes for both
@@ -540,7 +544,13 @@ export const getRecommendedWhatsAppTemplateSamples = async (
     );
     const sampleHeader = String(req.query.header || sampleEventName);
 
-    const templates: Record<string, any>[] = RECOMMENDED_TEMPLATE_DEFINITIONS.map((definition) => {
+    // Only templates built in the WhatsApp Template Manager are offered.
+    // The hardcoded RECOMMENDED_TEMPLATE_DEFINITIONS are no longer listed —
+    // they remain in the codebase solely so that messages already scheduled
+    // against those names keep resolving their parameters at send time.
+    const INCLUDE_LEGACY_TEMPLATES = false;
+
+    const legacyTemplates: Record<string, any>[] = RECOMMENDED_TEMPLATE_DEFINITIONS.map((definition) => {
       const sampleParametersArray = buildWhatsAppTemplateParams({
         templateName: definition.templateName,
         recipientName: sampleGuestName,
@@ -570,6 +580,10 @@ export const getRecommendedWhatsAppTemplateSamples = async (
       };
     });
 
+    const templates: Record<string, any>[] = INCLUDE_LEGACY_TEMPLATES
+      ? legacyTemplates
+      : [];
+
     // Merge in DB-stored Twilio Content templates so new ones automatically
     // appear without code changes. Include anything that has been registered
     // on Twilio (has a contentSid). The approvalStatus is exposed alongside
@@ -597,15 +611,18 @@ export const getRecommendedWhatsAppTemplateSamples = async (
           }
           templates.splice(existingIdx, 1); // approved — replace it below
         }
-        const defs = Array.isArray(dbT.variableDefinitions)
-          ? (dbT.variableDefinitions as any[]).map((d) => ({
-              index: d.index,
-              label: d.label || "",
-              autoSource: d.autoSource || null,
-              locked: !!d.locked,
-              defaultValue: d.defaultValue || "",
-            }))
-          : [];
+        const defs = applyHeaderMediaDefaults(
+          Array.isArray(dbT.variableDefinitions)
+            ? (dbT.variableDefinitions as any[]).map((d) => ({
+                index: d.index,
+                label: d.label || "",
+                autoSource: d.autoSource || null,
+                locked: !!d.locked,
+                defaultValue: d.defaultValue || "",
+              }))
+            : [],
+          (dbT as any).headerMediaUrl,
+        );
 
         const sampleParametersArray = buildWhatsAppTemplateParams({
           templateName: dbT.friendlyName,
@@ -633,8 +650,11 @@ export const getRecommendedWhatsAppTemplateSamples = async (
           if (d.label) variableLabels[d.index] = d.label;
         });
 
+        // Not just the author's checkbox: per-guest and system-derived sources
+        // (header media, QR pass, table no, RSVP links) are always locked, so
+        // the Send dialog never offers them as editable.
         const lockedIndexes = defs
-          .filter((d: any) => d.locked)
+          .filter((d: any) => isEffectivelyLocked(d))
           .map((d: any) => d.index);
 
         templates.push({

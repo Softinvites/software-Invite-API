@@ -3,7 +3,6 @@ import { invokeLambda } from "./lambdaUtils.js";
 import { connectDB } from "./db.js";
 import { Guest } from "./guestmodel.js";
 import { Event } from "./eventmodel.js";
-import { buildInvitationEmail } from "./buildInvitationEmail.js";
 import {
   S3Client,
   PutObjectCommand,
@@ -13,28 +12,6 @@ import sharp from "sharp";
 import fetch from "node-fetch";
 
 const s3 = new S3Client({ region: process.env.AWS_REGION });
-
-const normalizeGuestFullname = (value: unknown) =>
-  String(value || "")
-    .trim()
-    .replace(/\s+/g, " ")
-    .toLowerCase();
-
-const normalizeGuestPhone = (value: unknown) =>
-  String(value || "")
-    .trim()
-    .replace(/\s+/g, "")
-    .replace(/[^\d+]/g, "");
-
-const normalizeGuestEmail = (value: unknown) =>
-  String(value || "").trim().toLowerCase();
-
-const buildPhoneEmailKey = (phone: unknown, email: unknown) => {
-  const normalizedPhone = normalizeGuestPhone(phone);
-  const normalizedEmail = normalizeGuestEmail(email);
-  if (!normalizedPhone || !normalizedEmail) return "";
-  return `${normalizedPhone}|${normalizedEmail}`;
-};
 
 // Helper to normalize various S3 GetObject Body shapes to a Buffer
 async function streamToBuffer(body: any): Promise<Buffer> {
@@ -68,62 +45,6 @@ const {
 /* ------------------------------ */
 /* 🔧 HELPER FUNCTIONS */
 /* ------------------------------ */
-
-// Function to prepare email attachments with S3 keys
-async function prepareEmailAttachments(
-  compressedIVUrl: string,
-  eventName: string,
-) {
-  if (!compressedIVUrl) return [];
-
-  const s3Key = compressedIVUrl.split(".amazonaws.com/")[1];
-  if (!s3Key) return [];
-
-  return [
-    {
-      filename: `${eventName.replace(/[^a-zA-Z0-9-_]/g, "_")}_invitation.jpg`,
-      s3Key: s3Key,
-      contentType: "image/jpeg",
-    },
-  ];
-}
-
-// Function to compress and upload IV to S3 once
-async function prepareIVAttachment(
-  eventId: string,
-  eventName: string,
-  originalIVUrl: string,
-): Promise<string> {
-  try {
-    const response = await fetch(originalIVUrl);
-    if (!response.ok)
-      throw new Error(`Failed to fetch IV: ${response.statusText}`);
-
-    const imageBuffer = Buffer.from(await response.arrayBuffer());
-
-    // Compress image using Sharp
-    const compressedBuffer = await sharp(imageBuffer)
-      .resize(800, 600, { fit: "inside", withoutEnlargement: true })
-      .jpeg({ quality: 60 })
-      .toBuffer();
-
-    const compressedKey = `events/${eventId}/compressed_iv_${Date.now()}.jpg`;
-
-    await s3.send(
-      new PutObjectCommand({
-        Bucket: "softinvites-assets",
-        Key: compressedKey,
-        Body: compressedBuffer,
-        ContentType: "image/jpeg",
-      }),
-    );
-
-    return `https://softinvites-assets.s3.us-east-2.amazonaws.com/${compressedKey}`;
-  } catch (error) {
-    console.error("IV compression failed:", error);
-    return originalIVUrl;
-  }
-}
 
 /* ------------------------------ */
 /* 🔁 SAFE INVOKE WITH RETRIES */
@@ -184,24 +105,6 @@ export const handler = async (event: any) => {
     }
 
     /* ------------------------------ */
-    /* ✅ PREPARE IV ATTACHMENT */
-    /* ------------------------------ */
-    let compressedIVUrl = "";
-    if (eventDoc.iv) {
-      try {
-        compressedIVUrl = await prepareIVAttachment(
-          eventId,
-          eventDoc.name,
-          eventDoc.iv,
-        );
-        console.log("✅ Compressed IV URL ready:", compressedIVUrl);
-      } catch (ivError) {
-        console.error("❌ IV preparation failed, using original:", ivError);
-        compressedIVUrl = eventDoc.iv;
-      }
-    }
-
-    /* ------------------------------ */
     /* ✅ 1. PARSE CSV / EXCEL */
     /* ------------------------------ */
     const guests = await parseCsvExcel(fileUrl);
@@ -209,21 +112,9 @@ export const handler = async (event: any) => {
       return { statusCode: 400, body: "No guests found in file" };
     }
 
-    const existingGuests = await Guest.find(
-      { eventId },
-      { normalizedFullname: 1, phone: 1, email: 1, _id: 0 },
-    ).lean();
-    const seenNormalizedNames = new Set(
-      existingGuests
-        .map((guest: any) => normalizeGuestFullname(guest?.normalizedFullname))
-        .filter(Boolean),
-    );
-
-
     /* ------------------------------ */
     /* ✅ 2. PROCESS IN BATCHES */
     /* ------------------------------ */
-    // Lower batch size to reduce concurrent Lambda invokes and avoid rate throttling
     const BATCH_SIZE = 10;
     const results: any[] = [];
 
@@ -232,7 +123,6 @@ export const handler = async (event: any) => {
 
       const batchResults = await Promise.allSettled(
         batch.map(async (guestData) => {
-          let reservationAdded = false;
           try {
             // Skip empty rows
             if (!guestData.fullname || !guestData.fullname.trim()) {
@@ -247,28 +137,9 @@ export const handler = async (event: any) => {
             const cleanedFullname = String(guestData.fullname)
               .trim()
               .replace(/\s+/g, " ");
-            const normalizedFullname = normalizeGuestFullname(cleanedFullname);
+            const normalizedFullname = cleanedFullname.toLowerCase();
 
-            if (seenNormalizedNames.has(normalizedFullname)) {
-              return {
-                ...guestData,
-                fullname: cleanedFullname,
-                success: false,
-                error: "Duplicate fullname for this event - row skipped",
-                skipped: true,
-                email: guestData.email || null,
-              };
-            }
-
-            seenNormalizedNames.add(normalizedFullname);
-            reservationAdded = true;
-
-            // Belt-and-braces dedup: the in-memory Set + DB unique index together
-            // prevent same-phone or same-name duplicates per event. If the DB
-            // rejects with E11000 (duplicate key) — e.g. because another concurrent
-            // batch or another invocation already inserted this phone/name —
-            // skip cleanly instead of failing the whole row.
-            let guest;
+            let guest: any;
             try {
               guest = await Guest.create({
                 ...guestData,
@@ -278,12 +149,11 @@ export const handler = async (event: any) => {
               });
             } catch (insertErr: any) {
               if (insertErr?.code === 11000) {
-                const dupField = Object.keys(insertErr?.keyPattern || {}).join(", ");
                 return {
                   ...guestData,
                   fullname: cleanedFullname,
                   success: false,
-                  error: `Duplicate guest (${dupField || "unique key"}) for this event - row skipped`,
+                  error: "Duplicate name for this event - row skipped",
                   skipped: true,
                   email: guestData.email || null,
                 };
@@ -480,41 +350,8 @@ export const handler = async (event: any) => {
               ...(pngUrl ? { pngUrl } : {}),
             });
 
-            /* ------------------------------ */
-            /* ✅ 6. SEND EMAIL TO GUEST */
-            /* ------------------------------ */
-            const downloadUrl = `https://292x833w13.execute-api.us-east-2.amazonaws.com/guest/download-emailcode/${guest._id.toString()}`;
-            const attachments = await prepareEmailAttachments(
-              compressedIVUrl,
-              eventDoc.name,
-            );
-
-            await safeInvoke(
-              EMAIL_LAMBDA_FUNCTION_NAME!,
-              {
-                to: guest.email,
-                from: `SoftInvites <info@softinvite.com>`,
-                subject: `${eventDoc.name}`,
-                htmlContent: buildInvitationEmail({
-                  fullname: guest.fullname,
-                  message: guest.message || "You're invited!",
-                  eventName: eventDoc.name,
-                  eventDate: eventDoc.date || "",
-                  qrCodeCenterColor: guest.qrCodeCenterColor,
-                  finalQrUrl: pngUrl || "",
-                  downloadUrl: downloadUrl,
-                }),
-                attachments: attachments,
-                eventId,
-                messageType: "guest-import-invitation",
-                diagnosticContext: {
-                  source: "importGuestsLambda",
-                  guestId: guest._id.toString(),
-                  trigger: "guest-import",
-                },
-              },
-              true,
-            );
+            // Emails are no longer sent during import: the admin sends them
+            // from the guest page ("Send Emails") once the list is final.
 
             return {
               guestId: guest._id,
@@ -523,13 +360,6 @@ export const handler = async (event: any) => {
               email: guest.email,
             };
           } catch (err: any) {
-            if (reservationAdded) {
-              seenNormalizedNames.delete(
-                normalizeGuestFullname(guestData?.fullname),
-              );
-            }
-
-
             const errorMessage = (err as any)?.message || String(err);
             const isDuplicateKeyError =
               (err as any)?.code === 11000 ||
@@ -538,11 +368,9 @@ export const handler = async (event: any) => {
             if (isDuplicateKeyError) {
               return {
                 ...guestData,
-                fullname: String(guestData?.fullname || "")
-                  .trim()
-                  .replace(/\s+/g, " "),
+                fullname: String(guestData?.fullname || "").trim().replace(/\s+/g, " "),
                 success: false,
-                error: "Duplicate fullname for this event - row skipped",
+                error: "Duplicate name for this event - row skipped",
                 skipped: true,
                 email: guestData.email || null,
               };
@@ -611,10 +439,6 @@ export const handler = async (event: any) => {
               <p style="font-size: 32px; font-weight: bold; margin: 0;">${failedCount}</p>
             </div>
             
-            <div style="background: #805ad5; color: white; padding: 15px; border-radius: 8px; text-align: center;">
-              <h3 style="margin: 0 0 10px 0; font-size: 14px;">Emails Sent</h3>
-              <p style="font-size: 32px; font-weight: bold; margin: 0;">${successCount}</p>
-            </div>
           </div>
 
           ${
@@ -686,11 +510,6 @@ export const handler = async (event: any) => {
       </div>
     `;
 
-    const adminAttachments = await prepareEmailAttachments(
-      compressedIVUrl,
-      eventDoc.name,
-    );
-
     await safeInvoke(
       EMAIL_LAMBDA_FUNCTION_NAME!,
       {
@@ -698,7 +517,6 @@ export const handler = async (event: any) => {
         from: `SoftInvites System <info@softinvite.com>`,
         subject: `Guest Import Complete: ${eventDoc.name}`,
         htmlContent: adminEmailHtml,
-        attachments: adminAttachments,
         eventId,
         messageType: "guest-import-admin-summary",
         diagnosticContext: {
@@ -714,7 +532,7 @@ export const handler = async (event: any) => {
     return {
       statusCode: 200,
       body: JSON.stringify({
-        message: "Guests imported, QR generated, PNG converted & emails sent",
+        message: "Guests imported, QR generated & PNG converted (no emails sent)",
         total: guests.length,
         successful: successCount,
         skipped: skippedCount,

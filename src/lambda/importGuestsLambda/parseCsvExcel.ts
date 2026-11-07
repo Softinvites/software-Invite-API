@@ -17,15 +17,15 @@ function cleanValue(val: any): string {
 function normalizeKeys(obj: any) {
   return {
     fullname: cleanValue(
-      obj["fullname"] || obj["Full Name"] || obj["name"] || obj["Name"] || ""
+      obj["fullname"] || obj["Full Name"] || obj["Full name"] || obj["name"] || obj["Name"] || ""
     ),
-    phone: cleanValue(obj["phone"] || ""),
-    email: cleanValue(obj["email"] || ""),
+    phone: cleanValue(obj["phone"] || obj["phone number"] || obj["Phone Number"] || obj["Phone"] || ""),
+    email: cleanValue(obj["email"] || obj["Email"] || ""),
     TableNo: cleanValue(
-      obj["TableNo"] || obj["tableNo"] || obj["Table No"] || ""
+      obj["TableNo"] || obj["tableNo"] || obj["Table No"] || obj["Table"] || ""
     ),
-    message: cleanValue(obj["message"] || ""),
-    others: cleanValue(obj["others"] || ""),
+    message: cleanValue(obj["message"] || obj["Message"] || ""),
+    others: cleanValue(obj["others"] || obj["Others"] || ""),
     qrCodeBgColor: cleanValue(
       obj["qrCodeBgColor"] || obj["QR Code BG Color"] || "255,255,255"
     ),

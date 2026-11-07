@@ -21,7 +21,8 @@ import {
   testDatabase,
   checkQRCodeStatus,
   checkInGuest,
-  resendAllEmails
+  resendAllEmails,
+  checkZipReady,
 } from "../controllers/guestController";
 import auth from "../library/middlewares/auth";
 import { combinedAuth } from "../library/middlewares/combinedAuth";
@@ -73,5 +74,6 @@ router.post("/guests-restore", auth, restoreGuestsAndRegenerateQRCodes);
 router.get("/test-database/:eventId", auth, testDatabase);
 router.get("/check-qrcode-status/:eventId", combinedAuth, checkQRCodeStatus);
 router.post("/resend-all-emails/:eventId", auth, resendAllEmails);
+router.get("/zip-ready/:eventId", auth, checkZipReady);
 
 export default router;

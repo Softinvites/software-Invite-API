@@ -12,6 +12,7 @@ export interface SmsMessageDocument extends Document {
   errorMessage?: string;
   sentAt?: Date;
   deliveredAt?: Date;
+  failedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -32,11 +33,13 @@ const SmsMessageSchema = new Schema<SmsMessageDocument>(
     errorMessage: { type: String, default: null },
     sentAt: { type: Date, default: null },
     deliveredAt: { type: Date, default: null },
+    failedAt: { type: Date, default: null },
   },
   { timestamps: true },
 );
 
 SmsMessageSchema.index({ eventId: 1, status: 1 });
+SmsMessageSchema.index({ providerMessageId: 1 });
 
 export const SmsMessage = model<SmsMessageDocument>(
   "SmsMessage",

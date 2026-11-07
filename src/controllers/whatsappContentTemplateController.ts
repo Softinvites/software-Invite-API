@@ -92,6 +92,9 @@ const normalizeVariableDefinitions = (
     });
   }
 
+  const headerMatch = String(allVarSources[2] || "").match(/\{\{(\d+)\}\}/);
+  const headerIndex = headerMatch ? Number(headerMatch[1]) : null;
+
   return indexes.map((idx) => {
     const raw = providedByIndex.get(idx) || {};
     const autoSourceRaw = raw.autoSource == null ? null : String(raw.autoSource);
@@ -99,6 +102,18 @@ const normalizeVariableDefinitions = (
       autoSourceRaw && VALID_AUTO_SOURCES.has(autoSourceRaw)
         ? autoSourceRaw
         : null;
+    // A header-media variable gets no row in the builder, so it would
+    // otherwise save blank and resolve to an empty string. Infer it.
+    if (idx === headerIndex && !autoSource) {
+      return {
+        index: idx,
+        label: String(raw.label || "").trim() || "Header media (auto)",
+        autoSource: "header_media_path",
+        locked: true,
+        defaultValue: String(raw.defaultValue || ""),
+      };
+    }
+
     return {
       index: idx,
       label: String(raw.label || "").trim(),
@@ -114,6 +129,7 @@ type ButtonInput = {
   title: string;
   url?: string;
   phone?: string;
+  id?: string;
 };
 
 const normalizeButtons = (input: any): ButtonInput[] => {
@@ -124,6 +140,7 @@ const normalizeButtons = (input: any): ButtonInput[] => {
       title: String(b?.title || "").trim(),
       url: String(b?.url || "").trim(),
       phone: String(b?.phone || "").trim(),
+      id: String(b?.id || "").trim(),
     }))
     .filter(
       (b) =>
@@ -187,7 +204,7 @@ const buildTwilioPayload = (params: {
     if (b.type === "URL") return { type: "URL", title: b.title, url: b.url };
     if (b.type === "PHONE_NUMBER")
       return { type: "PHONE_NUMBER", title: b.title, phone: b.phone };
-    return { type: "QUICK_REPLY", title: b.title };
+    return { type: "QUICK_REPLY", title: b.title, ...(b.id ? { id: b.id } : {}) };
   });
 
   const types: Record<string, any> = {};
@@ -287,6 +304,7 @@ export const createContentTemplate = async (req: Request, res: Response) => {
       headerType === "text" ? headerText : "",
       headerType === "media" ? headerMediaUrl : "",
       ...buttons.map((b) => b.url || ""),
+      ...buttons.map((b) => b.id || ""),
     ];
 
     const validationError = validateMetaRules(cleanName, cleanBody, allVarSources);

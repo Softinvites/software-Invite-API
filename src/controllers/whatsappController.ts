@@ -11,6 +11,10 @@ import {
   getDefaultWhatsAppTemplateName,
 } from '../utils/whatsappTemplateParams.js';
 import { loadDbTemplateByName } from '../utils/loadDbTemplate.js';
+import {
+  templateNeedsRsvpFormLink,
+  resolveExternalFormUrl,
+} from '../utils/dynamicTemplateBuilder.js';
 import { backfillInboundEventIds } from '../services/whatsappInboundService.js';
 import { RSVPFormLink } from '../models/rsvpFormLinkModel.js';
 import { generateRsvpToken } from '../utils/rsvpToken.js';
@@ -80,6 +84,10 @@ export const sendBulkWhatsApp = async (req: Request, res: Response) => {
       phone: g.phone,
       qrCode: g.qrCode,
       pngUrl: g.pngUrl,
+      // Required by the guest_table_no template variable. Omitting it here was
+      // why bulk sends from the guest page rendered "Table: TBA" even for
+      // guests that had a table assigned.
+      TableNo: g.TableNo,
     }));
 
     const eventData = {
@@ -90,15 +98,18 @@ export const sendBulkWhatsApp = async (req: Request, res: Response) => {
       iv: eventDoc.iv,
     };
 
+    // Load the DB definition BEFORE deciding whether a form link is needed —
+    // a Manager template of any name that declares rsvp_form_path needs one.
+    const bulkDbTemplateInfo = await loadDbTemplateByName(templateName);
+
     let formLinkPath: string | null = null;
-    if (/^rsvp_form/i.test(templateName)) {
+    if (templateNeedsRsvpFormLink(templateName, bulkDbTemplateInfo?.variableDefinitions)) {
       const fToken = generateRsvpToken(12);
-      const redirectUrl = typeof req.body?.redirectUrl === 'string' ? req.body.redirectUrl.trim() || null : null;
       const link = await RSVPFormLink.create({
         eventId: eventDoc._id,
         token: fToken,
         slug: null,
-        redirectUrl,
+        redirectUrl: resolveExternalFormUrl(req.body?.redirectUrl, eventDoc as any),
       });
       formLinkPath = link.token;
     }
@@ -154,15 +165,16 @@ export const sendSingleWhatsApp = async (req: Request, res: Response) => {
       return `https://${bucket}.s3.${region}.amazonaws.com/qr_codes/email_png/${eventIdValue}/${guest._id}.png`;
     };
 
+    const singleDbTemplateInfo = await loadDbTemplateByName(templateName);
+
     let passUrl: string;
-    if (normalizedTemplate === 'rsvp_form') {
+    if (templateNeedsRsvpFormLink(templateName, singleDbTemplateInfo?.variableDefinitions)) {
       const fToken = generateRsvpToken(12);
-      const redirectUrl = typeof req.body?.redirectUrl === 'string' ? req.body.redirectUrl.trim() || null : null;
       const link = await RSVPFormLink.create({
         eventId: eventDoc._id,
         token: fToken,
         slug: null,
-        redirectUrl,
+        redirectUrl: resolveExternalFormUrl(req.body?.redirectUrl, eventDoc as any),
       });
       passUrl = link.token;
     } else if (normalizedTemplate === 'rsvp_followup' || normalizedTemplate === 'wedding_invite') {
@@ -180,12 +192,13 @@ export const sendSingleWhatsApp = async (req: Request, res: Response) => {
           : `https://292x833w13.execute-api.us-east-2.amazonaws.com/guest/download-emailcode/${guest._id}`);
     }
 
-    const dbTemplateInfo = await loadDbTemplateByName(templateName);
+    const dbTemplateInfo = singleDbTemplateInfo;
     const templateParams = buildWhatsAppTemplateParams({
       templateName,
       recipientName: guest.fullname,
       eventName: eventDoc.name,
       location: eventDoc.location || 'TBA',
+      tableNo: (guest as any).TableNo || null,
       eventDate: eventDoc.date || 'TBA',
       passUrl,
       eventIv: eventDoc.iv || null,

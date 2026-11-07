@@ -1,5 +1,6 @@
 import { WhatsAppContentTemplate } from "../models/WhatsAppContentTemplate.js";
 import type { VariableDefinition } from "./dynamicTemplateBuilder.js";
+import { applyHeaderMediaDefaults } from "./dynamicTemplateBuilder.js";
 
 export type LoadedTemplateInfo = {
   contentSid: string | null;
@@ -35,7 +36,10 @@ export const loadDbTemplateByName = async (
 
     return {
       contentSid: doc.contentSid || null,
-      variableDefinitions: defs,
+      variableDefinitions: applyHeaderMediaDefaults(
+        defs,
+        (doc as any).headerMediaUrl,
+      ),
       supportsMediaHeader: !!doc.supportsMediaHeader,
       buttonUrlVariableIndex: doc.buttonUrlVariableIndex || 0,
     };

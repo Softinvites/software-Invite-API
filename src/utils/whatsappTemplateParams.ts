@@ -738,6 +738,9 @@ type BuildParamsArgs = {
   recipientName: string;
   eventName: string;
   location?: string | null;
+  /** Guest.TableNo. Only consumed by DB-stored templates that declare a
+   *  guest_table_no variable; the hardcoded templates below ignore it. */
+  tableNo?: string | null;
   eventDate?: string | null;
   passUrl?: string | null;
   signoff?: string | null;
@@ -752,6 +755,7 @@ export const buildWhatsAppTemplateParams = ({
   recipientName,
   eventName,
   location,
+  tableNo,
   eventDate,
   passUrl,
   signoff,
@@ -774,6 +778,7 @@ export const buildWhatsAppTemplateParams = ({
         recipientName,
         eventName,
         location,
+        tableNo,
         dateLabel,
         timeLabel,
         signoff,

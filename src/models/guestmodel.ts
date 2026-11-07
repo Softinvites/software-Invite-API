@@ -53,6 +53,9 @@ const GuestSchema = new Schema<GuestDocument>(
   },
   { timestamps: true },
 );
+// Fast lookup for all guests belonging to an event
+GuestSchema.index({ eventId: 1 });
+
 // Strict duplicate guard using normalized name (trim + lowercase + single spaces)
 GuestSchema.index(
   { eventId: 1, normalizedFullname: 1 },
@@ -61,20 +64,15 @@ GuestSchema.index(
     partialFilterExpression: { normalizedFullname: { $exists: true } },
   },
 );
-// Email-level uniqueness per event. Same address may not appear on two
-// different guests of the same event. Phone duplicates are explicitly
-// allowed (couples and families often share a single phone number) — the
-// bulk-send path dedupes by phone at send time so nobody receives multiple
-// messages.
-// Partial filter: only enforce when email is a non-empty string. Empty or
-// missing emails (often '-' or absent on phone-only imports) are unaffected.
-GuestSchema.index(
-  { eventId: 1, email: 1 },
-  {
-    unique: true,
-    partialFilterExpression: { email: { $type: "string", $ne: "" } },
-  },
-);
+// Email is deliberately NOT unique. Couples and families routinely share one
+// address, and each of them needs their own invitation, QR pass and RSVP
+// response. Identity is the guest's name — see the normalizedFullname index
+// above. This index exists purely for lookup speed.
+//
+// A previous version enforced uniqueness here; dropGuestEmailUniqueIndex() in
+// utils/migrations.ts removes that index from existing databases, since
+// changing the schema alone does not drop an index Mongo already built.
+GuestSchema.index({ eventId: 1, email: 1 });
 
 function normalizeName(value?: string) {
   return (value || "").trim().replace(/\s+/g, " ").toLowerCase();

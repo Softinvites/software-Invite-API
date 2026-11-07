@@ -2,7 +2,17 @@ import { Request, Response } from "express";
 import { Types } from "mongoose";
 import { RSVP } from "../models/rsvpmodel";
 import { Event } from "../models/eventmodel";
+import { buildEventEmailFrom } from "../utils/emailSender";
+import { MessageSchedule } from "../models/messageSchedule";
+import { EmailTemplate } from "../models/emailTemplate";
+import { Guest } from "../models/guestmodel";
+import {
+  resolveEventTimeOfDay,
+  getEventUtcOffsetMinutes,
+} from "../utils/eventTime";
 import { RSVPFormLink } from "../models/rsvpFormLinkModel";
+import { WhatsAppMessage } from "../models/WhatsAppMessage";
+import { EmailMessage } from "../models/emailMessage";
 import { sendEmail } from "../library/helpers/emailService";
 import { RSVPChannelPreference } from "../models/rsvpChannelPreference";
 
@@ -108,6 +118,90 @@ const parseEventDate = (value: any): Date | null => {
   return null;
 };
 
+/**
+ * Builds the UTC instant for an event from its calendar date plus an optional
+ * Africa/Lagos time of day.
+ *
+ * parseEventDate returns a Date at LOCAL midnight, so reading it with UTC
+ * getters shifted every event a day earlier on a server east of UTC
+ * ("Saturday, October 3rd, 2026" came out as 2026-10-02). Reading the calendar
+ * components with local getters and rebuilding explicitly keeps the date
+ * correct regardless of the server's timezone.
+ */
+const MONTH_INDEX: Record<string, number> = {
+  jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+  jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
+};
+
+/**
+ * Extracts the calendar Y/M/D an admin actually meant.
+ *
+ * Event dates are free text and sometimes name a day the month does not have —
+ * "31th November, 2026". `new Date` silently rolls that into December, so the
+ * calendar invite landed on the wrong day (and the wrong month). Parsing the
+ * parts ourselves lets us clamp the day to the end of the stated month, which
+ * keeps the event in November where the admin put it.
+ */
+const parseEventDateParts = (
+  value: any,
+): { year: number; month: number; day: number } | null => {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+
+  const cleaned = raw.replace(/(\d+)(st|nd|rd|th)/gi, "$1");
+  const monthMatch = cleaned.match(
+    /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b/i,
+  );
+  const yearMatch = cleaned.match(/\b(\d{4})\b/);
+  const dayMatch = cleaned.match(/\b(\d{1,2})\b/);
+
+  if (monthMatch && yearMatch && dayMatch) {
+    const month = MONTH_INDEX[monthMatch[1].toLowerCase()];
+    const year = Number(yearMatch[1]);
+    const requestedDay = Number(dayMatch[1]);
+    const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+    const day = Math.min(Math.max(requestedDay, 1), daysInMonth);
+
+    if (day !== requestedDay) {
+      console.warn(
+        `[Calendar] Event date "${raw}" names day ${requestedDay}, but that month has ` +
+          `only ${daysInMonth}. Clamped to ${day} rather than rolling into the next month.`,
+      );
+    }
+    return { year, month, day };
+  }
+
+  // No month name (ISO strings and similar) — fall back to native parsing,
+  // reading local getters because that is how the value was constructed.
+  const parsed = parseEventDate(raw);
+  if (!parsed) return null;
+  return {
+    year: parsed.getFullYear(),
+    month: parsed.getMonth(),
+    day: parsed.getDate(),
+  };
+};
+
+const buildEventInstant = (
+  dateValue: any,
+  time: { hours: number; minutes: number } | null,
+): Date | null => {
+  const parts = parseEventDateParts(dateValue);
+  if (!parts) return null;
+
+  const { year, month, day } = parts;
+
+  // No time recorded: keep it at UTC midnight of that calendar date so the
+  // entry shows on the right day rather than slipping to the evening before.
+  if (!time) return new Date(Date.UTC(year, month, day, 0, 0, 0, 0));
+
+  // Wall-clock time is Africa/Lagos; convert to the UTC instant.
+  return new Date(
+    Date.UTC(year, month, day, time.hours, time.minutes, 0, 0) -
+      getEventUtcOffsetMinutes() * 60 * 1000,
+  );
+};
+
 const buildRequestOrigin = (req: Request) => {
   const forwardedProto = req.get("x-forwarded-proto");
   const protocol = forwardedProto || req.protocol || "https";
@@ -121,6 +215,48 @@ const sanitizeCalendarFilename = (value: string) =>
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "") || "event";
 
+const escapeRegex = (value: string) =>
+  value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * Recovers the current RSVP for a link whose record no longer exists.
+ *
+ * Deleting guests and re-importing them gives every guest a new _id, but the
+ * WhatsApp/email links already delivered still carry the old one — those
+ * guests got "RSVP not found" instead of their recorded response. The message
+ * log keeps the old rsvpId with the phone/email it was sent to, so we can find
+ * the same guest in the same event. Only an unambiguous single match is
+ * returned; shared numbers or addresses are never guessed.
+ */
+const recoverRsvpFromMessageLog = async (rsvpId: string) => {
+  if (!Types.ObjectId.isValid(rsvpId)) return null;
+
+  const [waMessage, emailMessage] = await Promise.all([
+    WhatsAppMessage.findOne({ rsvpId }).select({ eventId: 1, phoneNumber: 1 }).lean<any>(),
+    EmailMessage.findOne({ rsvpId }).select({ eventId: 1, guestEmail: 1 }).lean<any>(),
+  ]);
+
+  const phoneDigits = String(waMessage?.phoneNumber || "").replace(/\D/g, "");
+  if (waMessage?.eventId && phoneDigits.length >= 10) {
+    const matches = await RSVP.find({
+      eventId: waMessage.eventId,
+      phone: new RegExp(`${escapeRegex(phoneDigits.slice(-10))}$`),
+    }).limit(2);
+    if (matches.length === 1) return matches[0];
+  }
+
+  const email = normalizeEmailAddress(emailMessage?.guestEmail || "");
+  if (emailMessage?.eventId && email) {
+    const matches = await RSVP.find({
+      eventId: emailMessage.eventId,
+      email: new RegExp(`^${escapeRegex(email)}$`, "i"),
+    }).limit(2);
+    if (matches.length === 1) return matches[0];
+  }
+
+  return null;
+};
+
 const findRsvpByIdentifier = async (rsvpId: string) => {
   let rsvp = null;
 
@@ -132,6 +268,9 @@ const findRsvpByIdentifier = async (rsvpId: string) => {
   }
   if (!rsvp && Types.ObjectId.isValid(rsvpId)) {
     rsvp = await RSVP.findOne({ guestId: rsvpId });
+  }
+  if (!rsvp) {
+    rsvp = await recoverRsvpFromMessageLog(rsvpId);
   }
 
   return rsvp;
@@ -226,9 +365,8 @@ export const submitRsvpForm = async (req: Request, res: Response) => {
     if (!cleanedGuestName) {
       return res.status(400).json({ message: "Guest name is required" });
     }
-    if (!cleanedEmail) {
-      return res.status(400).json({ message: "Email is required" });
-    }
+    // Email is optional: several guests legitimately share one address, and
+    // some have none at all. The guest's name is the identity here.
     if (attendanceEnabled && !normalizedStatus) {
       return res
         .status(400)
@@ -298,18 +436,28 @@ export const submitRsvpForm = async (req: Request, res: Response) => {
       cleanedResponses[field.id] = value;
     }
 
+    // Duplicate detection keys on the guest's NAME, not their email.
+    // Families and couples routinely share one address, and keying on email
+    // meant the first person to respond locked everyone else out of the form.
     if (cleanedSubmissionKey) {
+      const normalizedName = cleanedGuestName
+        .replace(/\s+/g, " ")
+        .trim()
+        .toLowerCase();
+      const escapedName = normalizedName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
       const existingSubmission = await RSVP.findOne({
         eventId: event._id,
         source: "form_submission",
         formLinkToken: formLink.token,
         formResponseKey: cleanedSubmissionKey,
-        email: cleanedEmail,
+        guestName: { $regex: `^${escapedName}$`, $options: "i" },
       });
       if (existingSubmission) {
         return res.status(400).json({
           message:
-            "This form has already been submitted on this device for this email address.",
+            "This form has already been submitted on this device for this name. " +
+            "If you are responding for someone else, enter their name instead.",
         });
       }
     }
@@ -375,7 +523,7 @@ export const submitRsvpForm = async (req: Request, res: Response) => {
           cleanedEmail,
           `RSVP received for ${event.name}`,
           `<p>Thanks ${cleanedGuestName}, we have received your response for ${event.name}.</p>`,
-          `SoftInvites <info@softinvite.com>`,
+          buildEventEmailFrom(event),
           undefined,
           {
             eventId: String(event._id),
@@ -436,126 +584,196 @@ export const submitRsvpForm = async (req: Request, res: Response) => {
   }
 };
 
+/**
+ * GET /rsvp/respond/:rsvpId — read-only.
+ *
+ * The Yes/No links in emails and WhatsApp messages are opened automatically
+ * by mail security scanners (Outlook Safe Links, Proofpoint, Mimecast) and
+ * link-preview fetchers. When this GET recorded the answer, those bots
+ * silently RSVP'd guests — usually "yes", the first link — before the guest
+ * ever tapped a button, and the one-click lock then blocked the real answer.
+ * Opening the link now only shows a confirmation step; the answer is
+ * recorded by confirmRsvpResponse (POST), which bots do not perform.
+ */
 export const respondFromEmail = async (req: Request, res: Response) => {
   try {
     const { rsvpId } = req.params;
-    const { status, source } = req.query as { status?: AttendanceStatus; source?: string };
+    const { status } = req.query as { status?: AttendanceStatus };
     const format = (req.query.format as string | undefined) || '';
     if (!status || !["yes", "no"].includes(status)) {
       if (format === 'json') return res.status(400).json({ message: 'Invalid status' });
       return res.status(400).send("Invalid status");
     }
 
-    let rsvp = null;
-    if (Types.ObjectId.isValid(rsvpId)) {
-      rsvp = await RSVP.findById(rsvpId);
-    }
-    if (!rsvp) {
-      rsvp = await RSVP.findOne({ token: rsvpId });
-    }
-    if (!rsvp && Types.ObjectId.isValid(rsvpId)) {
-      rsvp = await RSVP.findOneAndUpdate({ guestId: rsvpId }, {}, { new: true });
-    }
+    const rsvp = await findRsvpByIdentifier(rsvpId);
     if (!rsvp) {
       if (format === 'json') return res.status(404).json({ message: 'RSVP not found' });
       return res.status(404).send("RSVP not found");
     }
 
     const event = await Event.findById(rsvp.eventId);
-    const isYes = status === "yes";
 
     // One-click lock: once a guest has responded yes/no, the response is
     // final and cannot be changed or re-submitted.
     const alreadyResponded =
       rsvp.attendanceStatus === "yes" || rsvp.attendanceStatus === "no";
 
-    // JSON format: check email, return structured response
     if (format === 'json') {
-      if (alreadyResponded) {
-        return res.json({
-          message: 'Response already submitted',
-          alreadySubmitted: true,
-          attendanceStatus: rsvp.attendanceStatus,
-          eventName: event?.name || '',
-          rsvpId: String(rsvp._id),
-          hasEmail: !!rsvp.email,
-        });
-      }
-      // First response only — update status
-      await RSVP.findByIdAndUpdate(rsvp._id, { attendanceStatus: status, submissionDate: new Date() });
       return res.json({
-        message: 'RSVP updated',
-        attendanceStatus: status,
-        alreadySubmitted: false,
+        message: alreadyResponded ? 'Response already submitted' : 'Awaiting confirmation',
+        alreadySubmitted: alreadyResponded,
+        attendanceStatus: rsvp.attendanceStatus,
         eventName: event?.name || '',
+        // Lets the client say WHOSE invitation this is, so someone who opened
+        // a shared inbox knows they clicked the wrong invitation.
+        guestName: toFirstName(rsvp.guestName),
         rsvpId: String(rsvp._id),
         hasEmail: !!rsvp.email,
+        eventImage: event?.iv || '',
       });
     }
 
-    // HTML path — already responded: show locked confirmation, do not update.
     if (alreadyResponded) {
-      return res.send(buildAlreadySubmittedPage(rsvp.attendanceStatus, event));
+      return res.send(
+        buildAlreadySubmittedPage(rsvp.attendanceStatus, event, rsvp.guestName),
+      );
     }
 
-    // If coming from WhatsApp AND no email on record, show email capture page first
-    if (source === "whatsapp" && !rsvp.email) {
-      const eventName = event?.name ? escapeHtml(String(event.name)) : "the event";
-      const accent = isYes ? "#2e7d32" : "#c62828";
-      return res.send(`
-        <!doctype html>
-        <html lang="en">
-          <head>
-            <meta charset="utf-8" />
-            <meta name="viewport" content="width=device-width, initial-scale=1" />
-            <title>Confirm Attendance</title>
-            <style>
-              body { margin:0; background:#f0f4f8; font-family:"Roboto","Helvetica","Arial",sans-serif; color:#1f2937; }
-              .shell { min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px; }
-              .card { width:100%; max-width:480px; background:#fff; border-radius:18px; box-shadow:0 10px 30px rgba(0,0,0,0.12); padding:32px; text-align:center; }
-              h1 { margin:0 0 8px 0; font-size:22px; }
-              p { margin:6px 0 20px 0; color:#6b7280; font-size:15px; }
-              input { width:100%; box-sizing:border-box; padding:12px 16px; border:1.5px solid #d1d5db; border-radius:10px; font-size:15px; outline:none; margin-bottom:16px; }
-              input:focus { border-color:${accent}; }
-              button { width:100%; padding:13px; border:none; border-radius:10px; background:${accent}; color:#fff; font-size:15px; font-weight:700; cursor:pointer; }
-              button:hover { opacity:0.9; }
-              .note { margin-top:14px; font-size:12px; color:#9ca3af; }
-            </style>
-          </head>
-          <body>
-            <div class="shell">
-              <div class="card">
-                <h1>${isYes ? "✅ Confirm Attendance" : "❌ Unable to Attend"}</h1>
-                <p>Please enter your email to complete your RSVP for <strong>${eventName}</strong>.</p>
-                <form method="POST" action="/rsvp/respond/${rsvpId}/email">
-                  <input type="hidden" name="status" value="${status}" />
-                  <input type="email" name="email" placeholder="Your email address" required />
-                  <button type="submit">Confirm Response</button>
-                </form>
-                <p class="note">Your email will only be used for event updates.</p>
-              </div>
-            </div>
-          </body>
-        </html>
-      `);
-    }
-
-    // Otherwise (email flow or WhatsApp with email already set) — update status directly
-    const update = { attendanceStatus: status, submissionDate: new Date() };
-    if (Types.ObjectId.isValid(rsvpId)) {
-      rsvp = await RSVP.findByIdAndUpdate(rsvpId, update, { new: true });
-    }
-    if (!rsvp) {
-      rsvp = await RSVP.findOneAndUpdate({ token: rsvpId }, update, { new: true });
-    }
-    if (!rsvp) {
-      return res.status(404).send("RSVP not found");
-    }
-
-    return res.send(buildConfirmationPage(status, event));
+    return res.send(
+      buildConfirmPromptPage(event, String(rsvp._id), rsvp.guestName, !rsvp.email),
+    );
   } catch (error: any) {
     console.error("respondFromEmail error", error);
-    res.status(500).send("Failed to update RSVP");
+    res.status(500).send("Failed to load RSVP");
+  }
+};
+
+// Conditional update so a double tap (or yes then no in two tabs) cannot
+// overwrite the first recorded answer.
+const recordFirstResponse = async (
+  rsvp: any,
+  status: AttendanceStatus,
+  email?: string,
+) => {
+  const update: Record<string, any> = {
+    attendanceStatus: status,
+    submissionDate: new Date(),
+  };
+  if (email && !rsvp.email) update.email = email;
+
+  const updated = await RSVP.findOneAndUpdate(
+    { _id: rsvp._id, attendanceStatus: { $nin: ["yes", "no"] } },
+    update,
+    { new: true },
+  );
+  const finalRsvp = updated || (await RSVP.findById(rsvp._id));
+  return {
+    alreadySubmitted: !updated,
+    finalRsvp,
+    recordedStatus: finalRsvp?.attendanceStatus || status,
+  };
+};
+
+/**
+ * POST /rsvp/respond/:rsvpId — records the guest's answer after an explicit
+ * button press. Accepts JSON (the web app) or a form post (the server-rendered
+ * fallback page, which gets HTML back).
+ */
+export const confirmRsvpResponse = async (req: Request, res: Response) => {
+  const wantsHtml = !req.is("application/json");
+  try {
+    const { rsvpId } = req.params;
+    const { status, email } = (req.body || {}) as { status?: string; email?: string };
+    if (!status || !["yes", "no"].includes(status)) {
+      return wantsHtml
+        ? res.status(400).send("Invalid status")
+        : res.status(400).json({ message: "Invalid status" });
+    }
+
+    const rsvp = await findRsvpByIdentifier(rsvpId);
+    if (!rsvp) {
+      return wantsHtml
+        ? res.status(404).send("RSVP not found")
+        : res.status(404).json({ message: "RSVP not found" });
+    }
+
+    const cleanedEmail = normalizeEmailAddress(typeof email === "string" ? email : "");
+    const { alreadySubmitted, finalRsvp, recordedStatus } = await recordFirstResponse(
+      rsvp,
+      status as AttendanceStatus,
+      cleanedEmail,
+    );
+    const event = await Event.findById(rsvp.eventId);
+
+    if (wantsHtml) {
+      return res.send(
+        alreadySubmitted
+          ? buildAlreadySubmittedPage(recordedStatus, event, rsvp.guestName)
+          : buildConfirmationPage(recordedStatus, event),
+      );
+    }
+    return res.json({
+      message: alreadySubmitted ? "Response already submitted" : "RSVP updated",
+      alreadySubmitted,
+      attendanceStatus: recordedStatus,
+      eventName: event?.name || "",
+      guestName: toFirstName(rsvp.guestName),
+      rsvpId: String(rsvp._id),
+      hasEmail: !!finalRsvp?.email,
+    });
+  } catch (error: any) {
+    console.error("confirmRsvpResponse error", error);
+    return wantsHtml
+      ? res.status(500).send("Failed to update RSVP")
+      : res.status(500).json({ message: "Failed to update RSVP" });
+  }
+};
+
+/**
+ * Records a tap on a WhatsApp quick-reply RSVP button and returns the text to
+ * send back, or null if the payload is not an RSVP button.
+ *
+ * WhatsApp sends a tap on a template's header image to the template's first
+ * URL, and that cannot be turned off, so with URL buttons the image opens the
+ * "Yes" link. Quick-reply templates have no URL for the image to open. Their
+ * button id carries the same `<rsvpId>?status=yes` value the URL buttons use
+ * (rsvp_yes_link / rsvp_no_link), which also keeps guests who share a phone
+ * number apart.
+ *
+ * The id grants what the public POST /rsvp/respond/:rsvpId already grants, so
+ * this does not depend on the Twilio signature check passing.
+ */
+export const respondFromWhatsAppButton = async (
+  payload: string,
+): Promise<string | null> => {
+  // The Button ID may be the bare variable or the full respond URL around it.
+  const match = /^(?:\S*\/)?([^/?\s]+)\?status=(yes|no)$/.exec(String(payload || "").trim());
+  if (!match) return null;
+  const [, rsvpId, status] = match;
+
+  try {
+    const rsvp = await findRsvpByIdentifier(rsvpId);
+    if (!rsvp) {
+      return "This invitation link has been replaced. Please use the most recent invitation sent to you, or contact the event organiser.";
+    }
+
+    const { alreadySubmitted, recordedStatus } = await recordFirstResponse(
+      rsvp,
+      status as AttendanceStatus,
+    );
+    const event = await Event.findById(rsvp.eventId);
+    const eventName = event?.name || "the event";
+
+    if (alreadySubmitted) {
+      const recorded = recordedStatus === "yes" ? "YES — Attending" : "NO — Unable to attend";
+      return `A response to ${eventName} has already been recorded for ${toFirstName(rsvp.guestName) || "this invitation"}: ${recorded}. RSVP responses are final. If this is a mistake, please contact the event host.`;
+    }
+    return status === "yes"
+      ? `Thank you! Your attendance at ${eventName} has been confirmed.`
+      : `Thank you for letting us know you can't make it to ${eventName}.`;
+  } catch (error: any) {
+    console.error("respondFromWhatsAppButton error", error);
+    return "Sorry, we could not record your response. Please tap the button again.";
   }
 };
 
@@ -567,19 +785,12 @@ export const respondFromWhatsAppWithEmail = async (req: Request, res: Response) 
     if (!status || !["yes", "no"].includes(status)) {
       return res.status(400).json({ message: "Invalid status" });
     }
+    // Optional — the response is keyed to this specific RSVP record, so a
+    // shared or missing address never blocks or overwrites another guest.
     const cleanedEmail = normalizeEmailAddress(typeof email === "string" ? email : "");
-    if (!cleanedEmail) {
-      return res.status(400).json({ message: "Email is required" });
-    }
 
     // Load the RSVP first so we can honor the one-click lock.
-    let rsvp = null;
-    if (Types.ObjectId.isValid(rsvpId)) {
-      rsvp = await RSVP.findById(rsvpId);
-    }
-    if (!rsvp) {
-      rsvp = await RSVP.findOne({ token: rsvpId });
-    }
+    let rsvp = await findRsvpByIdentifier(rsvpId);
     if (!rsvp) {
       return res.status(404).json({ message: "RSVP not found" });
     }
@@ -590,7 +801,8 @@ export const respondFromWhatsAppWithEmail = async (req: Request, res: Response) 
     // If already responded, the status is locked — only the email is saved
     // (this POST also doubles as the "add your email" step). The recorded
     // status is never overwritten.
-    const update: Record<string, any> = { email: cleanedEmail };
+    const update: Record<string, any> = {};
+    if (cleanedEmail) update.email = cleanedEmail;
     if (!alreadyResponded) {
       update.attendanceStatus = status as AttendanceStatus;
       update.submissionDate = new Date();
@@ -614,6 +826,62 @@ export const respondFromWhatsAppWithEmail = async (req: Request, res: Response) 
     res.status(500).json({ message: "Failed to update RSVP" });
   }
 };
+
+function buildConfirmPromptPage(
+  event: any,
+  rsvpId: string,
+  guestName?: string | null,
+  askEmail?: boolean,
+): string {
+  const eventName = event?.name ? escapeHtml(String(event.name)) : "the event";
+  const cleanName = escapeHtml(toFirstName(guestName));
+  const action = `/rsvp/respond/${encodeURIComponent(rsvpId)}`;
+  const emailField = askEmail
+    ? `<input type="email" name="email" placeholder="Email for event updates (optional)" />`
+    : "";
+  const image = event?.iv
+    ? `<img src="${escapeHtml(String(event.iv))}" alt="Invitation" style="width:100%;border-radius:12px;margin-bottom:16px;" />`
+    : "";
+  const choice = (value: string, label: string, color: string) => `
+    <form method="POST" action="${action}">
+      <input type="hidden" name="status" value="${value}" />
+      ${emailField}
+      <button type="submit" style="background:${color};">${label}</button>
+    </form>`;
+
+  return `
+    <!doctype html>
+    <html lang="en">
+      <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta name="robots" content="noindex" />
+        <title>Confirm your RSVP</title>
+        <style>
+          body { margin:0; background:#f0f4f8; font-family:"Roboto","Helvetica","Arial",sans-serif; color:#1f2937; }
+          .shell { min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px; }
+          .card { width:100%; max-width:480px; background:#fff; border-radius:18px; box-shadow:0 10px 30px rgba(0,0,0,0.12); padding:32px; text-align:center; }
+          h1 { margin:0 0 8px 0; font-size:22px; }
+          p { margin:6px 0 20px 0; color:#6b7280; font-size:15px; }
+          form { margin:0 0 12px 0; }
+          input { width:100%; box-sizing:border-box; padding:12px 16px; border:1.5px solid #d1d5db; border-radius:10px; font-size:15px; margin-bottom:8px; }
+          button { width:100%; padding:13px; border:none; border-radius:10px; color:#fff; font-size:15px; font-weight:700; cursor:pointer; }
+        </style>
+      </head>
+      <body>
+        <div class="shell">
+          <div class="card">
+            ${image}
+            <h1>Will you attend?</h1>
+            <p>${cleanName ? `Hi <strong>${cleanName}</strong>, please` : "Please"} choose your response for <strong>${eventName}</strong>. Responses are final once submitted.</p>
+            ${choice("yes", "✅ YES, I WILL ATTEND", "#2e7d32")}
+            ${choice("no", "❌ UNABLE TO ATTEND", "#c62828")}
+          </div>
+        </div>
+      </body>
+    </html>
+  `;
+}
 
 function buildConfirmationPage(status: string, event: any): string {
   const isYes = status === "yes";
@@ -671,11 +939,79 @@ function buildConfirmationPage(status: string, event: any): string {
   `;
 }
 
-function buildAlreadySubmittedPage(status: string, event: any): string {
+/**
+ * Reduces a guest name to a recognisable first name for the "already
+ * submitted" page, so the reader can tell whose link they opened without the
+ * page disclosing a full identity.
+ *
+ * Real guest lists are messy — "Mr. & Mrs. Obinna Nwankiti",
+ * "Akinyele, MRS. Oyindamola Christiana", "Lara Are - Guest 2",
+ * "(Mother-in-law) Grandma Theresa Anosike" — so naive first-token splitting
+ * yields "Mr." or "Akinyele,". Titles and list suffixes are stripped, and
+ * anything that resolves to nothing useful falls back to the cleaned name.
+ */
+const HONORIFICS = new Set([
+  "mr", "mrs", "ms", "miss", "dr", "prof", "professor", "chief", "alhaji",
+  "alhaja", "engr", "engineer", "rev", "reverend", "ven", "pastor", "sir",
+  "lady", "gen", "general", "capt", "captain", "barr", "barrister", "arc",
+  "architect", "hon", "honourable", "sen", "senator", "and", "the",
+  // military / service ranks
+  "rear", "admiral", "col", "colonel", "maj", "major", "lt", "lieutenant",
+  "sgt", "sergeant", "brig", "brigadier", "cdr", "commander", "cpt",
+  // family relations, which guest lists use as prefixes
+  "uncle", "aunty", "aunt", "auntie", "grandma", "grandpa", "granny",
+  "mama", "papa", "bro", "brother", "sis", "sister",
+]);
+
+const toFirstName = (fullName?: string | null): string => {
+  let name = String(fullName || "")
+    .replace(/\([^)]*\)/g, " ")               // "(Mother-in-law)"
+    .replace(/\s*[-–]\s*guest\s*\d+\s*$/i, "") // "- Guest 2"
+    .replace(/\s*\+\s*\d+\s*$/, "")           // "+1"
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!name) return "";
+
+  // "Surname, Title Given" — the given name follows the comma.
+  if (name.includes(",")) {
+    const after = name.split(",").slice(1).join(" ").trim();
+    if (after) name = after;
+  }
+
+  // Couples share one record; there is no single first name to show.
+  if (/\s(&|\band\b)\s/i.test(name)) return name;
+
+  for (const token of name.split(" ")) {
+    const bare = token.replace(/[.]/g, "").toLowerCase();
+    if (!bare || HONORIFICS.has(bare)) continue;
+    return token.replace(/[,]+$/, "");
+  }
+  return name;
+};
+
+function buildAlreadySubmittedPage(
+  status: string,
+  event: any,
+  guestName?: string | null,
+): string {
   const isYes = status === "yes";
   const accent = isYes ? "#2e7d32" : "#c62828";
   const eventName = event?.name ? escapeHtml(String(event.name)) : "your event";
   const recorded = isYes ? "YES — Attending" : "NO — Unable to attend";
+
+  // Households routinely share one inbox, so both invitations land together
+  // and it is easy to open the wrong message. Naming the guest this link
+  // belongs to turns a dead end into something the reader can act on.
+  const cleanName = escapeHtml(toFirstName(guestName));
+  const whoLine = cleanName
+    ? `<p>This invitation link belongs to <strong>${cleanName}</strong>.</p>`
+    : "";
+  const wrongPersonNote = cleanName
+    ? `<p class="note">Responding for someone else? Each guest has their own
+         invitation link. Open the message addressed to them and use the buttons
+         in that message — a link that has already been used cannot be reused.</p>`
+    : `<p class="note">RSVP responses are final and cannot be changed. If this is
+         a mistake, please contact the event host.</p>`;
 
   return `
     <!doctype html>
@@ -701,9 +1037,10 @@ function buildAlreadySubmittedPage(status: string, event: any): string {
           <div class="card">
             <div class="icon">🔒</div>
             <h1>Response already submitted</h1>
-            <p>You have already responded to the invitation for <strong>${eventName}</strong>.</p>
-            <div class="status">Your response: ${recorded}</div>
-            <p class="note">RSVP responses are final and cannot be changed. If this is a mistake, please contact the event host.</p>
+            ${whoLine}
+            <p>A response to <strong>${eventName}</strong> has already been recorded for this link.</p>
+            <div class="status">Recorded response: ${recorded}</div>
+            ${wrongPersonNote}
           </div>
         </div>
       </body>
@@ -734,10 +1071,32 @@ export const downloadRsvpCalendarInvite = async (req: Request, res: Response) =>
       }
     }
 
-    const eventStart = parseEventDate((event as any).date);
-    if (!eventStart) {
+    if (!parseEventDate((event as any).date)) {
       return res.status(400).json({ message: "Event date is not valid for calendar export" });
     }
+
+    // The event model has no time field — admins type the time into a template
+    // variable or a "Time:" line in a message body. Without this the calendar
+    // invite defaulted to midnight UTC, which guests saw as 1-3am locally.
+    // The guest's own invitation message is the email body they actually
+    // received, so it outranks event-level sources.
+    let guestMessage: string | null = null;
+    if (rsvp?.guestId) {
+      try {
+        const guest = await Guest.findById(rsvp.guestId).select({ message: 1 }).lean();
+        guestMessage = (guest as any)?.message || null;
+      } catch {
+        /* best effort */
+      }
+    }
+
+    const timeOfDay = await resolveEventTimeOfDay(event, MessageSchedule, {
+      EmailTemplateModel: EmailTemplate,
+      extraSources: [guestMessage, (rsvp as any)?.comments],
+    });
+
+    // Date comes from event.date; time (when recorded anywhere) is Lagos local.
+    const eventStart = buildEventInstant((event as any).date, timeOfDay)!;
 
     const rawEndDate = parseEventDate((event as any).eventEndDate);
     const eventEnd =
@@ -769,6 +1128,20 @@ export const downloadRsvpCalendarInvite = async (req: Request, res: Response) =>
       "END:VCALENDAR",
     ].join("\r\n");
 
+    // Most guests open RSVP links inside WhatsApp's in-app browser, which
+    // ignores Content-Disposition for text/calendar and renders the .ics as
+    // plain text. ?format=google sidesteps that entirely by handing the guest
+    // to Google Calendar, which every webview can open.
+    if (String(req.query.format || "").toLowerCase() === "google") {
+      const googleUrl =
+        "https://calendar.google.com/calendar/render?action=TEMPLATE" +
+        `&text=${encodeURIComponent(String(event.name || "SoftInvites Event"))}` +
+        `&dates=${formatIcsDate(eventStart)}/${formatIcsDate(eventEnd)}` +
+        `&details=${encodeURIComponent(descriptionParts.join("\n\n"))}` +
+        `&location=${encodeURIComponent(String(event.location || ""))}`;
+      return res.redirect(302, googleUrl);
+    }
+
     res.setHeader("Content-Type", "text/calendar; charset=utf-8");
     res.setHeader(
       "Content-Disposition",
@@ -792,7 +1165,7 @@ const resolveRsvpByTokenOrId = async (idOrToken: string) => {
     const byGuest = await RSVP.findOne({ guestId: idOrToken });
     if (byGuest) return byGuest;
   }
-  return null;
+  return recoverRsvpFromMessageLog(idOrToken);
 };
 
 export const getRsvpPreferences = async (req: Request, res: Response) => {

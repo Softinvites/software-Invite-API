@@ -164,6 +164,36 @@ export const syncFullRsvpPendingSchedules = async (
     return { inserted: 0, deleted: 0, existingPendingCount, skipped: true };
   }
 
+  // Only an identical step (same name, channel, send time and text) that has
+  // already been sent or is sending is skipped, so a plain re-save never resends
+  // it. Any edit in the message builder (new date, new text) is always scheduled.
+  // Pending relative-day steps keep their date instead of re-anchoring to now.
+  const nameChannelKey = (name: string, channel: string) => `${name}|${channel}`;
+  const sentKey = (name: string, channel: string, date: Date, body: string) =>
+    `${name}|${channel}|${date.getTime()}|${body}`;
+  const existingSchedules = await MessageSchedule.find(
+    {
+      eventId: event._id,
+      servicePackage: "full-rsvp",
+      messageType: "custom",
+      status: { $in: ["pending", "processing", "sent"] },
+    },
+    { messageName: 1, channel: 1, status: 1, scheduledDate: 1, messageBody: 1 },
+  ).lean();
+  const alreadySent = new Set<string>();
+  const pendingDates = new Map<string, Date>();
+  for (const s of existingSchedules as any[]) {
+    const name = String(s.messageName || "");
+    const channel = String(s.channel || "");
+    if (!s.scheduledDate) continue;
+    const date = new Date(s.scheduledDate);
+    if (s.status === "pending") {
+      pendingDates.set(nameChannelKey(name, channel), date);
+    } else {
+      alreadySent.add(sentKey(name, channel, date, String(s.messageBody || "").trim()));
+    }
+  }
+
   const schedules: any[] = [];
 
   for (const item of sequence) {
@@ -202,6 +232,12 @@ export const syncFullRsvpPendingSchedules = async (
 
     for (const ch of channelEntries) {
       if (!ch.enabled) continue;
+      const stepName = messageName || "Custom Message";
+      const keptDate = !item?.scheduledDate
+        ? pendingDates.get(nameChannelKey(stepName, ch.channel))
+        : undefined;
+      const stepDate = keptDate || scheduledDate;
+      if (alreadySent.has(sentKey(stepName, ch.channel, stepDate, messageBody))) continue;
       const templateVariables =
         ch.channel === "whatsapp"
           ? normalizeTemplateVariables(channels?.whatsapp?.templateVariables)
@@ -223,7 +259,7 @@ export const syncFullRsvpPendingSchedules = async (
           ch.channel === "whatsapp"
             ? normalizeWhatsAppSequenceAttachment(attachment)
             : attachment,
-        scheduledDate,
+        scheduledDate: stepDate,
         status: "pending",
         targetAudience,
         targetTag,

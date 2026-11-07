@@ -9,6 +9,8 @@ interface EventDocument extends Document {
   rsvpMessage?: string;
   rsvpBgColor?: string;
   rsvpAccentColor?: string;
+  emailSenderMode?: "softinvites" | "event" | "custom";
+  emailSenderName?: string;
   rsvpFormSettings?: Record<string, any>;
   servicePackage?: "invitation-only" | "one-time-rsvp" | "standard-rsvp" | "full-rsvp";
   messageCycle?: number;
@@ -93,6 +95,12 @@ const EventSchema = new Schema(
     rsvpMessage: { type: String, required: false },
     rsvpBgColor: { type: String, required: false },
     rsvpAccentColor: { type: String, required: false },
+    emailSenderMode: {
+      type: String,
+      enum: ["softinvites", "event", "custom"],
+      default: "softinvites",
+    },
+    emailSenderName: { type: String, default: "", trim: true, maxlength: 70 },
     rsvpFormSettings: { type: Schema.Types.Mixed, default: null },
     servicePackage: {
       type: String,

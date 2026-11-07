@@ -20,6 +20,8 @@ type EventPayload = {
   rsvpAccentColor?: string;
   qrCodeBgColor?: string;
   qrCodeCenterColor?: string;
+  /** Sender per the event's email setting; defaults to SoftInvites. */
+  from?: string;
 };
 
 async function safeInvoke(
@@ -114,7 +116,7 @@ export const handler = async (event: any) => {
             EMAIL_LAMBDA_FUNCTION_NAME,
             {
               to: recipient.email,
-              from: `SoftInvites <info@softinvite.com>`,
+              from: eventInfo.from || `SoftInvites <info@softinvite.com>`,
               subject,
               htmlContent,
               eventId: eventInfo.id,

@@ -4,6 +4,7 @@ import xlsx from "xlsx";
 import { Readable } from "stream";
 import { RSVP } from "../models/rsvpmodel";
 import { Event } from "../models/eventmodel";
+import { buildEventEmailFrom } from "../utils/emailSender";
 import { RSVPFormLink } from "../models/rsvpFormLinkModel";
 import { InvitationRecord } from "../models/invitationRecord";
 import { generateRsvpToken } from "../utils/rsvpToken";
@@ -285,6 +286,7 @@ async function sendRsvpEmailsBatch(
           rsvpAccentColor: (event as any).rsvpAccentColor,
           qrCodeBgColor: (event as any).qrCodeBgColor,
           qrCodeCenterColor: (event as any).qrCodeCenterColor,
+          from: buildEventEmailFrom(event),
         },
         baseUrl,
         recipients: emails,
@@ -311,7 +313,7 @@ async function sendRsvpEmailsBatch(
       rsvp.email,
       subject,
       html,
-      `SoftInvites <info@softinvite.com>`,
+      buildEventEmailFrom(event),
       undefined,
       {
         eventId: String(event._id),
@@ -353,7 +355,7 @@ async function sendInvitationEmailsBatch(
         invite.email,
         `Invitation to ${event.name}`,
         html,
-        `SoftInvites <info@softinvite.com>`,
+        buildEventEmailFrom(event),
         undefined,
         {
           eventId: String(event._id),

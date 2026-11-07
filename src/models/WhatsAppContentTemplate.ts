@@ -21,6 +21,7 @@ const buttonSchema = new mongoose.Schema(
     title: { type: String, required: true },
     url: { type: String, default: "" },
     phone: { type: String, default: "" },
+    id: { type: String, default: "" },
   },
   { _id: false },
 );

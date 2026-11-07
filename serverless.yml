@@ -24,21 +24,29 @@ provider:
         - https://softinvite.com
         - https://softinvite-scan.vercel.app
         - http://localhost:3039
+        # Brand website dev server (softinvites-web). In production the site is
+        # served from softinvite.com itself, so it needs no separate entry.
+        - http://localhost:3040
       allowCredentials: true
       allowedHeaders:
         - Content-Type
         - Authorization
         - X-Amz-Date
         - X-Api-Key
+      # API Gateway answers preflight itself, BEFORE the Lambda runs — so the
+      # cors() middleware in src/index.ts cannot rescue a method missing here.
+      # Anything the frontend sends must be listed.
       allowedMethods:
         - OPTIONS
         - GET
         - POST
         - PUT
+        - PATCH
         - DELETE
       maxAge: 86400
 
   environment:
+    NODE_ENV: ${env:NODE_ENV, 'production'}
     MONGODB_URI: ${env:MONGODB_URI, 'mongodb+srv://softinvites:Pi1pZr1yjuIcJ5pL@cluster1.f69gx.mongodb.net/softinvites?retryWrites=true&w=majority'}
     JWT_SECRET: ${env:JWT_SECRET, 'soft_invites363effbch7ee'}
     S3_BUCKET: ${env:S3_BUCKET, 'softinvites-assets'}
@@ -57,7 +65,7 @@ provider:
     BACKUP_LAMBDA: ${env:BACKUP_LAMBDA, 'softinvites-backend-dev-backup'}
     EMAIL_FROM: ${env:EMAIL_FROM, 'SoftInvites <info@softinvite.com>'}
     ADMIN_EMAIL: ${env:ADMIN_EMAIL, 'softinvites@gmail.com'}
-    SES_CONFIGURATION_SET_NAME: ${env:SES_CONFIGURATION_SET_NAME, self:custom.sesConfigurationSetName}
+    SES_CONFIGURATION_SET_NAME: softinvites-backend-dev-email-events
     # WhatsApp (Twilio) provider config. These must be present in the serverless
     # app + scheduler environments (otherwise the code falls back to Meta).
     WHATSAPP_PROVIDER: ${env:WHATSAPP_PROVIDER, 'twilio'}
@@ -81,6 +89,17 @@ provider:
     TWILIO_WHATSAPP_TIME_FALLBACK: ${env:TWILIO_WHATSAPP_TIME_FALLBACK, 'TBA'}
     RSVP_SCHEDULER_SECRET: ${env:RSVP_SCHEDULER_SECRET, 'soft_invites_rsvp_scheduler_secret'}
     RSVP_SCHEDULER_LAMBDA_NAME: ${env:RSVP_SCHEDULER_LAMBDA_NAME, 'rsvpSchedulerLambda'}
+    SMS_PROVIDER: ${env:SMS_PROVIDER, 'termii'}
+    TERMII_API_KEY: ${env:TERMII_API_KEY, ''}
+    TERMII_SENDER_ID: ${env:TERMII_SENDER_ID, 'SoftInvites'}
+    TERMII_CHANNEL: ${env:TERMII_CHANNEL, 'generic'}
+    TERMII_ALLOW_GENERIC_FALLBACK: ${env:TERMII_ALLOW_GENERIC_FALLBACK, 'false'}
+    WHATSAPP_SEND_CONCURRENCY: ${env:WHATSAPP_SEND_CONCURRENCY, '10'}
+    WHATSAPP_SEND_DELAY_MS: ${env:WHATSAPP_SEND_DELAY_MS, '0'}
+    SMS_DEFAULT_COUNTRY_CODE: ${env:SMS_DEFAULT_COUNTRY_CODE, '234'}
+    TERMII_BASE_URL: ${env:TERMII_BASE_URL, 'https://api.ng.termii.com'}
+    TERMII_SMS_WEBHOOK_URL: ${env:TERMII_SMS_WEBHOOK_URL, 'https://292x833w13.execute-api.us-east-2.amazonaws.com/webhook/termii/sms'}
+    TERMII_WEBHOOK_SECRET: ${env:TERMII_WEBHOOK_SECRET, ''}
     SERVERLESS_LICENSE_KEY: ${env:SERVERLESS_LICENSE_KEY, 'eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJvcmdJZCI6IjdmYjQ0ZmY4LTQ5YmUtNGY0My1iMmM2LTliMzIyYmU5ZmQ3OSIsImlhdCI6MTc1NjM3MjU3NCwiZXhwIjoxNzg3OTA4NTc0LCJpc3MiOiJhcHAuc2VydmVybGVzcy5jb20ifQ.wxYOYIhN7zKm1zUY3l0RaHDnGOWKBqjdt9aPzjaiWZrMqhOxRWr8AD7Oy_-KQ-JnBu4ow1rKFqgFWc62EYwMY5XZvtCM91U-3lixSNMtqCyMhokEusEVM3IApNdQcl2fBS65RHGg1DVdWIVMGBBURMTDyy1DP0fhcINigjr08zP6iNeyjypdNp_az1TfDPZHVpAItKsIhk0sp0I9TBC_GPObgQ8gH9BK2guDNsEP92XJLoQaDCRXwlVemX3QjT3H6lEJBJjrzzAkOiDaGBd0TEHcpwbORdWKpZB9IRjmD0B6RVXU4W2azSGx8HEG3wHimraoUYXSG9Y9VOKEcpHq2w'}
 
   iam:
@@ -124,14 +143,14 @@ functions:
       - httpApi:
           method: ANY
           path: /{proxy+}
-    memorySize: 1024
-    timeout: 100
+    memorySize: 512
+    timeout: 900
 
   backup:
     handler: dist/backup.handler
     description: "Event-driven MongoDB backup to S3"
     memorySize: 512
-    timeout: 120
+    timeout: 900
     environment:
       MONGODB_URI: ${env:MONGODB_URI, 'mongodb+srv://softinvites:Pi1pZr1yjuIcJ5pL@cluster1.f69gx.mongodb.net/softinvites'}
       BACKUP_BUCKET: ${env:BACKUP_BUCKET, 'softinvites-backups'}
@@ -144,7 +163,9 @@ functions:
 
     events:
       - schedule:
-          rate: rate(5 minutes)
+          # Was 5 minutes, which alone made every scheduled message up to 5
+          # minutes late before any sending began. 1 minute cuts that floor.
+          rate: rate(1 minute)
           enabled: true
 
   emailFeedback:
@@ -156,13 +177,13 @@ functions:
   sendWhatsApp:
     handler: dist/lambda/sendWhatsAppLambda/index.handler
     description: "Sends WhatsApp messages to event guests in batches"
-    memorySize: 3008
+    memorySize: 512
     timeout: 900
 
   importGuests:
     handler: dist/lambda/importGuestsLambda/index.handler
     description: "Imports guests from CSV/Excel and generates QR codes"
-    memorySize: 3008
+    memorySize: 512
     timeout: 900
     layers:
       - arn:aws:lambda:us-east-2:402961397587:layer:Sharp2:1
@@ -178,18 +199,18 @@ functions:
     handler: dist/lambda/generateQrToS3/index.handler
     description: "Generates QR code SVGs and uploads them to S3"
     memorySize: 512
-    timeout: 300
+    timeout: 900
 
   downloadZip:
     handler: dist/lambda/downloadZipLambdaFunction/index.handler
     description: "Zips and streams guest QR code images from S3"
-    memorySize: 3008
+    memorySize: 512
     timeout: 900
 
   pngConvert:
     handler: dist/lambda/pngConvertLambda/index.handler
     description: "Converts SVG QR codes to PNG using Sharp"
-    memorySize: 3008
+    memorySize: 512
     timeout: 900
     layers:
       - arn:aws:lambda:us-east-2:402961397587:layer:Sharp2:1
@@ -197,13 +218,13 @@ functions:
   sendEmail:
     handler: dist/lambda/sendEmailLambda/index.handler
     description: "Sends individual email invitations via SES"
-    memorySize: 3008
+    memorySize: 512
     timeout: 900
 
   resendEmails:
     handler: dist/lambda/resendEmailsLambda/index.handler
     description: "Resends email invitations to a batch of guests"
-    memorySize: 3008
+    memorySize: 512
     timeout: 900
     environment:
       EMAIL_LAMBDA_FUNCTION_NAME:
@@ -212,7 +233,7 @@ functions:
   rsvpEmail:
     handler: dist/lambda/rsvpEmailLambda/index.handler
     description: "Sends RSVP confirmation emails via the email Lambda"
-    memorySize: 1024
+    memorySize: 512
     timeout: 900
     environment:
       EMAIL_LAMBDA_FUNCTION_NAME:
@@ -251,60 +272,7 @@ custom:
     noPrependStageInUrl: true
 
 resources:
-  Resources:
-    SesEmailFeedbackConfigurationSet:
-      Type: AWS::SES::ConfigurationSet
-      Properties:
-        Name: ${self:custom.sesConfigurationSetName}
-        SendingOptions:
-          SendingEnabled: true
-
-    SesEmailFeedbackEventDestination:
-      Type: AWS::SES::ConfigurationSetEventDestination
-      Properties:
-        ConfigurationSetName: !Ref SesEmailFeedbackConfigurationSet
-        EventDestination:
-          Name: ses-eventbridge-feedback
-          Enabled: true
-          MatchingEventTypes:
-            - SEND
-            - DELIVERY
-            - BOUNCE
-            - COMPLAINT
-            - REJECT
-            - DELIVERY_DELAY
-            - RENDERING_FAILURE
-          EventBridgeDestination:
-            EventBusArn: !Sub arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:event-bus/default
-
-    SesEmailFeedbackRule:
-      Type: AWS::Events::Rule
-      Properties:
-        Description: Routes SES feedback events to the email feedback lambda.
-        EventPattern:
-          source:
-            - aws.ses
-          detail-type:
-            - Email Sent
-            - Email Delivered
-            - Email Bounced
-            - Email Complaint Received
-            - Email Rejected
-            - Email Delivery Delayed
-            - Email Rendering Failed
-        Targets:
-          - Arn: !GetAtt EmailFeedbackLambdaFunction.Arn
-            Id: SesEmailFeedbackLambdaTarget
-
-    SesEmailFeedbackLambdaInvokePermission:
-      Type: AWS::Lambda::Permission
-      Properties:
-        Action: lambda:InvokeFunction
-        FunctionName: !Ref EmailFeedbackLambdaFunction
-        Principal: events.amazonaws.com
-        SourceArn: !GetAtt SesEmailFeedbackRule.Arn
-
   Outputs:
-    SesEmailFeedbackConfigurationSetName:
-      Value: !Ref SesEmailFeedbackConfigurationSet
-      Description: SES configuration set name used for email delivery diagnostics.
+    ServiceEndpoint:
+      Description: URL of the service endpoint
+      Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com"

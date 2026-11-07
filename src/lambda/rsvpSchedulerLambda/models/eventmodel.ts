@@ -9,6 +9,8 @@ interface EventDocument extends Document {
   rsvpMessage?: string;
   rsvpBgColor?: string;
   rsvpAccentColor?: string;
+  emailSenderMode?: "softinvites" | "event" | "custom";
+  emailSenderName?: string;
   qrCodeBgColor?: string;
   qrCodeCenterColor?: string;
   rsvpFormSettings?: Record<string, any>;
@@ -36,6 +38,12 @@ const EventSchema = new Schema<EventDocument>(
     rsvpMessage: { type: String, required: false },
     rsvpBgColor: { type: String, required: false },
     rsvpAccentColor: { type: String, required: false },
+    emailSenderMode: {
+      type: String,
+      enum: ["softinvites", "event", "custom"],
+      default: "softinvites",
+    },
+    emailSenderName: { type: String, default: "", trim: true, maxlength: 70 },
     qrCodeBgColor: { type: String, required: false },
     qrCodeCenterColor: { type: String, required: false },
     rsvpFormSettings: { type: Schema.Types.Mixed, default: null },

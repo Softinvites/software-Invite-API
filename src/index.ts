@@ -15,6 +15,7 @@ import RsvpAdminRouter from "./routes/rsvpAdminRoutes";
 import EmailRouter from "./routes/emailRoutes";
 import ReportRouter from "./routes/reportRoutes";
 import ContentTemplateRouter from "./routes/contentTemplateRoutes";
+import ContactRouter from "./routes/contactRoutes";
 import { dbConnect } from "./library/middlewares/dbConnect";
 import {
   EVENT_FIELD_SIZE_LIMIT_BYTES,
@@ -38,28 +39,83 @@ if (
 }
 
 const allowedOrigins: string[] = [
+  // --- Admin dashboard (Softinvites-website-QR) ---
   "http://localhost:3039",
   "localhost:3039",
   "http://192.168.0.197:3039",
   "http://100.64.100.6:3039",
+
+  // --- Production, softinvite.com ---
+  // Serves BOTH the admin dashboard and the marketing website: the website is
+  // proxied in on the marketing paths, so both share this single origin.
   "https://www.softinvite.com",
   "https://softinvite.com",
-  "http://localhost:3000",
+
+  // --- Marketing website (softinvites-web) dev server ---
+  "http://localhost:3040",
+  "http://127.0.0.1:3040",
+
+  // --- Gate check-in scanner (qr-scanner) ---
   "https://softinvite-scan.vercel.app",
+
+  "http://localhost:3000",
 ];
 
+/**
+ * Extra origins without a redeploy — comma-separated, e.g. a Vercel preview URL
+ * while testing the marketing site before it goes on the domain:
+ *   EXTRA_CORS_ORIGINS=https://softinvites-web.vercel.app,https://foo-git-bar.vercel.app
+ */
+const extraOrigins = (process.env.EXTRA_CORS_ORIGINS || "")
+  .split(",")
+  .map((origin) => origin.trim().replace(/\/$/, ""))
+  .filter(Boolean);
+
+/**
+ * Vercel preview deployments get a new hostname per deploy, so they cannot be
+ * enumerated. Allow them only when explicitly switched on, and never by default.
+ *   ALLOW_VERCEL_PREVIEW_ORIGINS=true
+ */
+const allowVercelPreviews =
+  String(process.env.ALLOW_VERCEL_PREVIEW_ORIGINS || "").toLowerCase() === "true";
+
+const isAllowedOrigin = (origin: string): boolean => {
+  const normalized = origin.replace(/\/$/, "");
+  if (allowedOrigins.includes(normalized) || extraOrigins.includes(normalized)) {
+    return true;
+  }
+  if (allowVercelPreviews && /^https:\/\/[a-z0-9-]+\.vercel\.app$/i.test(normalized)) {
+    return true;
+  }
+  return false;
+};
+
 const corsOptions: CorsOptions = {
+  // No Origin header means a same-origin request, a server-to-server call, or a
+  // provider webhook (Twilio, Termii, Meta) — none of which CORS applies to.
   origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin)) {
+    if (!origin || isAllowedOrigin(origin)) {
       callback(null, true);
     } else {
+      console.warn(`CORS blocked origin: ${origin}`);
       callback(new Error("Not allowed by CORS"));
     }
   },
   credentials: true,
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+  maxAge: 86400,
 };
 
 app.use(cors(corsOptions));
+// Answer preflight for every route, including the public contact endpoint,
+// before any rate limiter or auth middleware can reject it.
+app.options("*", cors(corsOptions));
+
+// Behind API Gateway / Vercel the real client IP is in x-forwarded-for.
+// express-rate-limit needs this to key the public contact endpoint per visitor
+// rather than treating every request as coming from the proxy.
+app.set("trust proxy", 1);
 
 // --- Middleware ---
 app.use(logger("dev"));
@@ -93,6 +149,7 @@ app.use("/rsvp", RsvpRouter);
 app.use("/email", EmailRouter);
 app.use("/reports", ReportRouter);
 app.use("/content-templates", ContentTemplateRouter);
+app.use("/contact", ContactRouter);
 
 // --- Error handler ---
 app.use((err: HttpError, req: Request, res: Response, next: NextFunction) => {

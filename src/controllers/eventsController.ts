@@ -503,6 +503,8 @@ export const createEvent = async (
       customMessageSequence,
       rsvpDeadline,
       eventEndDate,
+      emailSenderMode,
+      emailSenderName,
     } = req.body;
     const normalizedServicePackage =
       normalizeRsvpServicePackage(servicePackage);
@@ -553,6 +555,7 @@ export const createEvent = async (
       ...(rsvpMessage !== undefined ? { rsvpMessage } : {}),
       ...(rsvpBgColor !== undefined ? { rsvpBgColor } : {}),
       ...(rsvpAccentColor !== undefined ? { rsvpAccentColor } : {}),
+      ...normalizeEmailSender(emailSenderMode, emailSenderName),
       servicePackage: normalizedServicePackage,
       ...(messageCycle !== undefined ? { messageCycle } : {}),
       ...(channelConfig !== undefined
@@ -675,6 +678,15 @@ export const createEvent = async (
   }
 };
 
+// Guest emails show "SoftInvites", the event title, or custom text as the
+// sender name. Unknown modes, and custom with no text, fall back to SoftInvites.
+const normalizeEmailSender = (mode: unknown, name: unknown) => {
+  const cleanName = String(name ?? "").trim().slice(0, 70);
+  const cleanMode =
+    mode === "event" || (mode === "custom" && cleanName) ? String(mode) : "softinvites";
+  return { emailSenderMode: cleanMode, emailSenderName: cleanName };
+};
+
 export const updateEvent = async (req: Request, res: Response) => {
   try {
     const {
@@ -693,6 +705,8 @@ export const updateEvent = async (req: Request, res: Response) => {
       customMessageSequence,
       rsvpDeadline,
       eventEndDate,
+      emailSenderMode,
+      emailSenderName,
     } = req.body;
 
     if (!id) {
@@ -721,6 +735,15 @@ export const updateEvent = async (req: Request, res: Response) => {
       updateData.rsvpAccentColor = rsvpAccentColor;
     if (servicePackage !== undefined) {
       updateData.servicePackage = normalizeRsvpServicePackage(servicePackage);
+    }
+    if (emailSenderMode !== undefined || emailSenderName !== undefined) {
+      Object.assign(
+        updateData,
+        normalizeEmailSender(
+          emailSenderMode ?? existingEvent.emailSenderMode,
+          emailSenderName ?? existingEvent.emailSenderName,
+        ),
+      );
     }
     if (messageCycle !== undefined) updateData.messageCycle = messageCycle;
     if (channelConfig !== undefined)
@@ -784,12 +807,30 @@ export const updateEvent = async (req: Request, res: Response) => {
             step.messageBody.trim().length > 0,
         )
       : false;
+    // The edit dialog always sends servicePackage and channelConfig, so only
+    // re-sync when the message plan really changed; editing a name, date or
+    // sender must not queue (or resend) any guest messages.
+    const channelEnabled = (cfg: any, ch: string) =>
+      !!(cfg && typeof cfg === "object" ? cfg?.[ch]?.enabled : false);
+    const prevChannelConfig = (existingEvent as any).channelConfig || {};
+    const nextChannelConfig = (updatedEvent as any).channelConfig || {};
+    const servicePackageChanged =
+      servicePackage !== undefined &&
+      normalizeRsvpServicePackage(existingEvent.servicePackage) !==
+        effectiveServicePackage;
+    const channelsChanged =
+      channelConfig !== undefined &&
+      ["email", "whatsapp", "bulkSms"].some(
+        (ch) =>
+          channelEnabled(prevChannelConfig, ch) !==
+          channelEnabled(nextChannelConfig, ch),
+      );
     const shouldSyncFullSchedules =
       effectiveServicePackage !== "invitation-only" &&
       hasSavedSequenceBodies &&
       (customMessageSequence !== undefined ||
-        servicePackage !== undefined ||
-        channelConfig !== undefined);
+        servicePackageChanged ||
+        channelsChanged);
 
     let scheduleSync: any = null;
     if (shouldSyncFullSchedules) {

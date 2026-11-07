@@ -2,6 +2,7 @@ import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 import { Upload } from "@aws-sdk/lib-storage";
 import archiver from "archiver";
 import { PassThrough, Readable } from "stream";
+import mongoose, { Schema, model, Types } from "mongoose";
 
 const s3 = new S3Client({ region: process.env.AWS_REGION || "us-east-2" });
 
@@ -13,6 +14,30 @@ function safeName(str?: string) {
   return str ? String(str).replace(/[^a-zA-Z0-9._-]/g, "_") : "unknown";
 }
 
+const buildPngUrl = (eventId: string, guestId: string) => {
+  const bucket = process.env.S3_BUCKET;
+  const region = process.env.AWS_REGION || "us-east-2";
+  if (!bucket || !eventId || !guestId) return "";
+  return `https://${bucket}.s3.${region}.amazonaws.com/qr_codes/png/${eventId}/${guestId}.png`;
+};
+
+// Minimal guest schema — only fields needed for ZIP
+const GuestSchema = new Schema({
+  fullname: String,
+  TableNo: String,
+  others: String,
+  pngUrl: String,
+  eventId: { type: Schema.Types.ObjectId },
+}, { collection: "guests", timestamps: true });
+
+const Guest = mongoose.models.Guest || model("Guest", GuestSchema);
+
+let dbConnected = false;
+async function connectDb() {
+  if (dbConnected || mongoose.connection.readyState === 1) return;
+  await mongoose.connect(process.env.MONGODB_URI!);
+  dbConnected = true;
+}
 
 /* ------------------------------ */
 /* 📦 ZIP LAMBDA HANDLER */
@@ -23,17 +48,49 @@ export const handler = async (event: any) => {
     const bucket = process.env.S3_BUCKET;
     if (!bucket) throw new Error("S3_BUCKET not configured");
 
-    const { qrItems, eventId } = event;
-    if (!Array.isArray(qrItems) || qrItems.length === 0) {
+    const { eventId, zipKey: providedZipKey, qrItems: legacyQrItems } = event;
+
+    if (!eventId) {
       return {
         statusCode: 400,
-        body: JSON.stringify({ error: "qrItems must be a non-empty array" }),
+        body: JSON.stringify({ error: "eventId is required" }),
+      };
+    }
+
+    // Fetch qrItems from DB (new path) or use legacy payload if provided
+    let qrItems: any[];
+    if (Array.isArray(legacyQrItems) && legacyQrItems.length > 0) {
+      qrItems = legacyQrItems;
+    } else {
+      await connectDb();
+      const guests = await Guest.find({ eventId: new Types.ObjectId(eventId) })
+        .select("fullname TableNo others pngUrl")
+        .lean();
+      if (!guests.length) {
+        return {
+          statusCode: 404,
+          body: JSON.stringify({ error: "No guests found for event" }),
+        };
+      }
+      qrItems = guests.map((g: any) => ({
+        guestId: g._id.toString(),
+        guestName: g.fullname || "Guest",
+        tableNo: g.TableNo || "NoTable",
+        others: g.others || "-",
+        pngUrl: g.pngUrl || buildPngUrl(eventId, g._id.toString()),
+      }));
+    }
+
+    if (!qrItems.length) {
+      return {
+        statusCode: 400,
+        body: JSON.stringify({ error: "No guests with QR codes found" }),
       };
     }
 
     const CONCURRENCY_LIMIT = Math.max(
       1,
-      Number(process.env.CONCURRENCY_LIMIT || 15)
+      Number(process.env.CONCURRENCY_LIMIT || 30)
     );
 
     /* ------------------------------ */
@@ -44,7 +101,7 @@ export const handler = async (event: any) => {
     const zipStream = new PassThrough();
     archive.pipe(zipStream);
 
-    const zipKey = `qr_zips/event_${eventId}_${Date.now()}.zip`;
+    const zipKey = providedZipKey || `qr_zips/event_${eventId}_${Date.now()}.zip`;
 
     const uploadPromise = new Upload({
       client: s3,
