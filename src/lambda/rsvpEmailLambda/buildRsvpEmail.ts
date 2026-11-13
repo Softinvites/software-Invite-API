@@ -10,6 +10,13 @@ type RsvpEmailParams = {
   accent?: string;
 };
 
+// Branded footer: tells guests to look out for SoftInvites messages.
+const softInvitesFooterHtml = () => `
+        <div style="background:#f7f8fc;padding:20px;text-align:center;border-top:1px solid #e2e8f0;">
+          <p style="font-size:12px;color:#718096;margin:0 0 6px 0;">Sent by <strong style="color:#4a5568;">SoftInvites</strong> on behalf of your host. Look out for messages from SoftInvites for updates about this event.</p>
+          <p style="font-size:12px;color:#718096;margin:0;">&copy; ${new Date().getFullYear()} <strong style="color:#4a5568;">SoftInvites</strong> &bull; All rights reserved</p>
+        </div>`;
+
 export function buildRsvpEmail({
   eventName,
   eventDate,
@@ -47,6 +54,7 @@ export function buildRsvpEmail({
           <p style="font-size:12px;color:#94a3b8;margin:0;">Yes: ${yesUrl}</p>
           <p style="font-size:12px;color:#94a3b8;margin:0;">No: ${noUrl}</p>
         </div>
+        ${softInvitesFooterHtml()}
       </div>
     </div>
   `;

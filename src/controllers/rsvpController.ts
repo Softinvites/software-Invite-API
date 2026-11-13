@@ -594,7 +594,8 @@ export const submitRsvpForm = async (req: Request, res: Response) => {
         promise: sendEmail(
           cleanedEmail,
           `RSVP received for ${event.name}`,
-          `<p>Thanks ${cleanedGuestName}, we have received your response for ${event.name}.</p>`,
+          `<p>Thanks ${cleanedGuestName}, we have received your response for ${event.name}.</p>` +
+            `<p style="font-size:12px;color:#718096;margin-top:24px;border-top:1px solid #e2e8f0;padding-top:12px;">Sent by <strong>SoftInvites</strong> on behalf of your host. Look out for messages from SoftInvites for updates about this event.<br>&copy; ${new Date().getFullYear()} <strong>SoftInvites</strong> &bull; All rights reserved</p>`,
           buildEventEmailFrom(event),
           undefined,
           {
