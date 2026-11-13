@@ -110,6 +110,47 @@ const sendViaTermii = async (to: string, message: string) => {
   }
 };
 
+/**
+ * Twilio SMS. With SMS_PROVIDER=twilio every number goes through Twilio (the
+ * "SoftInvites" alphanumeric sender is approved there for Nigeria). With any
+ * other SMS_PROVIDER (default "termii") only non-Nigerian numbers use Twilio,
+ * and only when a Twilio SMS sender is configured — the earlier behaviour.
+ * TWILIO_MESSAGING_SERVICE_SID, when set, wins over TWILIO_SMS_FROM so a
+ * service holding both the alpha sender and a registered US number can pick
+ * the right sender per country.
+ */
+const twilioSmsConfigured = () =>
+  !!(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN) &&
+  !!(process.env.TWILIO_SMS_FROM || process.env.TWILIO_MESSAGING_SERVICE_SID);
+
+const twilioIsPrimary = () =>
+  String(process.env.SMS_PROVIDER || "").trim().toLowerCase() === "twilio";
+
+const useTwilioFor = (normalizedTo: string) =>
+  twilioSmsConfigured() &&
+  (twilioIsPrimary() || !normalizedTo.startsWith(DEFAULT_COUNTRY_CODE));
+
+const sendViaTwilioSms = async (to: string, message: string) => {
+  const sid = process.env.TWILIO_ACCOUNT_SID!;
+  const params = new URLSearchParams({ To: `+${to}`, Body: message });
+  if (process.env.TWILIO_MESSAGING_SERVICE_SID) {
+    params.set("MessagingServiceSid", process.env.TWILIO_MESSAGING_SERVICE_SID);
+  } else {
+    params.set("From", process.env.TWILIO_SMS_FROM!);
+  }
+  const base = (process.env.TWILIO_WEBHOOK_BASE_URL || "").replace(/\/$/, "");
+  if (base) params.set("StatusCallback", `${base}/webhook/twilio/sms/status`);
+  const response = await axios.post(
+    `https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`,
+    params.toString(),
+    {
+      auth: { username: sid, password: process.env.TWILIO_AUTH_TOKEN! },
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    },
+  );
+  return { message_id: response.data?.sid };
+};
+
 const smsService = {
   sendSms: async (input: SendSmsInput) => {
     const { to, message, eventId, rsvpId } = input;
@@ -119,7 +160,9 @@ const smsService = {
       return { success: false, error: "Missing recipient phone" };
     }
 
-    if (!process.env.TERMII_API_KEY) {
+    const viaTwilio = useTwilioFor(normalizedTo);
+    const provider = viaTwilio ? "twilio" : "termii";
+    if (!viaTwilio && !process.env.TERMII_API_KEY) {
       return { success: false, error: "SMS provider not configured" };
     }
 
@@ -129,7 +172,9 @@ const smsService = {
     }
 
     try {
-      const result = await sendViaTermii(normalizedTo, message);
+      const result = viaTwilio
+        ? await sendViaTwilioSms(normalizedTo, message)
+        : await sendViaTermii(normalizedTo, message);
       const providerMessageId =
         result?.message_id || result?.messageId || result?.data?.message_id || "";
 
@@ -139,11 +184,11 @@ const smsService = {
         to: normalizedTo,
         status: "sent",
         providerMessageId,
-        provider: "termii",
+        provider,
         sentAt: new Date(),
       });
 
-      return { success: true, providerMessageId };
+      return { success: true, providerMessageId, provider };
     } catch (error: any) {
       const errMsg =
         error?.response?.data?.message || error?.message || "SMS send failed";
@@ -153,7 +198,7 @@ const smsService = {
         rsvpId: rsvpId || null,
         to: normalizedTo,
         status: "failed",
-        provider: "termii",
+        provider,
         errorMessage: errMsg,
       });
 

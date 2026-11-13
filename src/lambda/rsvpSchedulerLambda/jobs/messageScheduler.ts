@@ -740,12 +740,25 @@ const resolveScheduleAttachment = async (schedule: any) => {
   }
 };
 
+// Image attachments are shown at the top of the email body (like the guest
+// access-code email) instead of as a file; other files (e.g. PDF) stay attached.
+const IMAGE_EXT = /\.(png|jpe?g|gif|webp)(\?|#|$)/i;
+const scheduleInlineImageUrl = (schedule: any): string => {
+  const url = typeof schedule?.attachment?.url === "string" ? schedule.attachment.url.trim() : "";
+  if (!/^https?:\/\//i.test(url)) return "";
+  const type = String(schedule?.attachment?.contentType || "").toLowerCase();
+  return type.startsWith("image/") || (!type && IMAGE_EXT.test(url)) ? url : "";
+};
+const escapeAttr = (v: string) =>
+  v.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
 const buildScheduleEmailHtml = async (
   event: any,
   rsvp: any,
   schedule: any,
   baseUrl: string,
   templateHtml?: string | null,
+  inlineImageUrl = "",
 ) => {
   const headerBg = (event as any).rsvpBgColor
     ? `rgb(${(event as any).rsvpBgColor})`
@@ -793,6 +806,7 @@ const buildScheduleEmailHtml = async (
           <p style="margin:0;font-size:14px;">${event.date}</p>
         </div>
         <div style="padding:24px 20px;">
+          ${inlineImageUrl ? `<div style="margin:0 0 20px 0;text-align:center;"><img src="${escapeAttr(inlineImageUrl)}" alt="Invitation" style="display:block;width:100%;max-width:600px;height:auto;margin:0 auto;border-radius:12px;border:0;" /></div>` : ""}
           <p style="font-size:15px;margin:0 0 16px 0;">Dear ${rsvp.guestName},</p>
           <div style="font-size:14px;color:#4a5568;line-height:1.7;margin:0 0 20px 0;">
             ${message}
@@ -1055,8 +1069,10 @@ export const processPendingSchedules = async (
       }
 
       const replyTo = (event as any)?.channelConfig?.email?.replyTo;
+      const scheduleInlineImage =
+        schedule.channel === "email" ? scheduleInlineImageUrl(schedule) : "";
       const scheduleAttachment =
-        schedule.channel === "email"
+        schedule.channel === "email" && !scheduleInlineImage
           ? await resolveScheduleAttachment(schedule)
           : null;
 
@@ -1104,6 +1120,7 @@ export const processPendingSchedules = async (
             schedule,
             siteBase,
             template?.html || null,
+            scheduleInlineImage,
           );
           const subject =
             schedule.messageTitle ||

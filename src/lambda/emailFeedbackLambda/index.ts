@@ -1,6 +1,7 @@
 import { randomUUID } from "crypto";
 import { connectDB } from "./db.js";
 import { EmailMessage } from "./emailMessage.js";
+import { sendFailureDigest } from "./failureDigest.js";
 
 type NormalizedFeedbackEvent = {
   trackingId: string | null;
@@ -357,6 +358,19 @@ const persistFeedbackEvent = async (normalized: NormalizedFeedbackEvent) => {
 };
 
 export const handler = async (event: any) => {
+  // The 10-minute timer sends the admin a report of new delivery failures.
+  if (event?.source === "aws.events" && event?.["detail-type"] === "Scheduled Event") {
+    try {
+      await connectDB();
+      const result = await sendFailureDigest();
+      console.log("Email failure report", result);
+      return { statusCode: 200, body: JSON.stringify(result) };
+    } catch (error: any) {
+      console.error("Email failure report failed:", error);
+      return { statusCode: 500, body: JSON.stringify({ error: error?.message }) };
+    }
+  }
+
   try {
     const normalizedEvents = normalizeIncomingEvents(event);
     if (!normalizedEvents.length) {

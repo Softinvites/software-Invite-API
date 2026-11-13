@@ -11,6 +11,7 @@ interface EventDocument extends Document {
   rsvpAccentColor?: string;
   emailSenderMode?: "softinvites" | "event" | "custom";
   emailSenderName?: string;
+  smsFallbackEnabled?: boolean;
   rsvpFormSettings?: Record<string, any>;
   servicePackage?: "invitation-only" | "one-time-rsvp" | "standard-rsvp" | "full-rsvp";
   messageCycle?: number;
@@ -101,6 +102,8 @@ const EventSchema = new Schema(
       default: "softinvites",
     },
     emailSenderName: { type: String, default: "", trim: true, maxlength: 70 },
+    // Send an SMS to a guest when their WhatsApp message is not delivered.
+    smsFallbackEnabled: { type: Boolean, default: false },
     rsvpFormSettings: { type: Schema.Types.Mixed, default: null },
     servicePackage: {
       type: String,

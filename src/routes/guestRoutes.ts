@@ -25,6 +25,7 @@ import {
   checkZipReady,
 } from "../controllers/guestController";
 import auth from "../library/middlewares/auth";
+import { getEmailStatus } from "../controllers/emailStatusController";
 import { combinedAuth } from "../library/middlewares/combinedAuth";
 import multer from "multer";
 
@@ -35,6 +36,7 @@ const uploadCSVExcel = multer({ storage: multer.memoryStorage() });
 
 
 // Guest routes
+router.get("/email-status/:eventId", auth, getEmailStatus);
 router.post("/add-guest", auth, addGuest);
 router.put("/update-guest", auth, updateGuest);
 router.post(

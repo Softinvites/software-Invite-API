@@ -31,6 +31,7 @@ export interface EmailMessageDocument extends Document {
   bouncedAt?: Date | null;
   complainedAt?: Date | null;
   failureReason?: string | null;
+  failureNotifiedAt?: Date | null;
   diagnosticContext?: Record<string, any> | null;
   diagnosticEvents?: Array<{
     type: string;
@@ -88,6 +89,8 @@ const EmailMessageSchema = new Schema<EmailMessageDocument>(
     bouncedAt: { type: Date, default: null },
     complainedAt: { type: Date, default: null },
     failureReason: { type: String, default: null },
+    // When the admin failure report included this message (reported once).
+    failureNotifiedAt: { type: Date, default: null },
     diagnosticContext: { type: Schema.Types.Mixed, default: null },
     diagnosticEvents: [
       {

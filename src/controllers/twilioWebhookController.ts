@@ -3,6 +3,7 @@ import twilio from "twilio";
 import whatsappService from "../utils/whatsappService.js";
 import { persistInboundWhatsAppMessage } from "../services/whatsappInboundService.js";
 import { respondFromWhatsAppButton } from "./rsvpController.js";
+import { sendSmsFallbackForWhatsApp } from "../services/smsFallbackService";
 
 const buildTwilioWebhookUrl = (req: Request) => {
   const explicitBase = process.env.TWILIO_WEBHOOK_BASE_URL?.replace(/\/$/, "");
@@ -69,6 +70,8 @@ export const handleTwilioWhatsAppInbound = async (
       body: req.body?.Body || null,
       waId: req.body?.WaId || null,
       messageSid: req.body?.MessageSid || req.body?.SmsSid || null,
+      buttonPayload: req.body?.ButtonPayload || null,
+      repliedSid: req.body?.OriginalRepliedMessageSid || null,
       bodyKeys: Object.keys(req.body || {}),
     });
 
@@ -93,7 +96,7 @@ export const handleTwilioWhatsAppInbound = async (
     });
 
     const twiml = new twilio.twiml.MessagingResponse();
-    const buttonReply = await respondFromWhatsAppButton(req.body?.ButtonPayload);
+    const buttonReply = await respondFromWhatsAppButton(req.body || {});
     if (buttonReply) twiml.message(buttonReply);
 
     res.type("text/xml").status(200).send(twiml.toString());
@@ -156,6 +159,15 @@ export const handleTwilioWhatsAppStatusCallback = async (
       undefined,
       reason,
     );
+
+    // SMS backup for events that switched it on (never blocks the callback).
+    if (status === "undelivered" || status === "failed") {
+      try {
+        await sendSmsFallbackForWhatsApp(providerMessageId, errorCode);
+      } catch (fallbackError) {
+        console.error("[SmsFallback] unexpected error", fallbackError);
+      }
+    }
 
     console.log("📊 Twilio WhatsApp status callback processed", {
       providerMessageId,

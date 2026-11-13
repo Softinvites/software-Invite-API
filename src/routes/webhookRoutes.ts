@@ -4,7 +4,10 @@ import {
   handleTwilioWhatsAppInbound,
   handleTwilioWhatsAppStatusCallback,
 } from "../controllers/twilioWebhookController.js";
-import { handleTermiiSmsStatusCallback } from "../controllers/termiiWebhookController.js";
+import {
+  handleTermiiSmsStatusCallback,
+  handleTwilioSmsStatusCallback,
+} from "../controllers/termiiWebhookController.js";
 
 const router = Router();
 
@@ -36,5 +39,6 @@ router.post("/twilio/whatsapp", handleTwilioWhatsAppInbound);
 router.post("/twilio/whatsapp/status", handleTwilioWhatsAppStatusCallback);
 router.post("/termii/sms", handleTermiiSmsStatusCallback);
 router.post("/termii/sms/status", handleTermiiSmsStatusCallback);
+router.post("/twilio/sms/status", handleTwilioSmsStatusCallback);
 
 export default router;

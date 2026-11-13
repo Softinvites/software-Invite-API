@@ -475,6 +475,16 @@ const resolveCustomMessageSequence = async (
   return nextSequence;
 };
 
+// Multipart form fields arrive as strings ("true"/"false").
+const parseBooleanField = (value: unknown): boolean | undefined => {
+  if (value === undefined || value === null || value === "") return undefined;
+  if (typeof value === "boolean") return value;
+  const v = String(value).trim().toLowerCase();
+  if (v === "true" || v === "1" || v === "on") return true;
+  if (v === "false" || v === "0" || v === "off") return false;
+  return undefined;
+};
+
 export const createEvent = async (
   req: Request,
   res: Response,
@@ -505,6 +515,7 @@ export const createEvent = async (
       eventEndDate,
       emailSenderMode,
       emailSenderName,
+      smsFallbackEnabled,
     } = req.body;
     const normalizedServicePackage =
       normalizeRsvpServicePackage(servicePackage);
@@ -556,6 +567,9 @@ export const createEvent = async (
       ...(rsvpBgColor !== undefined ? { rsvpBgColor } : {}),
       ...(rsvpAccentColor !== undefined ? { rsvpAccentColor } : {}),
       ...normalizeEmailSender(emailSenderMode, emailSenderName),
+      ...(parseBooleanField(smsFallbackEnabled) !== undefined
+        ? { smsFallbackEnabled: parseBooleanField(smsFallbackEnabled) }
+        : {}),
       servicePackage: normalizedServicePackage,
       ...(messageCycle !== undefined ? { messageCycle } : {}),
       ...(channelConfig !== undefined
@@ -707,6 +721,7 @@ export const updateEvent = async (req: Request, res: Response) => {
       eventEndDate,
       emailSenderMode,
       emailSenderName,
+      smsFallbackEnabled,
     } = req.body;
 
     if (!id) {
@@ -744,6 +759,9 @@ export const updateEvent = async (req: Request, res: Response) => {
           emailSenderName ?? existingEvent.emailSenderName,
         ),
       );
+    }
+    if (parseBooleanField(smsFallbackEnabled) !== undefined) {
+      updateData.smsFallbackEnabled = parseBooleanField(smsFallbackEnabled);
     }
     if (messageCycle !== undefined) updateData.messageCycle = messageCycle;
     if (channelConfig !== undefined)

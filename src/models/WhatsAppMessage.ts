@@ -67,7 +67,11 @@ const whatsAppMessageSchema = new mongoose.Schema({
   },
   readAt: {
     type: Date
-  }
+  },
+  // SMS backup sent after this WhatsApp message failed (sent at most once).
+  smsFallbackAt: { type: Date, default: null },
+  smsFallbackStatus: { type: String, default: null },
+  smsFallbackError: { type: String, default: null }
 }, {
   timestamps: true
 });

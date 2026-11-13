@@ -175,3 +175,41 @@ function parseTermiiTimestamp(timestamp: any): Date | null {
     return null;
   }
 }
+
+/**
+ * Twilio SMS status callback (StatusCallback set in smsService). Updates the
+ * SmsMessage record created at send time; always answers 200 so Twilio does
+ * not retry.
+ */
+export const handleTwilioSmsStatusCallback = async (req: Request, res: Response) => {
+  try {
+    const providerMessageId = req.body?.MessageSid || req.body?.SmsSid;
+    const raw = String(req.body?.MessageStatus || req.body?.SmsStatus || "").toLowerCase();
+    const status =
+      raw === "delivered"
+        ? "delivered"
+        : raw === "failed" || raw === "undelivered"
+          ? "failed"
+          : raw === "sent"
+            ? "sent"
+            : null;
+    if (providerMessageId && status) {
+      const update: any = { status };
+      if (status === "delivered") update.deliveredAt = new Date();
+      if (status === "failed") {
+        update.failedAt = new Date();
+        const code = req.body?.ErrorCode ? ` (error ${req.body.ErrorCode})` : "";
+        update.errorMessage = `${req.body?.ErrorMessage || "Carrier did not deliver the SMS"}${code}`;
+      }
+      // Never move a delivered record backwards (callbacks can arrive out of order).
+      await SmsMessage.findOneAndUpdate(
+        { providerMessageId, status: { $ne: "delivered" } },
+        update,
+      );
+    }
+    console.log("[TwilioSms] status", { providerMessageId, raw, errorCode: req.body?.ErrorCode || null });
+  } catch (error) {
+    console.error("[TwilioSms] status callback error", error);
+  }
+  res.status(200).send("OK");
+};

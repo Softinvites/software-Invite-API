@@ -16,6 +16,7 @@ export interface RSVPDocument extends Document {
   attendanceStatus: "pending" | "yes" | "no";
   comments?: string;
   responses?: Record<string, any>;
+  plusOnes?: Array<{ name: string; phone?: string | null; email?: string | null }>;
   submissionDate?: Date;
   source: "imported" | "form_submission";
   isEditable: boolean;
@@ -46,6 +47,18 @@ const RSVPSchema = new Schema<RSVPDocument>(
     },
     comments: { type: String, default: "" },
     responses: { type: Schema.Types.Mixed, default: {} },
+    // Extra guests named on the RSVP form (guestCount = 1 + plusOnes.length).
+    plusOnes: {
+      type: [
+        {
+          _id: false,
+          name: { type: String, required: true },
+          phone: { type: String, default: null },
+          email: { type: String, default: null },
+        },
+      ],
+      default: undefined,
+    },
     submissionDate: { type: Date, default: null },
     source: {
       type: String,

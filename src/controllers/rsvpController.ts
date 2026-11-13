@@ -21,9 +21,22 @@ type AttendanceStatus = "yes" | "no" | "pending";
 type CustomFormField = {
   id: string;
   label: string;
-  type: "text" | "textarea" | "select" | "radio" | "checkbox" | "number";
+  type:
+    | "text"
+    | "textarea"
+    | "select"
+    | "radio"
+    | "checkbox"
+    | "number"
+    | "email"
+    | "phone"
+    | "date"
+    | "time"
+    | "section";
   required: boolean;
   options: string[];
+  /** "yes"/"no": only asked when the guest picked that attendance answer. */
+  showWhen?: "always" | "yes" | "no";
 };
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "softinvites@gmail.com";
@@ -37,7 +50,14 @@ const SUPPORTED_CUSTOM_FIELD_TYPES = new Set([
   "radio",
   "checkbox",
   "number",
+  "email",
+  "phone",
+  "date",
+  "time",
+  "section",
 ]);
+
+const MAX_PLUS_ONES = 10;
 
 const isRsvpFormClosed = (event: any) => {
   const settings = event?.rsvpFormSettings;
@@ -72,6 +92,10 @@ const normalizeCustomFormFields = (value: any): CustomFormField[] => {
               .map((option: any) => String(option || "").trim())
               .filter(Boolean)
           : [],
+        showWhen:
+          field?.showWhen === "yes" || field?.showWhen === "no"
+            ? field.showWhen
+            : "always",
       } as CustomFormField;
     })
     .filter(Boolean);
@@ -394,6 +418,16 @@ export const submitRsvpForm = async (req: Request, res: Response) => {
         : {};
     const cleanedResponses: Record<string, any> = {};
     for (const field of customFields) {
+      // Section headers carry no answer; conditional questions only count
+      // when the guest gave the matching attendance answer.
+      if (field.type === "section") continue;
+      if (
+        attendanceEnabled &&
+        (field.showWhen === "yes" || field.showWhen === "no") &&
+        normalizedStatus !== field.showWhen
+      ) {
+        continue;
+      }
       const rawValue = rawResponses[field.id];
       if (field.type === "checkbox") {
         const values = Array.isArray(rawValue)
@@ -433,7 +467,44 @@ export const submitRsvpForm = async (req: Request, res: Response) => {
       ) {
         return res.status(400).json({ message: `Invalid value for ${field.label}` });
       }
+      if (value && field.type === "email" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+        return res.status(400).json({ message: `Enter a valid email for ${field.label}` });
+      }
       cleanedResponses[field.id] = value;
+    }
+
+    // Built-in fields: only enforced when the host explicitly made them
+    // required, so forms saved before these settings existed behave as before.
+    const formSettings = ((event as any)?.rsvpFormSettings || {}) as Record<string, any>;
+    if (formSettings.emailMode === "required" && !cleanedEmail) {
+      return res.status(400).json({ message: "Email is required" });
+    }
+    if (formSettings.phoneMode === "required" && !cleanedPhone) {
+      return res.status(400).json({ message: "Phone number is required" });
+    }
+
+    // Plus-ones: only when the host enabled them and the guest is attending
+    // (or the form has no attendance question). Rows without a name are dropped.
+    const plusOnesAllowed =
+      formSettings.plusOnesEnabled === true &&
+      (!attendanceEnabled || normalizedStatus === "yes");
+    const plusOnesMax = Math.min(
+      MAX_PLUS_ONES,
+      Math.max(1, Number.parseInt(String(formSettings.plusOnesMax ?? MAX_PLUS_ONES), 10) || 1),
+    );
+    const cleanedPlusOnes = plusOnesAllowed && Array.isArray(req.body?.plusOnes)
+      ? req.body.plusOnes
+          .map((entry: any) => ({
+            name: String(entry?.name || "").replace(/\s+/g, " ").trim().slice(0, 120),
+            phone: String(entry?.phone || "").trim().slice(0, 40) || null,
+            email: normalizeEmailAddress(String(entry?.email || "")).slice(0, 160) || null,
+          }))
+          .filter((entry: any) => entry.name)
+      : [];
+    if (cleanedPlusOnes.length > plusOnesMax) {
+      return res
+        .status(400)
+        .json({ message: `You can add up to ${plusOnesMax} extra guest${plusOnesMax === 1 ? "" : "s"}` });
     }
 
     // Duplicate detection keys on the guest's NAME, not their email.
@@ -469,7 +540,8 @@ export const submitRsvpForm = async (req: Request, res: Response) => {
       guestName: cleanedGuestName,
       email: cleanedEmail || null,
       phone: cleanedPhone || null,
-      guestCount: 1,
+      guestCount: 1 + cleanedPlusOnes.length,
+      ...(cleanedPlusOnes.length ? { plusOnes: cleanedPlusOnes } : {}),
       tag: null,
       attendanceStatus: attendanceEnabled
         ? (normalizedStatus as AttendanceStatus)
@@ -743,26 +815,91 @@ export const confirmRsvpResponse = async (req: Request, res: Response) => {
  * The id grants what the public POST /rsvp/respond/:rsvpId already grants, so
  * this does not depend on the Twilio signature check passing.
  */
+// Compare phones by their last 10 digits so "+234…", "234…" and "0…" match.
+const phoneTail = (value: unknown) => String(value ?? "").replace(/\D/g, "").slice(-10);
+const samePhone = (a: unknown, b: unknown) => {
+  const x = phoneTail(a);
+  return x.length >= 7 && x === phoneTail(b);
+};
+
+const statusFromButtonText = (text: string): AttendanceStatus | null => {
+  const t = text.toLowerCase();
+  if (/\b(unable|not|no|decline|can'?t|cannot|regret)\b/.test(t)) return "no";
+  if (/\b(yes|will attend|attending|accept)\b/.test(t)) return "yes";
+  return null;
+};
+
+/**
+ * Records a WhatsApp quick-reply tap and returns the text to reply with, or
+ * null to send no reply. The guest is identified from the message they
+ * replied to (OriginalRepliedMessageSid -> our WhatsAppMessage log), which is
+ * exact even if a template's button IDs are static. A button-ID token is only
+ * trusted when that RSVP's phone matches the sender, so one guest can never
+ * see or change another guest's (or another event's) response.
+ */
 export const respondFromWhatsAppButton = async (
-  payload: string,
+  body: Record<string, any>,
 ): Promise<string | null> => {
+  const payload = String(body?.ButtonPayload || "").trim();
+  const buttonText = String(body?.ButtonText || "").trim();
+  if (!payload && !buttonText) return null;
+
+  const sender = body?.WaId || body?.From || "";
   // The Button ID may be the bare variable or the full respond URL around it.
-  const match = /^(?:\S*\/)?([^/?\s]+)\?status=(yes|no)$/.exec(String(payload || "").trim());
-  if (!match) return null;
-  const [, rsvpId, status] = match;
+  const match = /^(?:\S*\/)?([^/?\s]+)\?status=(yes|no)$/.exec(payload);
+  const status: AttendanceStatus | null =
+    (match?.[2] as AttendanceStatus) || statusFromButtonText(buttonText || payload);
 
   try {
-    const rsvp = await findRsvpByIdentifier(rsvpId);
-    if (!rsvp) {
-      return "This invitation link has been replaced. Please use the most recent invitation sent to you, or contact the event organiser.";
+    let rsvp: any = null;
+    let source = "";
+
+    const repliedSid = String(body?.OriginalRepliedMessageSid || "").trim();
+    if (repliedSid) {
+      const sent: any = await WhatsAppMessage.findOne({ providerMessageId: repliedSid })
+        .select({ rsvpId: 1, guestId: 1 })
+        .lean();
+      if (sent?.rsvpId) rsvp = await RSVP.findById(sent.rsvpId);
+      if (!rsvp && sent?.guestId) rsvp = await RSVP.findOne({ guestId: sent.guestId });
+      if (rsvp) source = "replied-message";
     }
 
-    const { alreadySubmitted, recordedStatus } = await recordFirstResponse(
-      rsvp,
-      status as AttendanceStatus,
-    );
+    if (!rsvp && match) {
+      const candidate = await findRsvpByIdentifier(match[1]);
+      if (candidate) {
+        rsvp = candidate;
+        source = "button-id";
+      }
+    }
+
+    // Never act on an RSVP that does not belong to the person who tapped.
+    if (rsvp && rsvp.phone && !samePhone(rsvp.phone, sender)) {
+      console.warn("[WhatsAppButton] RSVP phone does not match sender - ignored", {
+        rsvpId: String(rsvp._id),
+        source,
+        repliedSid: repliedSid || null,
+      });
+      return null;
+    }
+    if (!rsvp || !rsvp.phone || !status) {
+      console.warn("[WhatsAppButton] Could not match tap to an RSVP - no reply sent", {
+        source: source || null,
+        hasStatus: !!status,
+        repliedSid: repliedSid || null,
+      });
+      return null;
+    }
+
+    const { alreadySubmitted, recordedStatus } = await recordFirstResponse(rsvp, status);
     const event = await Event.findById(rsvp.eventId);
     const eventName = event?.name || "the event";
+    console.log("[WhatsAppButton] Response handled", {
+      rsvpId: String(rsvp._id),
+      eventId: String(rsvp.eventId),
+      source,
+      status,
+      alreadySubmitted,
+    });
 
     if (alreadySubmitted) {
       const recorded = recordedStatus === "yes" ? "YES — Attending" : "NO — Unable to attend";

@@ -90,6 +90,10 @@ provider:
     RSVP_SCHEDULER_SECRET: ${env:RSVP_SCHEDULER_SECRET, 'soft_invites_rsvp_scheduler_secret'}
     RSVP_SCHEDULER_LAMBDA_NAME: ${env:RSVP_SCHEDULER_LAMBDA_NAME, 'rsvpSchedulerLambda'}
     SMS_PROVIDER: ${env:SMS_PROVIDER, 'termii'}
+    # Twilio SMS sender: alphanumeric ID (e.g. SoftInvites) or a number. A
+    # Messaging Service SID, when set, is used instead (needed for US numbers).
+    TWILIO_SMS_FROM: ${env:TWILIO_SMS_FROM, ''}
+    TWILIO_MESSAGING_SERVICE_SID: ${env:TWILIO_MESSAGING_SERVICE_SID, ''}
     TERMII_API_KEY: ${env:TERMII_API_KEY, ''}
     TERMII_SENDER_ID: ${env:TERMII_SENDER_ID, 'SoftInvites'}
     TERMII_CHANNEL: ${env:TERMII_CHANNEL, 'generic'}
@@ -173,6 +177,22 @@ functions:
     description: "Captures SES delivery, bounce, complaint, and reject diagnostics"
     memorySize: 256
     timeout: 900
+    # SES publishes the configuration set's events to the default EventBridge bus.
+    events:
+      - schedule:
+          rate: rate(10 minutes)
+          enabled: true
+      - eventBridge:
+          pattern:
+            source:
+              - aws.ses
+            detail-type:
+              - Email Bounced
+              - Email Complaint Received
+              - Email Rejected
+              - Email Delivered
+              - Email Delivery Delayed
+              - Email Rendering Failed
 
   sendWhatsApp:
     handler: dist/lambda/sendWhatsAppLambda/index.handler
@@ -272,6 +292,30 @@ custom:
     noPrependStageInUrl: true
 
 resources:
+  Resources:
+    # The configuration set the email sender already names in
+    # SES_CONFIGURATION_SET_NAME; until now it did not exist, so SES sent
+    # bounces only to the inbox (MAILER-DAEMON) and never to the platform.
+    EmailEventsConfigurationSet:
+      Type: AWS::SES::ConfigurationSet
+      Properties:
+        Name: softinvites-backend-dev-email-events
+    EmailEventsEventBridgeDestination:
+      Type: AWS::SES::ConfigurationSetEventDestination
+      Properties:
+        ConfigurationSetName: !Ref EmailEventsConfigurationSet
+        EventDestination:
+          Name: platform-feedback
+          Enabled: true
+          MatchingEventTypes:
+            - bounce
+            - complaint
+            - reject
+            - delivery
+            - deliveryDelay
+            - renderingFailure
+          EventBridgeDestination:
+            EventBusArn: !Sub "arn:aws:events:${AWS::Region}:${AWS::AccountId}:event-bus/default"
   Outputs:
     ServiceEndpoint:
       Description: URL of the service endpoint
