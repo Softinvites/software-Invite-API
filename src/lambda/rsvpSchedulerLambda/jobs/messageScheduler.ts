@@ -680,6 +680,19 @@ const resolveScheduleBody = (
   );
 };
 
+// SMS has no buttons, so a scheduled SMS carries the guest's own RSVP link
+// (the same /rsvp/respond page the email buttons open). Skipped for thank-you
+// messages, when the host turned response buttons off, and for guests who
+// already answered (the page would only say "already submitted").
+const appendSmsRsvpLink = (message: string, schedule: any, rsvp: any, siteBase: string) => {
+  const text = String(message || "").trim();
+  if (!siteBase || !rsvp?._id) return text;
+  if (schedule?.messageType === "thankyou" || schedule?.includeResponseButtons === false) return text;
+  if (rsvp.attendanceStatus === "yes" || rsvp.attendanceStatus === "no") return text;
+  const link = `${siteBase.replace(/\/$/, "")}/rsvp/respond/${rsvp._id}`;
+  return `${text}${text ? " " : ""}RSVP here: ${link}`;
+};
+
 const buildScheduleTextMessage = (
   schedule: any,
   event: any,
@@ -1249,7 +1262,12 @@ export const processPendingSchedules = async (
           );
           const smsResult = await smsService.sendSms({
             to: rsvp.phone || "",
-            message: smsMessage || `${event.name}: You're invited!`,
+            message: appendSmsRsvpLink(
+              smsMessage || `${event.name}: You're invited!`,
+              schedule,
+              rsvp,
+              siteBase,
+            ),
             eventId: String(event._id),
             rsvpId: String(rsvp._id),
           });

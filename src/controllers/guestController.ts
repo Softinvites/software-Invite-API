@@ -19,6 +19,7 @@ import {
 import sharp from "sharp";
 import fetch from "node-fetch";
 import { createHash } from "node:crypto";
+import smsService from "../utils/smsService";
 
 const s3 = new S3Client({ region: process.env.AWS_REGION || "us-east-2" });
 
@@ -1868,6 +1869,117 @@ export const resendAllEmails = async (
     console.error("❌ Error starting resend emails job:", error);
     res.status(500).json({
       message: "Error starting resend emails job",
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+};
+
+/**
+ * POST /guest/send-sms/:eventId — texts each guest a link to their QR code
+ * (the same download link the WhatsApp fallback uses). Body `guestIds` limits
+ * it to the guests ticked on the guest page; omitted = every guest with a
+ * phone. Sends 10 at a time so a few hundred guests finish inside the API
+ * Gateway time limit.
+ */
+const SMS_QR_LINK_BASE = (
+  process.env.QR_LINK_API_BASE || "https://292x833w13.execute-api.us-east-2.amazonaws.com"
+).replace(/\/$/, "");
+const MAX_GUEST_SMS_PER_REQUEST = 200; // keeps a send well inside the 30s API Gateway limit
+
+export const sendGuestQrSms = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { eventId } = req.params;
+    if (!eventId || !mongoose.Types.ObjectId.isValid(eventId)) {
+      res.status(400).json({ message: "Valid event ID is required" });
+      return;
+    }
+    const event: any = await Event.findById(eventId).select({ name: 1 }).lean();
+    if (!event) {
+      res.status(404).json({ message: "Event not found" });
+      return;
+    }
+
+    const guestIds: string[] | null = Array.isArray(req.body?.guestIds)
+      ? req.body.guestIds.filter(
+          (id: unknown) => typeof id === "string" && mongoose.Types.ObjectId.isValid(id),
+        )
+      : null;
+    if (Array.isArray(req.body?.guestIds) && !guestIds?.length) {
+      res.status(400).json({ message: "No valid guests selected" });
+      return;
+    }
+
+    const guests: any[] = await Guest.find({
+      eventId,
+      phone: { $exists: true, $nin: [null, ""] },
+      ...(guestIds ? { _id: { $in: guestIds } } : {}),
+    })
+      .select({ fullname: 1, phone: 1 })
+      .lean();
+
+    if (!guests.length) {
+      res.status(404).json({
+        message: guestIds
+          ? "None of the selected guests has a phone number"
+          : "No guests with phone numbers found",
+      });
+      return;
+    }
+    if (guests.length > MAX_GUEST_SMS_PER_REQUEST) {
+      res.status(400).json({
+        message: `Select up to ${MAX_GUEST_SMS_PER_REQUEST} guests per SMS send (${guests.length} chosen).`,
+      });
+      return;
+    }
+
+    const eventName = String(event.name || "our event").trim();
+    const shortEvent = eventName.length > 50 ? `${eventName.slice(0, 49).trimEnd()}…` : eventName;
+    const buildMessage = (guest: any) => {
+      const first = String(guest.fullname || "").trim().split(/\s+/)[0] || "";
+      const hi = first ? `Dear ${first}, ` : "";
+      return (
+        `${hi}your access pass for ${shortEvent} is ready. ` +
+        `Open your QR code: ${SMS_QR_LINK_BASE}/guest/download-emailcode/${guest._id} ` +
+        `Show it at the entrance.`
+      );
+    };
+
+    let sent = 0;
+    const failures: Array<{ guestId: string; name: string; error: string }> = [];
+    for (let i = 0; i < guests.length; i += 10) {
+      const chunk = guests.slice(i, i + 10);
+      const results = await Promise.all(
+        chunk.map((guest) =>
+          smsService
+            .sendSms({ to: guest.phone, message: buildMessage(guest), eventId: String(eventId) })
+            .catch((error: any) => ({ success: false, error: error?.message || "SMS failed" })),
+        ),
+      );
+      results.forEach((result: any, j) => {
+        if (result?.success) sent += 1;
+        else
+          failures.push({
+            guestId: String(chunk[j]._id),
+            name: chunk[j].fullname,
+            error: String(result?.error || "SMS failed"),
+          });
+      });
+    }
+
+    res.status(sent ? 200 : 502).json({
+      message: sent
+        ? `QR code SMS sent to ${sent} guest${sent === 1 ? "" : "s"}${
+            failures.length ? `, ${failures.length} failed` : ""
+          }.`
+        : `No SMS could be sent: ${failures[0]?.error || "unknown error"}`,
+      sent,
+      failed: failures.length,
+      failures: failures.slice(0, 50),
+    });
+  } catch (error) {
+    console.error("❌ Error sending guest QR SMS:", error);
+    res.status(500).json({
+      message: "Error sending SMS",
       error: error instanceof Error ? error.message : "Unknown error",
     });
   }

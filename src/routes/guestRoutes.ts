@@ -23,6 +23,7 @@ import {
   checkInGuest,
   resendAllEmails,
   checkZipReady,
+  sendGuestQrSms,
 } from "../controllers/guestController";
 import auth from "../library/middlewares/auth";
 import { getEmailStatus } from "../controllers/emailStatusController";
@@ -76,6 +77,7 @@ router.post("/guests-restore", auth, restoreGuestsAndRegenerateQRCodes);
 router.get("/test-database/:eventId", auth, testDatabase);
 router.get("/check-qrcode-status/:eventId", combinedAuth, checkQRCodeStatus);
 router.post("/resend-all-emails/:eventId", auth, resendAllEmails);
+router.post("/send-sms/:eventId", auth, sendGuestQrSms);
 router.get("/zip-ready/:eventId", auth, checkZipReady);
 
 export default router;
