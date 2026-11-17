@@ -16,6 +16,16 @@ const clip = (v: string, n: number) => (v.length > n ? `${v.slice(0, n - 1).trim
  * claim on smsFallbackAt makes this run at most once per WhatsApp message even
  * though Twilio may report the failure more than once.
  */
+// Short QR link (softinvite.com/q/<id> redirects to the QR download) keeps
+// SMS to about one segment. Set SMS_SHORT_LINK_BASE to an empty string to go
+// back to the long API link.
+const qrLinkFor = (guestId: string, apiBase: string) => {
+  const shortBase = (process.env.SMS_SHORT_LINK_BASE ?? "https://softinvite.com").replace(/\/$/, "");
+  return shortBase
+    ? `${shortBase}/q/${guestId}`
+    : `${apiBase.replace(/\/$/, "")}/guest/download-emailcode/${guestId}`;
+};
+
 export const sendSmsFallbackForWhatsApp = async (
   providerMessageId: string,
   errorCode?: string,
@@ -53,7 +63,7 @@ export const sendSmsFallbackForWhatsApp = async (
       const guest: any = await Guest.findById(original.guestId).select({ fullname: 1 }).lean();
       if (guest) {
         guestName = guest.fullname;
-        link = `${API_BASE}/guest/download-emailcode/${guest._id}`;
+        link = qrLinkFor(String(guest._id), API_BASE);
       }
     }
     if (!link) {

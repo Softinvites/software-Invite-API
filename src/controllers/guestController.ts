@@ -1884,6 +1884,15 @@ export const resendAllEmails = async (
 const SMS_QR_LINK_BASE = (
   process.env.QR_LINK_API_BASE || "https://292x833w13.execute-api.us-east-2.amazonaws.com"
 ).replace(/\/$/, "");
+// Short QR link (softinvite.com/q/<id> redirects to the QR download) keeps
+// SMS to about one segment. Set SMS_SHORT_LINK_BASE to an empty string to go
+// back to the long API link.
+const qrLinkFor = (guestId: string, apiBase: string) => {
+  const shortBase = (process.env.SMS_SHORT_LINK_BASE ?? "https://softinvite.com").replace(/\/$/, "");
+  return shortBase
+    ? `${shortBase}/q/${guestId}`
+    : `${apiBase.replace(/\/$/, "")}/guest/download-emailcode/${guestId}`;
+};
 const MAX_GUEST_SMS_PER_REQUEST = 200; // keeps a send well inside the 30s API Gateway limit
 
 export const sendGuestQrSms = async (req: Request, res: Response): Promise<void> => {
@@ -1939,7 +1948,7 @@ export const sendGuestQrSms = async (req: Request, res: Response): Promise<void>
       const hi = first ? `Dear ${first}, ` : "";
       return (
         `${hi}your access pass for ${shortEvent} is ready. ` +
-        `Open your QR code: ${SMS_QR_LINK_BASE}/guest/download-emailcode/${guest._id} ` +
+        `Open your QR code: ${qrLinkFor(String(guest._id), SMS_QR_LINK_BASE)} ` +
         `Show it at the entrance.`
       );
     };
