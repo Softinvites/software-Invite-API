@@ -209,11 +209,13 @@ function buildRsvpEmailHtml(
     : (event as any).qrCodeBgColor
       ? `rgb(${(event as any).qrCodeBgColor})`
       : "#111827";
-  const accent = (event as any).rsvpAccentColor
+  const accentRaw = (event as any).rsvpAccentColor
     ? `rgb(${(event as any).rsvpAccentColor})`
     : (event as any).qrCodeCenterColor
       ? `rgb(${(event as any).qrCodeCenterColor})`
       : "#111827";
+  // Yes and No must never share a colour: fall back to grey for No.
+  const accent = accentRaw === headerBg ? "#6b7280" : accentRaw;
   const showButtons =
     options?.showButtons !== false && shouldIncludeInitialResponseButtons(event);
   const safeBase = baseUrl ? baseUrl.replace(/\/$/, "") : "";
@@ -677,6 +679,45 @@ export const updateRsvpGuest = async (req: Request, res: Response) => {
     rsvp.guestCount = guestCount;
     rsvp.tag = tag || undefined;
 
+    // Plus-ones are only touched when the request includes them, so older
+    // clients that send guestCount alone behave exactly as before.
+    if (Array.isArray(req.body?.plusOnes)) {
+      const nextPlusOnes = req.body.plusOnes
+        .map((entry: any) => ({
+          name: String(entry?.name || "").replace(/\s+/g, " ").trim().slice(0, 120),
+          phone: String(entry?.phone || "").trim().slice(0, 40) || null,
+          email: String(entry?.email || "").trim().toLowerCase().slice(0, 160) || null,
+        }))
+        .filter((entry: any) => entry.name);
+      if (nextPlusOnes.length > 10) {
+        return res.status(400).json({ message: "A guest can have up to 10 plus-ones" });
+      }
+      const previous: any[] = Array.isArray((rsvp as any).plusOnes) ? (rsvp as any).plusOnes : [];
+      const now = new Date();
+      const history: any[] = Array.isArray((rsvp as any).plusOneHistory)
+        ? [...(rsvp as any).plusOneHistory]
+        : [];
+      const longest = Math.max(previous.length, nextPlusOnes.length);
+      for (let i = 0; i < longest; i += 1) {
+        const before = previous[i];
+        const after = nextPlusOnes[i];
+        if (before && after) {
+          if (before.name !== after.name) {
+            history.push({ at: now, action: "replaced", from: before.name, to: after.name });
+          } else if ((before.phone || null) !== after.phone || (before.email || null) !== after.email) {
+            history.push({ at: now, action: "updated", from: before.name, to: after.name });
+          }
+        } else if (before) {
+          history.push({ at: now, action: "removed", from: before.name, to: null });
+        } else if (after) {
+          history.push({ at: now, action: "added", from: null, to: after.name });
+        }
+      }
+      (rsvp as any).plusOnes = nextPlusOnes;
+      (rsvp as any).plusOneHistory = history.slice(-100);
+      rsvp.guestCount = 1 + nextPlusOnes.length;
+    }
+
     if (nextStatus !== undefined) {
       rsvp.attendanceStatus = nextStatus as AttendanceStatus;
       if (nextStatus === "pending") {
@@ -771,8 +812,19 @@ export const exportRsvpCsv = async (req: Request, res: Response) => {
       return `"${str.replace(/"/g, '""')}"`;
     };
 
+    // One row per person: the host, then each plus-one under them. guestCount
+    // is only filled on the host row so the column still sums to the total.
+    const questions = (Array.isArray((event as any)?.rsvpFormSettings?.customFields)
+      ? (event as any).rsvpFormSettings.customFields
+      : []
+    ).filter((f: any) => f && f.type !== "section" && f.id);
+    const answer = (value: any) =>
+      Array.isArray(value) ? value.join("; ") : value === null || value === undefined ? "" : value;
+
     const header = [
       "rsvpId",
+      "party",
+      "role",
       "guestName",
       "email",
       "phone",
@@ -782,30 +834,72 @@ export const exportRsvpCsv = async (req: Request, res: Response) => {
       "comments",
       "source",
       "submissionDate",
+      ...questions.map((f: any) => String(f.label || f.id)),
+      "plusOneChanges",
     ];
 
-    const lines = rsvps.map((r) => {
-      const cols = [
-        r._id.toString(),
-        r.guestName || "",
-        r.email || "",
-        r.phone || "",
-        getRsvpGuestWeight(r),
-        r.tag || "",
-        r.attendanceStatus || "pending",
-        r.comments || "",
-        r.source || "",
-        r.submissionDate ? new Date(r.submissionDate).toISOString() : "",
-      ];
-      return cols.map(escapeCsv).join(",");
-    });
+    const lines: string[] = [];
+    for (const r of rsvps as any[]) {
+      const responses = r.responses || {};
+      const changes = (Array.isArray(r.plusOneHistory) ? r.plusOneHistory : [])
+        .map((h: any) => {
+          const when = h.at ? new Date(h.at).toISOString().slice(0, 10) : "";
+          if (h.action === "replaced") return `${when} replaced ${h.from} with ${h.to}`;
+          if (h.action === "removed") return `${when} removed ${h.from}`;
+          if (h.action === "added") return `${when} added ${h.to}`;
+          return `${when} updated ${h.to}`;
+        })
+        .join("; ");
+      lines.push(
+        [
+          r._id.toString(),
+          r.guestName || "",
+          "Host",
+          r.guestName || "",
+          r.email || "",
+          r.phone || "",
+          getRsvpGuestWeight(r),
+          r.tag || "",
+          r.attendanceStatus || "pending",
+          r.comments || "",
+          r.source || "",
+          r.submissionDate ? new Date(r.submissionDate).toISOString() : "",
+          ...questions.map((f: any) => answer(responses[f.id])),
+          changes,
+        ]
+          .map(escapeCsv)
+          .join(","),
+      );
+      (Array.isArray(r.plusOnes) ? r.plusOnes : []).forEach((p: any, i: number) => {
+        lines.push(
+          [
+            r._id.toString(),
+            r.guestName || "",
+            `Plus-one ${i + 1}`,
+            p.name || "",
+            p.email || "",
+            p.phone || "",
+            "",
+            r.tag || "",
+            r.attendanceStatus || "pending",
+            "",
+            r.source || "",
+            r.submissionDate ? new Date(r.submissionDate).toISOString() : "",
+            ...questions.map(() => ""),
+            "",
+          ]
+            .map(escapeCsv)
+            .join(","),
+        );
+      });
+    }
 
     res.setHeader("Content-Type", "text/csv");
     res.setHeader(
       "Content-Disposition",
       `attachment; filename=event-${eventId}-rsvp.csv`,
     );
-    res.send([header.join(","), ...lines].join("\n"));
+    res.send([header.map(escapeCsv).join(","), ...lines].join("\n"));
   } catch (error: any) {
     console.error("exportRsvpCsv error", error);
     res.status(500).json({ message: "Failed to export RSVP CSV" });

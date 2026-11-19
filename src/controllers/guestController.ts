@@ -20,6 +20,7 @@ import sharp from "sharp";
 import fetch from "node-fetch";
 import { createHash } from "node:crypto";
 import smsService from "../utils/smsService";
+import { RSVP } from "../models/rsvpmodel";
 
 const s3 = new S3Client({ region: process.env.AWS_REGION || "us-east-2" });
 
@@ -1187,6 +1188,32 @@ export const deleteSelectedGuests = async (
   }
 };
 
+// Kiosk/self-scan extras: plus-one names from the guest's RSVP form and the
+// event's look. Extra fields only, so existing scanner clients are unaffected.
+const loadScanExtras = async (guest: any, event: any) => {
+  let plusOnes: string[] = [];
+  try {
+    const rsvp: any = await RSVP.findOne({ guestId: guest._id }).select({ plusOnes: 1 }).lean();
+    plusOnes = (Array.isArray(rsvp?.plusOnes) ? rsvp.plusOnes : [])
+      .map((p: any) => String(p?.name || "").trim())
+      .filter(Boolean);
+  } catch (error) {
+    console.warn("[scan] plus-one lookup failed", error);
+  }
+  const settings = (event as any)?.rsvpFormSettings || {};
+  return {
+    plusOnes,
+    eventLook: {
+      name: event?.name,
+      iv: (event as any)?.iv || null,
+      banner: settings.headerImageUrl || null,
+      themeColor: /^#[0-9a-f]{6}$/i.test(String(settings.themeColor || ""))
+        ? settings.themeColor
+        : null,
+    },
+  };
+};
+
 export const scanQRCode = async (
   req: Request,
   res: Response,
@@ -1265,14 +1292,18 @@ export const scanQRCode = async (
     }
 
     if (guest.checkedIn) {
+      const extras = await loadScanExtras(guest, event);
       res.status(200).json({
         message: "Guest already checked in",
+        alreadyCheckedIn: true,
         guest: {
           fullname: guest.fullname,
           TableNo: guest.TableNo,
           others: guest.others,
           checkedInAt: guest.checkedInAt || guest.updatedAt,
+          plusOnes: extras.plusOnes,
         },
+        eventLook: extras.eventLook,
       });
       return;
     }
@@ -1281,13 +1312,16 @@ export const scanQRCode = async (
     guest.status = "checked-in";
     guest.checkedInAt = new Date();
     await guest.save();
+    const extras = await loadScanExtras(guest, event);
 
     res.status(200).json({
       message: "Guest successfully checked in",
+      eventLook: extras.eventLook,
       guest: {
         fullname: guest.fullname,
         TableNo: guest.TableNo,
         others: guest.others,
+        plusOnes: extras.plusOnes,
         checkedIn: guest.checkedIn,
         checkedInAt: guest.checkedInAt,
         status: guest.status,
@@ -1991,5 +2025,50 @@ export const sendGuestQrSms = async (req: Request, res: Response): Promise<void>
       message: "Error sending SMS",
       error: error instanceof Error ? error.message : "Unknown error",
     });
+  }
+};
+
+/**
+ * GET /guest/kiosk-event/:eventId — the event's name and look for the
+ * self check-in kiosk idle screen. Works with the event's check-in (temp)
+ * token; a check-in token for another event is refused.
+ */
+export const getKioskEvent = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { eventId } = req.params;
+    const scopedEventId = (req as any).eventId;
+    if (!eventId || !mongoose.Types.ObjectId.isValid(eventId)) {
+      res.status(400).json({ message: "Valid event ID is required" });
+      return;
+    }
+    if (scopedEventId && String(scopedEventId) !== String(eventId)) {
+      res.status(403).json({ message: "This link is for a different event" });
+      return;
+    }
+    const event: any = await Event.findById(eventId)
+      .select({ name: 1, date: 1, location: 1, iv: 1, isActive: 1, rsvpFormSettings: 1 })
+      .lean();
+    if (!event) {
+      res.status(404).json({ message: "Event not found" });
+      return;
+    }
+    const settings = event.rsvpFormSettings || {};
+    res.json({
+      event: {
+        id: String(event._id),
+        name: event.name,
+        date: event.date,
+        location: event.location || null,
+        iv: event.iv || null,
+        banner: settings.headerImageUrl || null,
+        themeColor: /^#[0-9a-f]{6}$/i.test(String(settings.themeColor || ""))
+          ? settings.themeColor
+          : null,
+        isActive: event.isActive !== false,
+      },
+    });
+  } catch (error) {
+    console.error("❌ Error loading kiosk event:", error);
+    res.status(500).json({ message: "Error loading event" });
   }
 };

@@ -28,7 +28,9 @@ export function buildRsvpEmail({
   accent,
 }: RsvpEmailParams) {
   const headerColor = headerBg || "#111827";
-  const accentColor = accent || "#111827";
+  const accentRaw = accent || "#111827";
+  // Yes and No must never share a colour: fall back to grey for No.
+  const accentColor = accentRaw === headerColor ? "#6b7280" : accentRaw;
 
   return `
     <div style="font-family:'Segoe UI','Arial',sans-serif;background:#f7f8fc;padding:24px 10px;line-height:1.6;">

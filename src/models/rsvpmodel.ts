@@ -17,6 +17,7 @@ export interface RSVPDocument extends Document {
   comments?: string;
   responses?: Record<string, any>;
   plusOnes?: Array<{ name: string; phone?: string | null; email?: string | null }>;
+  plusOneHistory?: Array<{ at: Date; action: string; from?: string | null; to?: string | null }>;
   submissionDate?: Date;
   source: "imported" | "form_submission";
   isEditable: boolean;
@@ -55,6 +56,19 @@ const RSVPSchema = new Schema<RSVPDocument>(
           name: { type: String, required: true },
           phone: { type: String, default: null },
           email: { type: String, default: null },
+        },
+      ],
+      default: undefined,
+    },
+    // Admin edits to plus-ones (swaps, additions, removals), newest last.
+    plusOneHistory: {
+      type: [
+        {
+          _id: false,
+          at: { type: Date, required: true },
+          action: { type: String, required: true },
+          from: { type: String, default: null },
+          to: { type: String, default: null },
         },
       ],
       default: undefined,

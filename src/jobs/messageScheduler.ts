@@ -273,11 +273,13 @@ const buildScheduleEmailHtml = async (
     : (event as any).qrCodeBgColor
       ? `rgb(${(event as any).qrCodeBgColor})`
       : "#111827";
-  const accent = (event as any).rsvpAccentColor
+  const accentRaw = (event as any).rsvpAccentColor
     ? `rgb(${(event as any).rsvpAccentColor})`
     : (event as any).qrCodeCenterColor
       ? `rgb(${(event as any).qrCodeCenterColor})`
       : "#111827";
+  // Yes and No must never share a colour: fall back to grey for No.
+  const accent = accentRaw === headerBg ? "#6b7280" : accentRaw;
   const safeBase = typeof baseUrl === "string" ? baseUrl.replace(/\/$/, "") : "";
   const attendanceEnabled =
     schedule?.includeResponseButtons !== false && Boolean(safeBase);

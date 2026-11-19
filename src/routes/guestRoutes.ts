@@ -24,6 +24,7 @@ import {
   resendAllEmails,
   checkZipReady,
   sendGuestQrSms,
+  getKioskEvent,
 } from "../controllers/guestController";
 import auth from "../library/middlewares/auth";
 import { getEmailStatus } from "../controllers/emailStatusController";
@@ -54,6 +55,7 @@ router.post("/batch-qrcode-download/:eventId/timestamp", auth, downloadBatchQRCo
 
 // routhers others can access temporarily
 router.post("/scan-qrcode", combinedAuth, scanQRCode);
+router.get("/kiosk-event/:eventId", combinedAuth, getKioskEvent);
 router.put("/checkin/:id", combinedAuth, checkInGuest);
 router.get("/events-guest/:eventId", combinedAuth, getGuestsByEvent);
 router.get("/single-guest/:id", combinedAuth, getGuestById);
