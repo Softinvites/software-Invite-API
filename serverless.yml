@@ -164,6 +164,12 @@ functions:
     description: "Runs pending RSVP message schedules"
     memorySize: 512
     timeout: 900
+    environment:
+      # Use this stack's email Lambda (with the SES configuration set), not the
+      # old standalone sendEmailLambdaFunction, whose missing "softinvites-prod"
+      # set meant scheduled emails never got delivery or bounce reports.
+      EMAIL_LAMBDA_FUNCTION_NAME:
+        Ref: SendEmailLambdaFunction
 
     events:
       - schedule:
